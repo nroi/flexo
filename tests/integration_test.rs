@@ -289,19 +289,19 @@ fn wait_until_message_received <F, R>(
     }
 }
 
-fn wait_until_scheduled(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) {
+fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyProvider {
     match schedule_outcome {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
             let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
                 match msg {
-                    FlexoMessage::ProviderSelected(_) => Some(true),
+                    FlexoMessage::ProviderSelected(p) => Some(p.clone()),
                     _ => None
                 }
             };
-            wait_until_message_received(rx, message_cmp);
+            wait_until_message_received(rx, message_cmp)
         }
-    };
+    }
 }
 
 fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) {
@@ -367,7 +367,7 @@ fn order_skipped_if_already_in_progress() {
     let order = DummyOrder::InfiniteBlocking(0);
     let providers = vec![p1.clone()];
     let mut job_context = JobContext::new(providers);
-    wait_until_scheduled(job_context.schedule(order.clone()));
+    wait_until_provider_selected(job_context.schedule(order.clone()));
     match job_context.schedule(order.clone()) {
         ScheduleOutcome::Skipped => {},
         ScheduleOutcome::Scheduled(_) => panic!(EXPECT_SKIPPED)
@@ -451,26 +451,37 @@ fn no_infinite_loop() {
 }
 
 #[test]
-fn same_provider_not_attempted_twice() {
-    // If a provider has failed to complete the order, this provider should not be tried again for the same order.
+fn downgrade_provider() {
+    // We have two providers p1 and p2 available, where p1 has the better score: In the first run,
+    // p1 will be selected, and this provider fails, resulting in the provider being downgraded.
+    // For the subsequently scheduled order, p2 will be selected, even though its score is worse than p1:
+    // this is due to the fact that p1 has been downgraded after the failure has occurred.
+    let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
+    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 2 });
+    let providers = vec![p1.clone(), p2.clone()];
+    let mut job_context = JobContext::new(providers);
+    let result1 = job_context.schedule(DummyOrder::Success(0));
+    wait_until_job_completed(result1);
+    let result2 = job_context.schedule(DummyOrder::Success(1));
+    let first_provider_selected = wait_until_provider_selected(result2);
+    assert_eq!(first_provider_selected, p2);
+}
+
+#[test]
+fn no_downgrade_if_all_providers_fail() {
+    // Consider the case when a job cannot be completed because the file simply does not exist, or because we
+    // don't have a network connection. We don't want a provider to be downgraded.
+    // Therefore, we generally want to downgrade a provider only if it failed to fulfil the order while another
+    // provider was able to fulfil it, since this is a strong indication that the provider is the culprit, not
+    // the client or the order.
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone()];
     let mut job_context = JobContext::new(providers);
     let result1 = job_context.schedule(DummyOrder::Success(0));
     let DummyJobFailure { channel_state: _, failures } = wait_until_job_failed(result1);
     let failures = failures.get(&p1);
-    assert_eq!(failures, Some(&1));
+    assert_eq!(failures, Some(&0));
 }
-
-//#[test]
-//fn downgrade_unfair() {
-//    // TODO this will be difficult to implement, but:
-//    // Consider the case when a job cannot be completed because the file simply does not exist, or because we
-//    // don't have a network connection. We don't want a provider to be downgraded.
-//    // We could detect such cases by the fact that all providers are unable to complete the order and say:
-//    // If everyone was unable to complete the order, no one should be downgraded.
-//    assert!(false);
-//}
 
 #[test]
 fn no_new_channel_established() {

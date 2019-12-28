@@ -5,6 +5,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use crate::ChannelEstablishment::{NewChannel, ExistingChannel};
+use std::collections::hash_map::Entry;
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -228,7 +229,8 @@ pub fn try_until_success <O, I, P, C, J, E, PI, S, JS, CS> (
     JS: JobState,
 {
     let mut num_attempt = 0;
-    loop {
+    let mut punished_providers = Vec::new();
+    let result = loop {
         num_attempt += 1;
         println!("available providers: {:?}", &providers);
         let provider = select_provider(&mut providers, provider_current_usages.lock().unwrap(), provider_failures.lock().unwrap());
@@ -246,26 +248,54 @@ pub fn try_until_success <O, I, P, C, J, E, PI, S, JS, CS> (
         let result = job.execute(channel);
         match &result {
             JobResult::Complete(_) => {
-                let mut provider_failures = provider_failures.lock().unwrap();
-                let value = provider_failures.entry(provider.clone()).or_insert(0);
-
-                *value -= 1;
+                reward(provider.clone(), provider_failures.lock().unwrap());
             },
             JobResult::Partial(partial_job) => {
-                let mut provider_failures = provider_failures.lock().unwrap();
-                let value = provider_failures.entry(provider.clone()).or_insert(0);
-                *value += 1;
+                punish(provider.clone(), provider_failures.lock().unwrap());
+                punished_providers.push(provider.clone());
                 println!("will continue job at {:?}", partial_job.continue_at);
             },
             JobResult::Error(e) => {
-                let mut provider_failures = provider_failures.lock().unwrap();
-                let value = provider_failures.entry(provider.clone()).or_insert(0);
-                *value += 1;
+                punish(provider.clone(), provider_failures.lock().unwrap());
+                punished_providers.push(provider.clone());
                 println!("Error: {:?}, try again", e)
             },
         };
         if result.is_success() || providers.is_empty() || num_attempt >= NUM_MAX_ATTEMPTS {
             break result;
+        }
+    };
+    if !result.is_success() {
+        pardon(punished_providers, provider_failures.lock().unwrap());
+    }
+
+    result
+}
+
+fn punish<P>(provider: P, mut failures: MutexGuard<HashMap<P, i32>>) where
+    P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
+{
+    let value = failures.entry(provider.clone()).or_insert(0);
+    *value += 1;
+}
+
+fn reward<P>(provider: P, mut failures: MutexGuard<HashMap<P, i32>>) where
+    P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
+{
+    let value = failures.entry(provider.clone()).or_insert(0);
+    *value -= 1;
+}
+
+fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32>>) where
+    P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
+{
+    for not_guilty in punished_providers {
+        match (*failures).entry(not_guilty.clone()) {
+            Entry::Occupied(mut value) => {
+                let value = value.get_mut();
+                *value -= 1;
+            },
+            Entry::Vacant(_) => {},
         }
     }
 }
