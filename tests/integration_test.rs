@@ -165,12 +165,95 @@ impl Channel <u64, DummyOrder, DummyState, DummyChannelState> for DummyChannel {
     }
 }
 
+struct DummyJobSuccess {
+    provider: DummyProvider,
+    state: DummyChannelState,
+}
+
+struct DummyJobFailure {
+    channel_state: DummyChannelState,
+    failures: HashMap<DummyProvider, i32>
+}
+
 fn successful_providers() -> Vec<DummyProvider> {
     vec![
         DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 }),
         DummyProvider::Success(DummyProviderItem { identifier: 2, score: 2 }),
         DummyProvider::Success(DummyProviderItem { identifier: 3, score: 3 }),
     ]
+}
+
+fn wait_until_message_received <F, R>(
+    rx: Receiver<FlexoMessage<DummyProvider>>,
+    message_cmp: F
+) -> R where F: Fn(&FlexoMessage<DummyProvider>) -> Option<R> {
+    match rx.recv().unwrap() {
+        received_message => {
+            match message_cmp(&received_message) {
+                Some(result) => result,
+                None => wait_until_message_received(rx, message_cmp),
+            }
+        }
+    }
+}
+
+fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyProvider {
+    match schedule_outcome {
+        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
+            let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
+                match msg {
+                    FlexoMessage::ProviderSelected(p) => Some(p.clone()),
+                    _ => None
+                }
+            };
+            wait_until_message_received(rx, message_cmp)
+        }
+    }
+}
+
+fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) {
+    match schedule_outcome {
+        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
+            let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
+                match msg {
+                    FlexoMessage::ChannelEstablished(_) => Some(true),
+                    _ => None,
+                }
+            };
+            wait_until_message_received(rx, message_cmp);
+        }
+    };
+}
+
+fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyJobSuccess {
+    let result = match schedule_outcome {
+        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
+            join_handle.join().unwrap()
+        }
+    };
+    match result {
+        JobOutcome::Success(provider, state) => DummyJobSuccess { provider, state},
+        JobOutcome::Error(_, _) => panic!(EXPECT_SUCCESS),
+    }
+}
+
+fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyJobFailure {
+    let result = match schedule_outcome {
+        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
+            join_handle.join().unwrap()
+        }
+    };
+    match result {
+        JobOutcome::Success(_, _) => panic!(EXPECT_FAILURE),
+        JobOutcome::Error(failures, channel_state) => DummyJobFailure {
+            failures,
+            channel_state,
+        }
+    }
 }
 
 #[test]
@@ -273,89 +356,6 @@ fn provider_two_simultaneous_jobs_if_required() {
         }
     };
     assert_eq!(provider_order1, provider_order2);
-}
-
-fn wait_until_message_received <F, R>(
-    rx: Receiver<FlexoMessage<DummyProvider>>,
-    message_cmp: F
-) -> R where F: Fn(&FlexoMessage<DummyProvider>) -> Option<R> {
-    match rx.recv().unwrap() {
-        received_message => {
-            match message_cmp(&received_message) {
-                Some(result) => result,
-                None => wait_until_message_received(rx, message_cmp),
-            }
-        }
-    }
-}
-
-fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyProvider {
-    match schedule_outcome {
-        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
-            let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
-                match msg {
-                    FlexoMessage::ProviderSelected(p) => Some(p.clone()),
-                    _ => None
-                }
-            };
-            wait_until_message_received(rx, message_cmp)
-        }
-    }
-}
-
-fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) {
-    match schedule_outcome {
-        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
-            let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
-                match msg {
-                    FlexoMessage::ChannelEstablished(_) => Some(true),
-                    _ => None,
-                }
-            };
-            wait_until_message_received(rx, message_cmp);
-        }
-    };
-}
-
-struct DummyJobSuccess {
-    provider: DummyProvider,
-    state: DummyChannelState,
-}
-
-struct DummyJobFailure {
-    channel_state: DummyChannelState,
-    failures: HashMap<DummyProvider, i32>
-}
-
-fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyJobSuccess {
-    let result = match schedule_outcome {
-        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
-            join_handle.join().unwrap()
-        }
-    };
-    match result {
-        JobOutcome::Success(provider, state) => DummyJobSuccess { provider, state},
-        JobOutcome::Error(_, _) => panic!(EXPECT_SUCCESS),
-    }
-}
-
-fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyJobFailure {
-    let result = match schedule_outcome {
-        ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
-            join_handle.join().unwrap()
-        }
-    };
-    match result {
-        JobOutcome::Success(_, _) => panic!(EXPECT_FAILURE),
-        JobOutcome::Error(failures, channel_state) => DummyJobFailure {
-            failures,
-            channel_state,
-        }
-    }
 }
 
 #[test]
