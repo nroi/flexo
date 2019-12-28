@@ -140,7 +140,9 @@ pub enum ChannelEstablishment {
 pub trait JobState {}
 
 #[derive(Debug)]
-pub struct JobStateItem<O, JS> where JS: JobState {
+pub struct JobStateItem<O, JS> where
+    JS: JobState,
+{
     pub order: O,
     // Used to manage the resources acquired for a job. It is set to Some(_) if this there is an active job associated
     // with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
@@ -303,7 +305,7 @@ fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32
 pub struct JobContext<P, O, C, J, E, PI, S, JS, CS> where
     P: Provider<J, O, C, E, PI, S, JS, CS>,
     J: Job<C, O, P, E, PI, S, JS, CS>,
-    O: Clone + Order<C> + std::cmp::Eq + std::hash::Hash,
+    O: Order<C> + Clone + std::cmp::Eq + std::hash::Hash,
     C: Channel<O, JS, CS>,
     E: std::fmt::Debug,
     PI: std::cmp::Eq,
