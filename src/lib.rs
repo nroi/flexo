@@ -10,9 +10,9 @@ use std::collections::hash_map::Entry;
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
 #[derive(Debug)]
-pub struct JobPartiallyCompleted<C, I> {
+pub struct JobPartiallyCompleted<C> {
     pub channel: C,
-    pub continue_at: I
+    pub continue_at: u64
 }
 
 #[derive(Debug)]
@@ -21,8 +21,8 @@ pub struct JobTerminated<C, E> {
     pub error: E,
 }
 
-impl <C, I> JobPartiallyCompleted<C, I> {
-    pub fn new(channel: C, continue_at: I) -> Self {
+impl <C> JobPartiallyCompleted<C> {
+    pub fn new(channel: C, continue_at: u64) -> Self {
         Self {
             channel,
             continue_at
@@ -46,9 +46,9 @@ impl <C, P> JobCompleted<C, P> {
 }
 
 #[derive(Debug)]
-pub enum JobResult<C, P, I, E> {
+pub enum JobResult<C, P, E> {
     Complete(JobCompleted<C, P>),
-    Partial(JobPartiallyCompleted<C, I>),
+    Partial(JobPartiallyCompleted<C>),
     Error(JobTerminated<C, E>),
 }
 
@@ -61,7 +61,7 @@ pub enum JobOutcome <P, CS> where
     Error(HashMap<P, i32>, CS),
 }
 
-impl <C, P, I, E> JobResult<C, P, I, E> {
+impl <C, P, E> JobResult<C, P, E> {
     fn is_success(&self) -> bool {
         match self {
             JobResult::Complete(_) => true,
@@ -70,9 +70,9 @@ impl <C, P, I, E> JobResult<C, P, I, E> {
     }
 }
 
-pub trait Provider <J, O, C, I, E, PI, S, JS, CS> where
-    J: Job<C, O, Self, I, E, PI, S, JS, CS>,
-    C: Channel<I, O, JS, CS>,
+pub trait Provider <J, O, C, E, PI, S, JS, CS> where
+    J: Job<C, O, Self, E, PI, S, JS, CS>,
+    C: Channel<O, JS, CS>,
     O: Order<C>,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
@@ -90,32 +90,32 @@ pub trait Provider <J, O, C, I, E, PI, S, JS, CS> where
     fn score(&self) -> S;
 }
 
-pub trait Job <C, O, P, I, E, PI, S, JS, CS> where
+pub trait Job <C, O, P, E, PI, S, JS, CS> where
     Self: std::marker::Sized,
     CS: ChannelState + std::marker::Copy,
-    C: Channel<I, O, JS, CS>,
+    C: Channel<O, JS, CS>,
     O: Order<C>,
-    P: Provider<Self, O, C, I, E, PI, S, JS, CS>,
+    P: Provider<Self, O, C, E, PI, S, JS, CS>,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
     JS: JobState,
 {
     fn provider(&self) -> &P;
     fn order(&self) -> &O;
-    fn execute(self, channel: C) -> JobResult<C, P, I, E>;
+    fn execute(self, channel: C) -> JobResult<C, P, E>;
 }
 
 pub trait Order<C> {
     fn new_channel(self) -> C;
 }
 
-pub trait Channel<I, O, JS, CS> where
+pub trait Channel<O, JS, CS> where
     Self: std::marker::Sized + std::fmt::Debug,
     O: Order<Self>,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
-    fn progress_indicator(&self) -> Option<I>;
+    fn progress_indicator(&self) -> Option<u64>;
     fn reset_order(&mut self, order: O);
     fn channel_state_item(&mut self) -> &mut JobStateItem<O, JS>;
     fn channel_state(&self) -> CS;
@@ -155,15 +155,15 @@ impl <O, JS> JobStateItem<O, JS> where JS: JobState {
     }
 }
 
-pub fn select_provider<J, C, O, P, I, E, PI, S, JS, CS>(
+pub fn select_provider<J, C, O, P, E, PI, S, JS, CS>(
     providers: &mut Vec<P>,
     provider_current_usages: MutexGuard<HashMap<P, i32>>,
     provider_failures: MutexGuard<HashMap<P, i32>>,
 ) -> P where
-    J: Job<C, O, P, I, E, PI, S, JS, CS>,
-    C: Channel<I, O, JS, CS>,
+    J: Job<C, O, P, E, PI, S, JS, CS>,
+    C: Channel<O, JS, CS>,
     O: Order<C>,
-    P: Provider<J, O, C, I, E, PI, S, JS, CS>,
+    P: Provider<J, O, C, E, PI, S, JS, CS>,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy,
@@ -181,12 +181,12 @@ pub fn select_provider<J, C, O, P, I, E, PI, S, JS, CS>(
     providers.remove(idx)
 }
 
-fn get_channel <P, I, C, J, O, E, PI, S, JS, CS>(channels: &Arc<Mutex<HashMap<P, C>>>,
+fn get_channel <P, C, J, O, E, PI, S, JS, CS>(channels: &Arc<Mutex<HashMap<P, C>>>,
                                       job: &J
 ) -> (C, ChannelEstablishment) where
-    P: Provider<J, O, C, I, E, PI, S, JS, CS> + std::cmp::Eq + std::hash::Hash,
-    C: Channel<I, O, JS, CS>,
-    J: Job<C, O, P, I, E, PI, S, JS, CS>,
+    P: Provider<J, O, C, E, PI, S, JS, CS> + std::cmp::Eq + std::hash::Hash,
+    C: Channel<O, JS, CS>,
+    J: Job<C, O, P, E, PI, S, JS, CS>,
     O: Clone + Order<C>,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
@@ -208,19 +208,18 @@ fn get_channel <P, I, C, J, O, E, PI, S, JS, CS>(channels: &Arc<Mutex<HashMap<P,
     }
 }
 
-pub fn try_until_success <O, I, P, C, J, E, PI, S, JS, CS> (
+pub fn try_until_success <O, P, C, J, E, PI, S, JS, CS> (
     mut providers: &mut Vec<P>,
     provider_failures: &mut Arc<Mutex<HashMap<P, i32>>>,
     provider_current_usages: &mut Arc<Mutex<HashMap<P, i32>>>,
     order: O,
     channels: Arc<Mutex<HashMap<P, C>>>,
     tx: Sender<FlexoMessage<P>>
-) -> JobResult<C, P, I, E> where
+) -> JobResult<C, P, E> where
     O: Clone + Order<C>,
-    I: std::fmt::Debug,
-    P: Provider<J, O, C, I, E, PI, S, JS, CS>,
-    C: Channel<I, O, JS, CS>,
-    J: Job<C, O, P, I, E, PI, S, JS, CS>,
+    P: Provider<J, O, C, E, PI, S, JS, CS>,
+    C: Channel<O, JS, CS>,
+    J: Job<C, O, P, E, PI, S, JS, CS>,
     E: std::fmt::Debug,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
@@ -301,18 +300,17 @@ fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32
 
 /// The context in which a job is executed, including all stateful information required by the job.
 /// This context is meant to be initialized once during the program's lifecycle.
-pub struct JobContext<P, O, I, C, J, E, PI, S, JS, CS> where
-    P: Provider<J, O, C, I, E, PI, S, JS, CS>,
-    J: Job<C, O, P, I, E, PI, S, JS, CS>,
+pub struct JobContext<P, O, C, J, E, PI, S, JS, CS> where
+    P: Provider<J, O, C, E, PI, S, JS, CS>,
+    J: Job<C, O, P, E, PI, S, JS, CS>,
     O: Clone + Order<C> + std::cmp::Eq + std::hash::Hash,
-    C: Channel<I, O, JS, CS>,
+    C: Channel<O, JS, CS>,
     E: std::fmt::Debug,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
-    phantom_i: std::marker::PhantomData<I>,
     phantom_o: std::marker::PhantomData<O>,
     phantom_c: std::marker::PhantomData<C>,
     phantom_j: std::marker::PhantomData<J>,
@@ -352,13 +350,12 @@ pub enum FlexoMessage <P> {
     ChannelEstablished(ChannelEstablishment),
 }
 
-impl <P, O, I, C, J, E, PI, S, JS, CS> JobContext<P, O, I, C, J, E, PI, S, JS, CS> where
-    P: Provider<J, O, C, I, E, PI, S, JS, CS> + std::marker::Send + 'static,
-    J: Job<C, O, P, I, E, PI, S, JS, CS> + 'static,
+impl <P, O, C, J, E, PI, S, JS, CS> JobContext<P, O, C, J, E, PI, S, JS, CS> where
+    P: Provider<J, O, C, E, PI, S, JS, CS> + std::marker::Send + 'static,
+    J: Job<C, O, P, E, PI, S, JS, CS> + 'static,
     O: Clone + Order<C> + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static,
-    C: Channel<I, O, JS, CS> + std::fmt::Debug + std::marker::Send + 'static,
+    C: Channel<O, JS, CS> + std::fmt::Debug + std::marker::Send + 'static,
     E: std::fmt::Debug,
-    I: std::fmt::Debug,
     PI: std::cmp::Eq,
     S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy + std::marker::Send + std::fmt::Debug + 'static,
@@ -379,7 +376,6 @@ impl <P, O, I, C, J, E, PI, S, JS, CS> JobContext<P, O, I, C, J, E, PI, S, JS, C
             providers_in_use,
             panic_monitor: thread_mutexes,
 
-            phantom_i: PhantomData,
             phantom_o: PhantomData,
             phantom_c: PhantomData,
             phantom_j: PhantomData,

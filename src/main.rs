@@ -21,7 +21,7 @@ struct DownloadProvider {
     uri: Uri,
 }
 
-impl Provider <DownloadJob, DownloadOrder, DownloadChannel, u64, DownloadJobError, Uri, i32, FileState, DownloadChannelState> for DownloadProvider {
+impl Provider <DownloadJob, DownloadOrder, DownloadChannel, DownloadJobError, Uri, i32, FileState, DownloadChannelState> for DownloadProvider {
     fn new_job(&self, order: DownloadOrder) -> DownloadJob {
         let uri_string = format!("{}/{}", self.uri, order.filepath);
         let uri = uri_string.parse::<Uri>().unwrap();
@@ -56,7 +56,7 @@ struct DownloadJob {
     order: DownloadOrder,
 }
 
-impl Job <DownloadChannel, DownloadOrder, DownloadProvider, u64, DownloadJobError, Uri, i32, FileState, DownloadChannelState> for DownloadJob {
+impl Job <DownloadChannel, DownloadOrder, DownloadProvider, DownloadJobError, Uri, i32, FileState, DownloadChannelState> for DownloadJob {
     fn provider(&self) -> &DownloadProvider {
         &self.provider
     }
@@ -65,7 +65,7 @@ impl Job <DownloadChannel, DownloadOrder, DownloadProvider, u64, DownloadJobErro
         &self.order
     }
 
-    fn execute(self, mut channel: DownloadChannel) -> JobResult<DownloadChannel, DownloadProvider, u64, DownloadJobError> {
+    fn execute(self, mut channel: DownloadChannel) -> JobResult<DownloadChannel, DownloadProvider, DownloadJobError> {
         let url = format!("{}", &self.uri);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
@@ -210,7 +210,7 @@ struct DownloadChannel {
     state: DownloadChannelState,
 }
 
-impl Channel <u64, DownloadOrder, FileState, DownloadChannelState> for DownloadChannel {
+impl Channel <DownloadOrder, FileState, DownloadChannelState> for DownloadChannel {
     fn progress_indicator(&self) -> Option<u64> {
         let file_state = self.handle.get_ref().job_state.state.as_ref().unwrap();
         let size_written = file_state.size_written;

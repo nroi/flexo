@@ -44,7 +44,7 @@ impl ChannelState for DummyChannelState {
 
 impl JobState for DummyState {}
 
-impl Provider <DummyJob, DummyOrder, DummyChannel, u64, DummyJobError, i32, i32, DummyState, DummyChannelState> for DummyProvider {
+impl Provider <DummyJob, DummyOrder, DummyChannel, DummyJobError, i32, i32, DummyState, DummyChannelState> for DummyProvider {
     fn new_job(&self, order: DummyOrder) -> DummyJob {
         DummyJob {
             provider: self.clone(),
@@ -78,7 +78,7 @@ struct DummyJob {
     order: DummyOrder,
 }
 
-impl Job <DummyChannel, DummyOrder, DummyProvider, u64, DummyJobError, i32, i32, DummyState, DummyChannelState> for DummyJob {
+impl Job <DummyChannel, DummyOrder, DummyProvider, DummyJobError, i32, i32, DummyState, DummyChannelState> for DummyJob {
     fn provider(&self) -> &DummyProvider {
         &self.provider
     }
@@ -87,7 +87,7 @@ impl Job <DummyChannel, DummyOrder, DummyProvider, u64, DummyJobError, i32, i32,
         &self.order
     }
 
-    fn execute(self, channel: DummyChannel) -> JobResult<DummyChannel, DummyProvider, u64, DummyJobError> {
+    fn execute(self, channel: DummyChannel) -> JobResult<DummyChannel, DummyProvider, DummyJobError> {
         match (&self.order, &self.provider) {
             (DummyOrder::Success(_), DummyProvider::Success(_)) =>
                 JobResult::Complete(JobCompleted::new(channel, self.provider)),
@@ -138,7 +138,7 @@ struct DummyChannel {
     state: DummyChannelState,
 }
 
-impl Channel <u64, DummyOrder, DummyState, DummyChannelState> for DummyChannel {
+impl Channel <DummyOrder, DummyState, DummyChannelState> for DummyChannel {
     fn progress_indicator(&self) -> Option<u64> {
         // TODO
         Some(5)
