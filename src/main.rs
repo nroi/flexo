@@ -144,10 +144,6 @@ impl ChannelState for DownloadChannelState {
     fn reset(&mut self) {
         self.is_reset = true;
     }
-
-    fn new_order(&mut self) {
-        self.is_reset = false;
-    }
 }
 
 #[derive(Debug)]

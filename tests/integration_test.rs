@@ -40,10 +40,6 @@ impl ChannelState for DummyChannelState {
     fn reset(&mut self) {
         self.is_reset = true;
     }
-
-    fn new_order(&mut self) {
-        // TODO
-    }
 }
 
 impl JobState for DummyState {}

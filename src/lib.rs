@@ -128,7 +128,6 @@ pub trait Channel<I, O, JS, CS> where
 
 pub trait ChannelState {
     fn reset(&mut self);
-    fn new_order(&mut self);
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
