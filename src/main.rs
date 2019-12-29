@@ -21,8 +21,8 @@ struct DownloadProvider {
     uri: Uri,
 }
 
-impl Provider <DownloadJob, DownloadOrder, DownloadChannel, DownloadJobError, Uri, FileState, DownloadChannelState> for DownloadProvider {
-    type S = i32;
+impl Provider for DownloadProvider {
+    type J = DownloadJob;
 
     fn new_job(&self, order: DownloadOrder) -> DownloadJob {
         let uri_string = format!("{}/{}", self.uri, order.filepath);
@@ -58,18 +58,25 @@ struct DownloadJob {
     order: DownloadOrder,
 }
 
-impl Job <DownloadChannel, DownloadOrder, DownloadProvider, DownloadJobError, Uri, FileState, DownloadChannelState> for DownloadJob {
+impl Job for DownloadJob {
     type S = i32;
+    type JS = FileState;
+    type C = DownloadChannel;
+    type O = DownloadOrder;
+    type P = DownloadProvider;
+    type E = DownloadJobError;
+    type CS = DownloadChannelState;
+    type PI = Uri;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider
     }
 
-    fn order(&self) -> &DownloadOrder {
-        &self.order
+    fn order(&self) -> DownloadOrder {
+        self.order.clone()
     }
 
-    fn execute(self, mut channel: DownloadChannel) -> JobResult<DownloadChannel, DownloadProvider, DownloadJobError> {
+    fn execute(self, mut channel: DownloadChannel) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
@@ -122,7 +129,9 @@ struct DownloadOrder {
     filepath: String,
 }
 
-impl Order<DownloadChannel> for DownloadOrder {
+impl Order for DownloadOrder {
+    type J = DownloadJob;
+
     fn new_channel(self) -> DownloadChannel {
         DownloadChannel {
             handle: Easy2::new(DownloadState::new(self).unwrap()),
@@ -145,6 +154,8 @@ impl DownloadChannelState {
 }
 
 impl ChannelState for DownloadChannelState {
+    type J = DownloadJob;
+
     fn reset(&mut self) {
         self.is_reset = true;
     }
@@ -185,8 +196,10 @@ impl DownloadState {
 
 #[derive(Debug)]
 struct DownloadState {
-    job_state: JobStateItem<DownloadOrder, FileState>
+    job_state: JobStateItem<DownloadJob>
 }
+
+impl JobState for DownloadState {}
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
@@ -214,7 +227,9 @@ struct DownloadChannel {
     state: DownloadChannelState,
 }
 
-impl Channel <DownloadOrder, FileState, DownloadChannelState> for DownloadChannel {
+impl Channel for DownloadChannel {
+    type J = DownloadJob;
+
     fn progress_indicator(&self) -> Option<u64> {
         let file_state = self.handle.get_ref().job_state.state.as_ref().unwrap();
         let size_written = file_state.size_written;
@@ -229,7 +244,7 @@ impl Channel <DownloadOrder, FileState, DownloadChannelState> for DownloadChanne
         self.handle.get_mut().reset(order).unwrap();
     }
 
-    fn channel_state_item(&mut self) -> &mut JobStateItem<DownloadOrder, FileState> {
+    fn channel_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
         &mut self.handle.get_mut().job_state
     }
 
@@ -262,7 +277,7 @@ fn initial_providers() -> Vec<DownloadProvider> {
 }
 
 fn main() {
-    let mut job_context = JobContext::new(initial_providers());
+    let mut job_context: JobContext<DownloadJob> = JobContext::new(initial_providers());
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
