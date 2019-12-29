@@ -1,6 +1,3 @@
-#![feature(vec_remove_item)]
-#![feature(with_options)]
-
 extern crate http;
 extern crate rand;
 
