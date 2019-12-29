@@ -77,9 +77,9 @@ impl Job for DownloadJob {
         let url = format!("{}", &self.uri);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
-        channel.handle.max_recv_speed(3495253 * 2).unwrap();
+        channel.handle.max_recv_speed(3_495_253 * 2).unwrap();
         channel.handle.low_speed_time(std::time::Duration::from_secs(8)).unwrap();
-        channel.handle.low_speed_limit(524288000).unwrap();
+        channel.handle.low_speed_limit(524_288_000).unwrap();
         channel.handle.follow_location(true).unwrap();
         match channel.progress_indicator() {
             None => {},
@@ -87,7 +87,7 @@ impl Job for DownloadJob {
                 channel.handle.resume_from(start).unwrap();
             }
         }
-        let result = match channel.handle.perform() {
+        match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
                 if response_code >= 200 && response_code < 300 {
@@ -115,8 +115,7 @@ impl Job for DownloadJob {
                     }
                 }
             }
-        };
-        result
+        }
     }
 }
 
@@ -280,7 +279,7 @@ fn main() {
     for line in stdin.lock().lines() {
         let filename: String = line.unwrap();
         let order = DownloadOrder {
-            filepath: String::from(filename),
+            filepath: filename,
         };
         job_context.schedule(order);
     }

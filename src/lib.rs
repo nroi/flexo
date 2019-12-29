@@ -105,12 +105,12 @@ pub trait Job where
         match channels.remove(&self.provider()) {
             Some(mut channel) => {
                 println!("Reusing previous channel: {:?}", &self.provider());
-                channel.reset_order(self.order().clone());
+                channel.reset_order(self.order());
                 (channel, ExistingChannel)
             }
             None => {
                 println!("need to create new channel: {:?}", &self.provider());
-                let channel = self.order().clone().new_channel();
+                let channel = self.order().new_channel();
                 (channel, NewChannel)
             }
         }
@@ -245,14 +245,14 @@ impl <J> JobStateItem<J> where J: Job {
 fn punish<P>(provider: P, mut failures: MutexGuard<HashMap<P, i32>>) where
     P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
 {
-    let value = failures.entry(provider.clone()).or_insert(0);
+    let value = failures.entry(provider).or_insert(0);
     *value += 1;
 }
 
 fn reward<P>(provider: P, mut failures: MutexGuard<HashMap<P, i32>>) where
     P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
 {
-    let value = failures.entry(provider.clone()).or_insert(0);
+    let value = failures.entry(provider).or_insert(0);
     *value -= 1;
 }
 
@@ -358,7 +358,7 @@ impl <J> JobContext<J> where J: Job {
             let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
             let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
             let orders_in_progress = Arc::clone(&self.orders_in_progress);
-            let order_cloned = order.clone();
+            let order_cloned = order;
             let (tx, rx) = channel::<FlexoMessage<J::P>>();
             let t = thread::spawn(move || {
                 let _lock = mutex_cloned.lock().unwrap();
@@ -379,11 +379,11 @@ impl <J> JobContext<J> where J: Job {
                         channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
                         JobOutcome::Success(complete_job.provider.clone(), state)
                     }
-                    JobResult::Partial(JobPartiallyCompleted { channel, continue_at: _}) => {
+                    JobResult::Partial(JobPartiallyCompleted { channel, .. }) => {
                         let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                         JobOutcome::Error(provider_failures, channel.channel_state())
                     }
-                    JobResult::Error(JobTerminated { mut channel, error: _ } ) => {
+                    JobResult::Error(JobTerminated { mut channel, .. } ) => {
                         channel.reset();
                         let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                         JobOutcome::Error(provider_failures, channel.channel_state())
