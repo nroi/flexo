@@ -44,7 +44,9 @@ impl ChannelState for DummyChannelState {
 
 impl JobState for DummyState {}
 
-impl Provider <DummyJob, DummyOrder, DummyChannel, DummyJobError, i32, i32, DummyState, DummyChannelState> for DummyProvider {
+impl Provider <DummyJob, DummyOrder, DummyChannel, DummyJobError, i32, DummyState, DummyChannelState> for DummyProvider {
+    type S = i32;
+
     fn new_job(&self, order: DummyOrder) -> DummyJob {
         DummyJob {
             provider: self.clone(),
@@ -78,7 +80,9 @@ struct DummyJob {
     order: DummyOrder,
 }
 
-impl Job <DummyChannel, DummyOrder, DummyProvider, DummyJobError, i32, i32, DummyState, DummyChannelState> for DummyJob {
+impl Job <DummyChannel, DummyOrder, DummyProvider, DummyJobError, i32, DummyState, DummyChannelState> for DummyJob {
+    type S = i32;
+
     fn provider(&self) -> &DummyProvider {
         &self.provider
     }

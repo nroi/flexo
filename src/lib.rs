@@ -70,16 +70,16 @@ impl <C, P, E> JobResult<C, P, E> {
     }
 }
 
-pub trait Provider <J, O, C, E, PI, S, JS, CS> where
-    J: Job<C, O, Self, E, PI, S, JS, CS>,
+pub trait Provider <J, O, C, E, PI, JS, CS> where
+    J: Job<C, O, Self, E, PI, JS, CS>,
     C: Channel<O, JS, CS>,
     O: Order<C>,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     Self: std::marker::Sized + std::fmt::Debug + std::clone::Clone + std::cmp::Eq + std::hash::Hash,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
+    type S: std::cmp::Ord;
     fn new_job(&self, order: O) -> J;
 
     /// returns an identifier that remains unchanged throughout the lifetime of the program.
@@ -87,19 +87,19 @@ pub trait Provider <J, O, C, E, PI, S, JS, CS> where
     /// we still need to be able to recognize: Although those two Providers are not equal (p1 != p2),
     /// they actually refer to the same provider (p1.identity() = p2.identity()).
     fn identifier(&self) -> &PI;
-    fn score(&self) -> S;
+    fn score(&self) -> Self::S;
 }
 
-pub trait Job <C, O, P, E, PI, S, JS, CS> where
+pub trait Job <C, O, P, E, PI, JS, CS> where
     Self: std::marker::Sized,
     CS: ChannelState + std::marker::Copy,
     C: Channel<O, JS, CS>,
     O: Order<C>,
-    P: Provider<Self, O, C, E, PI, S, JS, CS>,
+    P: Provider<Self, O, C, E, PI, JS, CS>,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     JS: JobState,
 {
+    type S: std::cmp::Ord;
     fn provider(&self) -> &P;
     fn order(&self) -> &O;
     fn execute(self, channel: C) -> JobResult<C, P, E>;
@@ -157,17 +157,16 @@ impl <O, JS> JobStateItem<O, JS> where JS: JobState {
     }
 }
 
-pub fn select_provider<J, C, O, P, E, PI, S, JS, CS>(
+pub fn select_provider<J, C, O, P, E, PI, JS, CS>(
     providers: &mut Vec<P>,
     provider_current_usages: MutexGuard<HashMap<P, i32>>,
     provider_failures: MutexGuard<HashMap<P, i32>>,
 ) -> P where
-    J: Job<C, O, P, E, PI, S, JS, CS>,
+    J: Job<C, O, P, E, PI, JS, CS>,
     C: Channel<O, JS, CS>,
     O: Order<C>,
-    P: Provider<J, O, C, E, PI, S, JS, CS>,
+    P: Provider<J, O, C, E, PI, JS, CS>,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
@@ -183,15 +182,13 @@ pub fn select_provider<J, C, O, P, E, PI, S, JS, CS>(
     providers.remove(idx)
 }
 
-fn get_channel <P, C, J, O, E, PI, S, JS, CS>(channels: &Arc<Mutex<HashMap<P, C>>>,
-                                      job: &J
-) -> (C, ChannelEstablishment) where
-    P: Provider<J, O, C, E, PI, S, JS, CS> + std::cmp::Eq + std::hash::Hash,
+fn get_channel <P, C, J, O, E, PI, JS, CS>(channels: &Arc<Mutex<HashMap<P, C>>>, job: &J)
+    -> (C, ChannelEstablishment) where
+    P: Provider<J, O, C, E, PI, JS, CS> + std::cmp::Eq + std::hash::Hash,
     C: Channel<O, JS, CS>,
-    J: Job<C, O, P, E, PI, S, JS, CS>,
+    J: Job<C, O, P, E, PI, JS, CS>,
     O: Clone + Order<C>,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
@@ -210,7 +207,7 @@ fn get_channel <P, C, J, O, E, PI, S, JS, CS>(channels: &Arc<Mutex<HashMap<P, C>
     }
 }
 
-pub fn try_until_success <O, P, C, J, E, PI, S, JS, CS> (
+pub fn try_until_success <O, P, C, J, E, PI, JS, CS> (
     mut providers: &mut Vec<P>,
     provider_failures: &mut Arc<Mutex<HashMap<P, i32>>>,
     provider_current_usages: &mut Arc<Mutex<HashMap<P, i32>>>,
@@ -219,12 +216,11 @@ pub fn try_until_success <O, P, C, J, E, PI, S, JS, CS> (
     tx: Sender<FlexoMessage<P>>
 ) -> JobResult<C, P, E> where
     O: Clone + Order<C>,
-    P: Provider<J, O, C, E, PI, S, JS, CS>,
+    P: Provider<J, O, C, E, PI, JS, CS>,
     C: Channel<O, JS, CS>,
-    J: Job<C, O, P, E, PI, S, JS, CS>,
+    J: Job<C, O, P, E, PI, JS, CS>,
     E: std::fmt::Debug,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
@@ -302,14 +298,13 @@ fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32
 
 /// The context in which a job is executed, including all stateful information required by the job.
 /// This context is meant to be initialized once during the program's lifecycle.
-pub struct JobContext<P, O, C, J, E, PI, S, JS, CS> where
-    P: Provider<J, O, C, E, PI, S, JS, CS>,
-    J: Job<C, O, P, E, PI, S, JS, CS>,
+pub struct JobContext<P, O, C, J, E, PI, JS, CS> where
+    P: Provider<J, O, C, E, PI, JS, CS>,
+    J: Job<C, O, P, E, PI, JS, CS>,
     O: Order<C> + Clone + std::cmp::Eq + std::hash::Hash,
     C: Channel<O, JS, CS>,
     E: std::fmt::Debug,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy,
     JS: JobState,
 {
@@ -318,7 +313,6 @@ pub struct JobContext<P, O, C, J, E, PI, S, JS, CS> where
     phantom_j: std::marker::PhantomData<J>,
     phantom_e: std::marker::PhantomData<E>,
     phantom_pi: std::marker::PhantomData<PI>,
-    phantom_s: std::marker::PhantomData<S>,
     phantom_js: std::marker::PhantomData<JS>,
     phantom_cs: std::marker::PhantomData<CS>,
 
@@ -352,14 +346,13 @@ pub enum FlexoMessage <P> {
     ChannelEstablished(ChannelEstablishment),
 }
 
-impl <P, O, C, J, E, PI, S, JS, CS> JobContext<P, O, C, J, E, PI, S, JS, CS> where
-    P: Provider<J, O, C, E, PI, S, JS, CS> + std::marker::Send + 'static,
-    J: Job<C, O, P, E, PI, S, JS, CS> + 'static,
+impl <P, O, C, J, E, PI, JS, CS> JobContext<P, O, C, J, E, PI, JS, CS> where
+    P: Provider<J, O, C, E, PI, JS, CS> + std::marker::Send + 'static,
+    J: Job<C, O, P, E, PI, JS, CS> + 'static,
     O: Clone + Order<C> + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static,
     C: Channel<O, JS, CS> + std::fmt::Debug + std::marker::Send + 'static,
     E: std::fmt::Debug,
     PI: std::cmp::Eq,
-    S: std::cmp::Ord,
     CS: ChannelState + std::marker::Copy + std::marker::Send + std::fmt::Debug + 'static,
     JS: JobState,
 {
@@ -383,7 +376,6 @@ impl <P, O, C, J, E, PI, S, JS, CS> JobContext<P, O, C, J, E, PI, S, JS, CS> whe
             phantom_j: PhantomData,
             phantom_e: PhantomData,
             phantom_pi: PhantomData,
-            phantom_s: PhantomData,
             phantom_js: PhantomData,
             phantom_cs: PhantomData,
         }

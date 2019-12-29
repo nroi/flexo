@@ -21,7 +21,9 @@ struct DownloadProvider {
     uri: Uri,
 }
 
-impl Provider <DownloadJob, DownloadOrder, DownloadChannel, DownloadJobError, Uri, i32, FileState, DownloadChannelState> for DownloadProvider {
+impl Provider <DownloadJob, DownloadOrder, DownloadChannel, DownloadJobError, Uri, FileState, DownloadChannelState> for DownloadProvider {
+    type S = i32;
+
     fn new_job(&self, order: DownloadOrder) -> DownloadJob {
         let uri_string = format!("{}/{}", self.uri, order.filepath);
         let uri = uri_string.parse::<Uri>().unwrap();
@@ -56,7 +58,9 @@ struct DownloadJob {
     order: DownloadOrder,
 }
 
-impl Job <DownloadChannel, DownloadOrder, DownloadProvider, DownloadJobError, Uri, i32, FileState, DownloadChannelState> for DownloadJob {
+impl Job <DownloadChannel, DownloadOrder, DownloadProvider, DownloadJobError, Uri, FileState, DownloadChannelState> for DownloadJob {
+    type S = i32;
+
     fn provider(&self) -> &DownloadProvider {
         &self.provider
     }
