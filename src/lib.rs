@@ -82,7 +82,7 @@ pub trait Provider where
 }
 
 pub trait Job where
-    Self: std::marker::Sized + std::fmt::Debug + std::marker::Send,
+    Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static,
 {
     type S: std::cmp::Ord;
     type JS: JobState;
@@ -297,7 +297,7 @@ pub enum FlexoMessage <P> {
     ChannelEstablished(ChannelEstablishment),
 }
 
-impl <J> JobContext<J> where J: Job + 'static {
+impl <J> JobContext<J> where J: Job {
     pub fn new(initial_providers: Vec<J::P>) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
