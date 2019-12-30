@@ -3,25 +3,24 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use crate::ChannelEstablishment::{NewChannel, ExistingChannel};
 use std::collections::hash_map::Entry;
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
 #[derive(Debug)]
-pub struct JobPartiallyCompleted<C> {
-    pub channel: C,
+pub struct JobPartiallyCompleted<J> where J: Job {
+    pub channel: J::C,
     pub continue_at: u64
 }
 
 #[derive(Debug)]
-pub struct JobTerminated<C, E> {
-    pub channel: C,
-    pub error: E,
+pub struct JobTerminated<J> where J: Job {
+    pub channel: J::C,
+    pub error: J::E,
 }
 
-impl <C> JobPartiallyCompleted<C> {
-    pub fn new(channel: C, continue_at: u64) -> Self {
+impl <J> JobPartiallyCompleted<J> where J: Job {
+    pub fn new(channel: J::C, continue_at: u64) -> Self {
         Self {
             channel,
             continue_at
@@ -30,13 +29,13 @@ impl <C> JobPartiallyCompleted<C> {
 }
 
 #[derive(Debug)]
-pub struct JobCompleted<C, P> {
-    pub channel: C,
-    pub provider: P
+pub struct JobCompleted<J> where J: Job {
+    pub channel: J::C,
+    pub provider: J::P
 }
 
-impl <C, P> JobCompleted<C, P> {
-    pub fn new(channel: C, provider: P) -> Self {
+impl <J> JobCompleted<J> where J: Job {
+    pub fn new(channel: J::C, provider: J::P) -> Self {
         Self {
             channel,
             provider,
@@ -46,9 +45,9 @@ impl <C, P> JobCompleted<C, P> {
 
 #[derive(Debug)]
 pub enum JobResult<J> where J: Job {
-    Complete(JobCompleted<J::C, J::P>),
-    Partial(JobPartiallyCompleted<J::C>),
-    Error(JobTerminated<J::C, J::E>),
+    Complete(JobCompleted<J>),
+    Partial(JobPartiallyCompleted<J>),
+    Error(JobTerminated<J>),
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -102,12 +101,12 @@ pub trait Job where
             Some(mut channel) => {
                 println!("Reusing previous channel: {:?}", &self.provider());
                 channel.reset_order(self.order());
-                (channel, ExistingChannel)
+                (channel, ChannelEstablishment::ExistingChannel)
             }
             None => {
                 println!("need to create new channel: {:?}", &self.provider());
                 let channel = self.order().new_channel();
-                (channel, NewChannel)
+                (channel, ChannelEstablishment::NewChannel)
             }
         }
     }
