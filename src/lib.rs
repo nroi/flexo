@@ -51,8 +51,7 @@ pub enum JobResult<J> where J: Job {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum JobOutcome <J> where J: Job
-{
+pub enum JobOutcome <J> where J: Job {
     Success(J::P, J::CS),
     Error(HashMap<J::P, i32>, J::CS),
 }
@@ -91,9 +90,7 @@ pub trait Provider where
     }
 }
 
-pub trait Job where
-    Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static,
-{
+pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
     type S: std::cmp::Ord;
     type JS: JobState;
     type C: Channel<J=Self>;
@@ -199,9 +196,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     }
 }
 
-pub trait Channel where
-    Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static,
-{
+pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job;
 
     fn progress_indicator(&self) -> Option<u64>;
@@ -230,8 +225,7 @@ pub enum ChannelEstablishment {
 pub trait JobState {}
 
 #[derive(Debug)]
-pub struct JobStateItem<J> where J: Job
-{
+pub struct JobStateItem<J> where J: Job {
     pub order: J::O,
     // Used to manage the resources acquired for a job. It is set to Some(_) if this there is an active job associated
     // with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
@@ -262,9 +256,7 @@ fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32
 
 /// The context in which a job is executed, including all stateful information required by the job.
 /// This context is meant to be initialized once during the program's lifecycle.
-pub struct JobContext<J> where
-    J: Job,
-{
+pub struct JobContext<J> where J: Job, {
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
     orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
@@ -273,14 +265,12 @@ pub struct JobContext<J> where
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
 }
 
-pub struct ScheduledItem<J> where J: Job
-{
+pub struct ScheduledItem<J> where J: Job {
     pub join_handle: JoinHandle<JobOutcome<J>>,
     pub rx: Receiver<FlexoMessage<J::P>>,
 }
 
-pub enum ScheduleOutcome<J> where J: Job
-{
+pub enum ScheduleOutcome<J> where J: Job {
     Skipped,
     Scheduled(ScheduledItem<J>),
 }
