@@ -171,7 +171,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             }
         };
         if !result.is_success() {
-            pardon(punished_providers, provider_failures.lock().unwrap());
+            Self::pardon(punished_providers, provider_failures.lock().unwrap());
         }
 
         result
@@ -194,6 +194,21 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
         providers.remove(idx)
     }
+
+    fn pardon(punished_providers: Vec<<<Self as Order>::J as Job>::P>,
+              mut failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>)
+    {
+        for not_guilty in punished_providers {
+            match (*failures).entry(not_guilty.clone()) {
+                Entry::Occupied(mut value) => {
+                    let value = value.get_mut();
+                    *value -= 1;
+                },
+                Entry::Vacant(_) => {},
+            }
+        }
+    }
+
 }
 
 pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
@@ -237,20 +252,6 @@ pub struct JobStateItem<J> where J: Job {
 impl <J> JobStateItem<J> where J: Job {
     fn reset(&mut self) {
         self.state = None
-    }
-}
-
-fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32>>) where
-    P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
-{
-    for not_guilty in punished_providers {
-        match (*failures).entry(not_guilty.clone()) {
-            Entry::Occupied(mut value) => {
-                let value = value.get_mut();
-                *value -= 1;
-            },
-            Entry::Vacant(_) => {},
-        }
     }
 }
 
