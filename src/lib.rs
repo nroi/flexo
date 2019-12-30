@@ -78,6 +78,17 @@ pub trait Provider where
     /// they actually refer to the same provider (p1.identity() = p2.identity()).
     fn identifier(&self) -> &<<Self as Provider>::J as Job>::PI;
     fn score(&self) -> <<Self as Provider>::J as Job>::S;
+
+
+    fn punish(self, mut failures: MutexGuard<HashMap<Self, i32>>) {
+        let value = failures.entry(self).or_insert(0);
+        *value += 1;
+    }
+
+    fn reward(self, mut failures: MutexGuard<HashMap<Self, i32>>) {
+        let value = failures.entry(self).or_insert(0);
+        *value -= 1;
+    }
 }
 
 pub trait Job where
@@ -145,15 +156,15 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let result = job.execute(channel);
             match &result {
                 JobResult::Complete(_) => {
-                    reward(provider.clone(), provider_failures.lock().unwrap());
+                    provider.clone().reward(provider_failures.lock().unwrap());
                 },
                 JobResult::Partial(partial_job) => {
-                    punish(provider.clone(), provider_failures.lock().unwrap());
+                    provider.clone().punish(provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
                     println!("will continue job at {:?}", partial_job.continue_at);
                 },
                 JobResult::Error(e) => {
-                    punish(provider.clone(), provider_failures.lock().unwrap());
+                    provider.clone().punish(provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
                     println!("Error: {:?}, try again", e)
                 },
@@ -233,22 +244,6 @@ impl <J> JobStateItem<J> where J: Job {
     fn reset(&mut self) {
         self.state = None
     }
-}
-
-
-
-fn punish<P>(provider: P, mut failures: MutexGuard<HashMap<P, i32>>) where
-    P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
-{
-    let value = failures.entry(provider).or_insert(0);
-    *value += 1;
-}
-
-fn reward<P>(provider: P, mut failures: MutexGuard<HashMap<P, i32>>) where
-    P: std::cmp::Eq + std::hash::Hash + std::clone::Clone + std::fmt::Debug,
-{
-    let value = failures.entry(provider).or_insert(0);
-    *value -= 1;
 }
 
 fn pardon<P>(punished_providers: Vec<P>, mut failures: MutexGuard<HashMap<P, i32>>) where
