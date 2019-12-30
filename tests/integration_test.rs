@@ -208,7 +208,7 @@ fn wait_until_message_received <F, R>(
     }
 }
 
-fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyProvider {
+fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyProvider {
     match schedule_outcome {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
@@ -223,7 +223,7 @@ fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyProvider,
     }
 }
 
-fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) {
+fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyJob>) {
     match schedule_outcome {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
@@ -238,7 +238,7 @@ fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyProvide
     };
 }
 
-fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyJobSuccess {
+fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJobSuccess {
     let result = match schedule_outcome {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
@@ -251,7 +251,7 @@ fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyProvider, Dum
     }
 }
 
-fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyProvider, DummyChannelState>) -> DummyJobFailure {
+fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJobFailure {
     let result = match schedule_outcome {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {

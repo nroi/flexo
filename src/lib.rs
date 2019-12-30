@@ -52,14 +52,10 @@ pub enum JobResult<J> where J: Job {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-// TODO don't use CS as generic type: Use only the Job as the generic type, the job should already include all
-// required types.
-pub enum JobOutcome <P, CS> where
-    P: std::cmp::Eq + std::hash::Hash,
-    CS: ChannelState + std::marker::Copy,
+pub enum JobOutcome <J> where J: Job
 {
-    Success(P, CS),
-    Error(HashMap<P, i32>, CS),
+    Success(J::P, J::CS),
+    Error(HashMap<J::P, i32>, J::CS),
 }
 
 impl <J> JobResult<J> where J: Job {
@@ -283,20 +279,16 @@ pub struct JobContext<J> where
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
 }
 
-pub struct ScheduledItem<P, CS> where
-    P: std::cmp::Eq + std::hash::Hash,
-    CS: ChannelState + std::marker::Copy,
+pub struct ScheduledItem<J> where J: Job
 {
-pub join_handle: JoinHandle<JobOutcome<P, CS>>,
-    pub rx: Receiver<FlexoMessage<P>>,
+    pub join_handle: JoinHandle<JobOutcome<J>>,
+    pub rx: Receiver<FlexoMessage<J::P>>,
 }
 
-pub enum ScheduleOutcome <P, CS> where
-    P: std::cmp::Eq + std::hash::Hash,
-    CS: ChannelState + std::marker::Copy,
+pub enum ScheduleOutcome<J> where J: Job
 {
     Skipped,
-    Scheduled(ScheduledItem<P, CS>),
+    Scheduled(ScheduledItem<J>),
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -305,7 +297,7 @@ pub enum FlexoMessage <P> {
     ChannelEstablished(ChannelEstablishment),
 }
 
-impl <J> JobContext<J> where J: Job {
+impl <J> JobContext<J> where J: Job + 'static {
     pub fn new(initial_providers: Vec<J::P>) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -323,7 +315,7 @@ impl <J> JobContext<J> where J: Job {
         }
     }
 
-    pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J::P, J::CS> {
+    pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
