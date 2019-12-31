@@ -6,14 +6,14 @@ use std::fs;
 use serde::Deserialize;
 
 #[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 pub enum MirrorSelectionMethod {
     Auto,
     Predefined,
 }
 
 #[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 pub enum MirrorsRandomOrSort {
     Sort,
     Random,
@@ -21,21 +21,21 @@ pub enum MirrorsRandomOrSort {
 
 #[derive(Deserialize, Debug)]
 pub struct MirrorsAutoConfig {
-    https_required: bool,
-    ipv4: bool,
-    ipv6: bool,
-    max_score: f64,
-    num_mirrors: i32,
-    mirrors_random_or_sort: MirrorsRandomOrSort,
-    timeout: i32,
+    pub https_required: bool,
+    pub ipv4: bool,
+    pub ipv6: bool,
+    pub max_score: f64,
+    pub num_mirrors: i32,
+    pub mirrors_random_or_sort: MirrorsRandomOrSort,
+    pub timeout: i32,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct MirrorConfig {
-    mirror_selection_method: MirrorSelectionMethod,
-    mirrors_predefined: Vec<String>,
-    mirrors_blacklist: Vec<String>,
-    mirrors_auto: MirrorsAutoConfig,
+    pub mirror_selection_method: MirrorSelectionMethod,
+    pub mirrors_predefined: Vec<String>,
+    pub mirrors_blacklist: Vec<String>,
+    pub mirrors_auto: MirrorsAutoConfig,
 }
 
 pub fn load_config() -> MirrorConfig {

@@ -12,6 +12,8 @@ use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
 use serde::Deserialize;
+use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig};
+
 mod mirror_config;
 
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
@@ -277,34 +279,105 @@ fn initial_providers() -> Vec<DownloadProvider> {
 }
 
 #[derive(Deserialize, Debug)]
+struct MirrorListOption {
+    pub urls: Vec<MirrorUrlOption>,
+}
+
 struct MirrorList {
     urls: Vec<MirrorUrl>,
 }
 
+impl From<MirrorListOption> for MirrorList {
+    fn from(mirror_list_option: MirrorListOption) -> Self {
+        let urls: Vec<Option<MirrorUrl>> = mirror_list_option.urls.into_iter().map(|mirror_url_option| {
+            mirror_url_option.mirror_url()
+        }).collect();
+        let urls: Vec<MirrorUrl> = urls.into_iter().filter_map(|x| x).collect();
+        MirrorList {
+            urls
+        }
+    }
+}
+
 #[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug)]
-enum MirrorProtocol {
+#[derive(Deserialize, Debug, PartialEq, Eq)]
+pub enum MirrorProtocol {
     Http,
     Https,
     Rsync,
 }
 
 #[derive(Deserialize, Debug)]
-struct MirrorUrl {
+pub struct MirrorUrlOption {
+    pub url: String,
+    pub protocol: Option<MirrorProtocol>,
+    pub last_sync: Option<String>,
+    pub completion_pct: Option<f64>,
+    pub delay: Option<i32>,
+    pub duration_avg: Option<f64>,
+    pub duration_stddev: Option<f64>,
+    pub score: Option<f64>,
+    pub country: Option<String>,
+    pub ipv4: Option<bool>,
+    pub ipv6: Option<bool>,
+}
+
+impl MirrorUrlOption {
+    pub fn mirror_url(self) -> Option<MirrorUrl> {
+        let protocol = self.protocol?;
+        let last_sync = self.last_sync?;
+        let completion_pct = self.completion_pct?;
+        let delay = self.delay?;
+        let duration_avg = self.duration_avg?;
+        let duration_stddev = self.duration_stddev?;
+        let score = self.score?;
+        let country = self.country?;
+        let ipv4 = self.ipv4?;
+        let ipv6 = self.ipv6?;
+        Some(MirrorUrl {
+            url: self.url,
+            protocol,
+            last_sync,
+            completion_pct,
+            delay,
+            duration_avg,
+            duration_stddev,
+            score,
+            country,
+            ipv4,
+            ipv6
+        })
+    }
+}
+
+pub struct MirrorUrl {
     url: String,
-    // TODO replace with Enum
     protocol: MirrorProtocol,
-    last_sync: Option<String>,
+    last_sync: String,
     completion_pct: f64,
-    delay: Option<i32>,
-    duration_avg: Option<f64>,
-    duration_stddev: Option<f64>,
-    score: Option<f64>,
-    active: bool,
+    delay: i32,
+    duration_avg: f64,
+    duration_stddev: f64,
+    score: f64,
     country: String,
-    isos: bool,
     ipv4: bool,
     ipv6: bool,
+}
+
+impl MirrorUrl {
+    fn filter(&self, config: &MirrorsAutoConfig) -> bool {
+        if config.https_required && self.protocol != MirrorProtocol::Https {
+            false
+        } else if config.ipv4 && !self.ipv4 {
+            false
+        } else if config.ipv6 && !self.ipv6 {
+            false
+        } else if config.max_score < self.score {
+            false
+        } else {
+            true
+        }
+    }
 }
 
 fn fetch_json() -> String {
@@ -322,19 +395,25 @@ fn fetch_json() -> String {
     std::str::from_utf8(received.as_slice()).unwrap().to_owned()
 }
 
-fn fetch_providers() {
+fn fetch_providers() -> Vec<MirrorUrl> {
     let json = fetch_json();
-    let mirror_list: MirrorList = serde_json::from_str(&json).unwrap();
-    for mirror in mirror_list.urls {
-        println!("{:?}", mirror.protocol);
-    }
+    let mirror_list_option: MirrorListOption = serde_json::from_str(&json).unwrap();
+    let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
+    mirror_list.urls
 }
 
 fn main() {
-
-    fetch_providers();
-
     let mirror_config = mirror_config::load_config();
+    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
+        let mirror_urls = fetch_providers();
+        for mirror in mirror_urls {
+            println!("{}", mirror.url);
+            mirror.filter(&mirror_config.mirrors_auto);
+        }
+        // TODO
+    } else {
+        unimplemented!("TODO");
+    }
     println!("{:#?}", mirror_config);
 
 //    let mut job_context: JobContext<DownloadJob> = JobContext::new(initial_providers());
