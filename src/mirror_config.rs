@@ -40,6 +40,6 @@ pub struct MirrorConfig {
 
 pub fn load_config() -> MirrorConfig {
     let config_contents = fs::read_to_string(CONFIG_FILE)
-        .expect(&format!("Unable to read file: {}", CONFIG_FILE));
+        .unwrap_or_else(|_| panic!("Unable to read file: {}", CONFIG_FILE));
     toml::from_str(&config_contents).unwrap()
 }

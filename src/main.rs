@@ -19,6 +19,7 @@ use std::cmp::Ordering;
 
 mod mirror_config;
 
+
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
 static JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
 // integer values are easier to handle than float, since we don't have things like NaN. Hence, we just
@@ -373,19 +374,12 @@ pub struct MirrorUrl {
 
 impl MirrorUrl {
     fn filter_predicate(&self, config: &MirrorConfig) -> bool {
-        if config.mirrors_auto.https_required && self.protocol != MirrorProtocol::Https {
-            false
-        } else if config.mirrors_auto.ipv4 && !self.ipv4 {
-            false
-        } else if config.mirrors_auto.ipv6 && !self.ipv6 {
-            false
-        } else if config.mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)  {
-            false
-        } else if config.mirrors_blacklist.contains(&self.url) {
-            false
-        } else {
-            true
-        }
+        !(
+            (config.mirrors_auto.https_required && self.protocol != MirrorProtocol::Https) ||
+            (config.mirrors_auto.ipv4 && !self.ipv4) ||
+            (config.mirrors_auto.ipv6 && !self.ipv6) ||
+            (config.mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)) ||
+            (config.mirrors_blacklist.contains(&self.url)))
     }
 }
 
