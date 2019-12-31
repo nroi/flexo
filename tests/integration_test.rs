@@ -155,13 +155,10 @@ impl Channel for DummyChannel {
     type J = DummyJob;
 
     fn progress_indicator(&self) -> Option<u64> {
-        // TODO
-        Some(5)
+        Some(0)
     }
 
-    fn reset_order(&mut self, _order: DummyOrder) {
-        // TODO
-    }
+    fn reset_order(&mut self, _order: DummyOrder) {}
 
     fn channel_state_item(&mut self) -> &mut JobStateItem<DummyJob> {
         &mut self.collector
