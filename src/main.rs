@@ -5,23 +5,29 @@ extern crate serde;
 
 use std::str;
 use curl::easy::{Easy, Easy2, Handler, WriteError};
+use std::time::Duration;
 use std::io::prelude::*;
+use std::io;
 use http::Uri;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
 use serde::Deserialize;
-use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig, MirrorConfig};
+use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig};
+use std::cmp::Ordering;
 
 mod mirror_config;
 
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
 static JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
+static SCORE_SCALE: u64 = 1_000_000_000_000_000;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct DownloadProvider {
     uri: Uri,
+    mirror_results: MirrorResults,
+    country: String,
 }
 
 impl Provider for DownloadProvider {
@@ -42,9 +48,26 @@ impl Provider for DownloadProvider {
         &self.uri
     }
 
-    fn score(&self) -> i32 {
-        // TODO
-        0
+    fn score(&self) -> MirrorResults {
+        self.mirror_results
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+struct MirrorResults {
+    namelookup_duration: Duration,
+    connect_duration: Duration,
+}
+
+impl Ord for MirrorResults {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.connect_duration.cmp(&other.connect_duration)
+    }
+}
+
+impl PartialOrd for MirrorResults {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -62,7 +85,7 @@ struct DownloadJob {
 }
 
 impl Job for DownloadJob {
-    type S = i32;
+    type S = MirrorResults;
     type JS = FileState;
     type C = DownloadChannel;
     type O = DownloadOrder;
@@ -259,25 +282,6 @@ impl Channel for DownloadChannel {
     }
 }
 
-fn initial_providers() -> Vec<DownloadProvider> {
-    let mut providers = Vec::new();
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-    providers.push(DownloadProvider { uri: "https://mirror.yandex.ru/archlinux/".parse::<Uri>().unwrap() });
-
-    providers
-}
-
 #[derive(Deserialize, Debug)]
 struct MirrorListOption {
     pub urls: Vec<MirrorUrlOption>,
@@ -330,7 +334,7 @@ impl MirrorUrlOption {
         let delay = self.delay?;
         let duration_avg = self.duration_avg?;
         let duration_stddev = self.duration_stddev?;
-        let score = self.score?;
+        let score = (self.score? * SCORE_SCALE as f64) as u64;
         let country = self.country?;
         let ipv4 = self.ipv4?;
         let ipv6 = self.ipv6?;
@@ -350,6 +354,7 @@ impl MirrorUrlOption {
     }
 }
 
+#[derive(Debug)]
 pub struct MirrorUrl {
     url: String,
     protocol: MirrorProtocol,
@@ -358,21 +363,21 @@ pub struct MirrorUrl {
     delay: i32,
     duration_avg: f64,
     duration_stddev: f64,
-    score: f64,
+    score: u64,
     country: String,
     ipv4: bool,
     ipv6: bool,
 }
 
 impl MirrorUrl {
-    fn filter(&self, config: &MirrorConfig) -> bool {
+    fn filter_predicate(&self, config: &MirrorConfig) -> bool {
         if config.mirrors_auto.https_required && self.protocol != MirrorProtocol::Https {
             false
         } else if config.mirrors_auto.ipv4 && !self.ipv4 {
             false
         } else if config.mirrors_auto.ipv6 && !self.ipv6 {
             false
-        } else if config.mirrors_auto.max_score < self.score {
+        } else if config.mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)  {
             false
         } else if config.mirrors_blacklist.contains(&self.url) {
             false
@@ -404,28 +409,63 @@ fn fetch_providers() -> Vec<MirrorUrl> {
     mirror_list.urls
 }
 
+fn measure_latency(url: &str, timeout: Duration) -> Option<MirrorResults> {
+    let mut easy = Easy::new();
+    easy.url(url).unwrap();
+    easy.follow_location(true).unwrap();
+    easy.connect_only(true).unwrap();
+    easy.dns_cache_timeout(Duration::from_secs(3600 * 24)).unwrap();
+    easy.connect_timeout(timeout).unwrap();
+    easy.transfer().perform().ok()?;
+    Some(MirrorResults {
+        namelookup_duration: easy.namelookup_time().ok()?,
+        connect_duration: easy.connect_time().ok()?,
+    })
+}
+
 fn main() {
     let mirror_config = mirror_config::load_config();
-    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        let mirror_urls = fetch_providers();
-        for mirror in mirror_urls {
-            println!("{}", mirror.url);
-            mirror.filter(&mirror_config);
+    let providers: Vec<DownloadProvider> = if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
+        let mut mirror_urls: Vec<MirrorUrl> = fetch_providers();
+        mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+        let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
+            .into_iter()
+            .filter(|x| x.filter_predicate(&mirror_config))
+            .take(mirror_config.mirrors_auto.num_mirrors)
+            .collect();
+        let mut mirrors_with_latencies = Vec::new();
+        let timeout = Duration::from_millis(mirror_config.mirrors_auto.timeout);
+        for mirror in filtered_mirror_urls.into_iter() {
+            match measure_latency(&mirror.url, timeout) {
+                None => {},
+                Some(latency) => {
+                    mirrors_with_latencies.push((mirror, latency));
+                }
+            }
         }
-        // TODO
-    } else {
-        unimplemented!("TODO");
-    }
-    println!("{:#?}", mirror_config);
+        mirrors_with_latencies.sort_unstable_by_key(|(_, latency)| {
+            *latency
+        });
 
-//    let mut job_context: JobContext<DownloadJob> = JobContext::new(initial_providers());
-//
-//    let stdin = io::stdin();
-//    for line in stdin.lock().lines() {
-//        let filename: String = line.unwrap();
-//        let order = DownloadOrder {
-//            filepath: filename,
-//        };
-//        job_context.schedule(order);
-//    }
+        mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
+            DownloadProvider {
+                uri: mirror.url.parse::<Uri>().unwrap(),
+                mirror_results,
+                country: mirror.country,
+            }
+        }).collect()
+    } else {
+        unimplemented!("TODO")
+    };
+    println!("{:#?}", providers);
+    let mut job_context: JobContext<DownloadJob> = JobContext::new(providers);
+
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let filename: String = line.unwrap();
+        let order = DownloadOrder {
+            filepath: filename,
+        };
+        job_context.schedule(order);
+    }
 }

@@ -25,9 +25,9 @@ pub struct MirrorsAutoConfig {
     pub ipv4: bool,
     pub ipv6: bool,
     pub max_score: f64,
-    pub num_mirrors: i32,
+    pub num_mirrors: usize,
     pub mirrors_random_or_sort: MirrorsRandomOrSort,
-    pub timeout: i32,
+    pub timeout: u64,
 }
 
 #[derive(Deserialize, Debug)]
