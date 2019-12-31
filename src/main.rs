@@ -1,17 +1,21 @@
 extern crate http;
 extern crate rand;
 extern crate flexo;
+extern crate serde;
 
-use std::{io, str};
-use curl::easy::{Easy2, Handler, WriteError};
+use std::str;
+use curl::easy::{Easy, Easy2, Handler, WriteError};
 use std::io::prelude::*;
 use http::Uri;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
+use serde::Deserialize;
+mod mirror_config;
 
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
+static JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct DownloadProvider {
@@ -272,15 +276,75 @@ fn initial_providers() -> Vec<DownloadProvider> {
     providers
 }
 
-fn main() {
-    let mut job_context: JobContext<DownloadJob> = JobContext::new(initial_providers());
+#[derive(Deserialize, Debug)]
+struct MirrorList {
+    urls: Vec<MirrorUrl>,
+}
 
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let filename: String = line.unwrap();
-        let order = DownloadOrder {
-            filepath: filename,
-        };
-        job_context.schedule(order);
+#[serde(rename_all = "lowercase")]
+#[derive(Deserialize, Debug)]
+enum MirrorProtocol {
+    Http,
+    Https,
+    Rsync,
+}
+
+#[derive(Deserialize, Debug)]
+struct MirrorUrl {
+    url: String,
+    // TODO replace with Enum
+    protocol: MirrorProtocol,
+    last_sync: Option<String>,
+    completion_pct: f64,
+    delay: Option<i32>,
+    duration_avg: Option<f64>,
+    duration_stddev: Option<f64>,
+    score: Option<f64>,
+    active: bool,
+    country: String,
+    isos: bool,
+    ipv4: bool,
+    ipv6: bool,
+}
+
+fn fetch_json() -> String {
+    let mut received = Vec::new();
+    let mut easy = Easy::new();
+    easy.url(JSON_URI).unwrap();
+    {
+        let mut transfer = easy.transfer();
+        transfer.write_function(|data| {
+            received.extend_from_slice(data);
+            Ok(data.len())
+        }).unwrap();
+        transfer.perform().unwrap();
     }
+    std::str::from_utf8(received.as_slice()).unwrap().to_owned()
+}
+
+fn fetch_providers() {
+    let json = fetch_json();
+    let mirror_list: MirrorList = serde_json::from_str(&json).unwrap();
+    for mirror in mirror_list.urls {
+        println!("{:?}", mirror.protocol);
+    }
+}
+
+fn main() {
+
+    fetch_providers();
+
+    let mirror_config = mirror_config::load_config();
+    println!("{:#?}", mirror_config);
+
+//    let mut job_context: JobContext<DownloadJob> = JobContext::new(initial_providers());
+//
+//    let stdin = io::stdin();
+//    for line in stdin.lock().lines() {
+//        let filename: String = line.unwrap();
+//        let order = DownloadOrder {
+//            filepath: filename,
+//        };
+//        job_context.schedule(order);
+//    }
 }

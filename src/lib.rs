@@ -78,7 +78,6 @@ pub trait Provider where
     fn identifier(&self) -> &<<Self as Provider>::J as Job>::PI;
     fn score(&self) -> <<Self as Provider>::J as Job>::S;
 
-
     fn punish(self, mut failures: MutexGuard<HashMap<Self, i32>>) {
         let value = failures.entry(self).or_insert(0);
         *value += 1;
@@ -208,7 +207,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             }
         }
     }
-
 }
 
 pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
