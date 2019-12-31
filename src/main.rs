@@ -21,6 +21,8 @@ mod mirror_config;
 
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
 static JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
+// integer values are easier to handle than float, since we don't have things like NaN. Hence, we just
+// scale the float values from the JSON file in order to obtain integer values.
 static SCORE_SCALE: u64 = 1_000_000_000_000_000;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -53,7 +55,7 @@ impl Provider for DownloadProvider {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
 struct MirrorResults {
     namelookup_duration: Duration,
     connect_duration: Duration,
@@ -455,7 +457,14 @@ fn main() {
             }
         }).collect()
     } else {
-        unimplemented!("TODO")
+        let default_mirror_result: MirrorResults = Default::default();
+        mirror_config.mirrors_predefined.into_iter().map(|uri| {
+            DownloadProvider {
+                uri: uri.parse::<Uri>().unwrap(),
+                mirror_results: default_mirror_result,
+                country: "Unknown".to_owned(),
+            }
+        }).collect()
     };
     println!("{:#?}", providers);
     let mut job_context: JobContext<DownloadJob> = JobContext::new(providers);
