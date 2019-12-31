@@ -12,7 +12,7 @@ use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
 use serde::Deserialize;
-use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig};
+use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig, MirrorConfig};
 
 mod mirror_config;
 
@@ -365,14 +365,16 @@ pub struct MirrorUrl {
 }
 
 impl MirrorUrl {
-    fn filter(&self, config: &MirrorsAutoConfig) -> bool {
-        if config.https_required && self.protocol != MirrorProtocol::Https {
+    fn filter(&self, config: &MirrorConfig) -> bool {
+        if config.mirrors_auto.https_required && self.protocol != MirrorProtocol::Https {
             false
-        } else if config.ipv4 && !self.ipv4 {
+        } else if config.mirrors_auto.ipv4 && !self.ipv4 {
             false
-        } else if config.ipv6 && !self.ipv6 {
+        } else if config.mirrors_auto.ipv6 && !self.ipv6 {
             false
-        } else if config.max_score < self.score {
+        } else if config.mirrors_auto.max_score < self.score {
+            false
+        } else if config.mirrors_blacklist.contains(&self.url) {
             false
         } else {
             true
@@ -408,7 +410,7 @@ fn main() {
         let mirror_urls = fetch_providers();
         for mirror in mirror_urls {
             println!("{}", mirror.url);
-            mirror.filter(&mirror_config.mirrors_auto);
+            mirror.filter(&mirror_config);
         }
         // TODO
     } else {
