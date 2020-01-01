@@ -1,10 +1,8 @@
 extern crate http;
 extern crate rand;
 extern crate flexo;
-extern crate serde;
 
-use std::str;
-use curl::easy::{Easy, Easy2, Handler, WriteError};
+use curl::easy::{Easy2, Handler, WriteError};
 use std::time::Duration;
 use std::io::prelude::*;
 use std::io;
@@ -13,18 +11,14 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
-use serde::Deserialize;
-use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig};
+use crate::mirror_config::MirrorSelectionMethod;
 use std::cmp::Ordering;
+use crate::mirror_fetch::MirrorUrl;
 
 mod mirror_config;
-
+mod mirror_fetch;
 
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
-static JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
-// integer values are easier to handle than float, since we don't have things like NaN. Hence, we just
-// scale the float values from the JSON file in order to obtain integer values.
-static SCORE_SCALE: u64 = 1_000_000_000_000_000;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct DownloadProvider {
@@ -57,7 +51,7 @@ impl Provider for DownloadProvider {
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
-struct MirrorResults {
+pub struct MirrorResults {
     namelookup_duration: Duration,
     connect_duration: Duration,
 }
@@ -109,6 +103,7 @@ impl Job for DownloadJob {
         let url = format!("{}", &self.uri);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
+        // TODO disable the speed limit before releasing this.
         channel.handle.max_recv_speed(3_495_253 * 2).unwrap();
         channel.handle.low_speed_time(std::time::Duration::from_secs(8)).unwrap();
         channel.handle.low_speed_limit(524_288_000).unwrap();
@@ -285,145 +280,10 @@ impl Channel for DownloadChannel {
         &mut self.state
     }
 }
-
-#[derive(Deserialize, Debug)]
-struct MirrorListOption {
-    pub urls: Vec<MirrorUrlOption>,
-}
-
-struct MirrorList {
-    urls: Vec<MirrorUrl>,
-}
-
-impl From<MirrorListOption> for MirrorList {
-    fn from(mirror_list_option: MirrorListOption) -> Self {
-        let urls: Vec<Option<MirrorUrl>> = mirror_list_option.urls.into_iter().map(|mirror_url_option| {
-            mirror_url_option.mirror_url()
-        }).collect();
-        let urls: Vec<MirrorUrl> = urls.into_iter().filter_map(|x| x).collect();
-        MirrorList {
-            urls
-        }
-    }
-}
-
-#[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug, PartialEq, Eq)]
-pub enum MirrorProtocol {
-    Http,
-    Https,
-    Rsync,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct MirrorUrlOption {
-    pub url: String,
-    pub protocol: Option<MirrorProtocol>,
-    pub last_sync: Option<String>,
-    pub completion_pct: Option<f64>,
-    pub delay: Option<i32>,
-    pub duration_avg: Option<f64>,
-    pub duration_stddev: Option<f64>,
-    pub score: Option<f64>,
-    pub country: Option<String>,
-    pub ipv4: Option<bool>,
-    pub ipv6: Option<bool>,
-}
-
-impl MirrorUrlOption {
-    pub fn mirror_url(self) -> Option<MirrorUrl> {
-        let protocol = self.protocol?;
-        let last_sync = self.last_sync?;
-        let completion_pct = self.completion_pct?;
-        let delay = self.delay?;
-        let duration_avg = self.duration_avg?;
-        let duration_stddev = self.duration_stddev?;
-        let score = (self.score? * SCORE_SCALE as f64) as u64;
-        let country = self.country?;
-        let ipv4 = self.ipv4?;
-        let ipv6 = self.ipv6?;
-        Some(MirrorUrl {
-            url: self.url,
-            protocol,
-            last_sync,
-            completion_pct,
-            delay,
-            duration_avg,
-            duration_stddev,
-            score,
-            country,
-            ipv4,
-            ipv6
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct MirrorUrl {
-    url: String,
-    protocol: MirrorProtocol,
-    last_sync: String,
-    completion_pct: f64,
-    delay: i32,
-    duration_avg: f64,
-    duration_stddev: f64,
-    score: u64,
-    country: String,
-    ipv4: bool,
-    ipv6: bool,
-}
-
-impl MirrorUrl {
-    fn filter_predicate(&self, config: &MirrorConfig) -> bool {
-        !(
-            (config.mirrors_auto.https_required && self.protocol != MirrorProtocol::Https) ||
-            (config.mirrors_auto.ipv4 && !self.ipv4) ||
-            (config.mirrors_auto.ipv6 && !self.ipv6) ||
-            (config.mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)) ||
-            (config.mirrors_blacklist.contains(&self.url)))
-    }
-}
-
-fn fetch_json() -> String {
-    let mut received = Vec::new();
-    let mut easy = Easy::new();
-    easy.url(JSON_URI).unwrap();
-    {
-        let mut transfer = easy.transfer();
-        transfer.write_function(|data| {
-            received.extend_from_slice(data);
-            Ok(data.len())
-        }).unwrap();
-        transfer.perform().unwrap();
-    }
-    std::str::from_utf8(received.as_slice()).unwrap().to_owned()
-}
-
-fn fetch_providers() -> Vec<MirrorUrl> {
-    let json = fetch_json();
-    let mirror_list_option: MirrorListOption = serde_json::from_str(&json).unwrap();
-    let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
-    mirror_list.urls
-}
-
-fn measure_latency(url: &str, timeout: Duration) -> Option<MirrorResults> {
-    let mut easy = Easy::new();
-    easy.url(url).unwrap();
-    easy.follow_location(true).unwrap();
-    easy.connect_only(true).unwrap();
-    easy.dns_cache_timeout(Duration::from_secs(3600 * 24)).unwrap();
-    easy.connect_timeout(timeout).unwrap();
-    easy.transfer().perform().ok()?;
-    Some(MirrorResults {
-        namelookup_duration: easy.namelookup_time().ok()?,
-        connect_duration: easy.connect_time().ok()?,
-    })
-}
-
 fn main() {
     let mirror_config = mirror_config::load_config();
     let providers: Vec<DownloadProvider> = if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        let mut mirror_urls: Vec<MirrorUrl> = fetch_providers();
+        let mut mirror_urls: Vec<MirrorUrl> = mirror_fetch::fetch_providers();
         mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
         let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
             .into_iter()
@@ -433,7 +293,7 @@ fn main() {
         let mut mirrors_with_latencies = Vec::new();
         let timeout = Duration::from_millis(mirror_config.mirrors_auto.timeout);
         for mirror in filtered_mirror_urls.into_iter() {
-            match measure_latency(&mirror.url, timeout) {
+            match mirror_fetch::measure_latency(&mirror.url, timeout) {
                 None => {},
                 Some(latency) => {
                     mirrors_with_latencies.push((mirror, latency));
