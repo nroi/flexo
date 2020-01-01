@@ -80,6 +80,10 @@ struct DummyJob {
     order: DummyOrder,
 }
 
+#[derive(Copy, Clone)]
+struct DummyProperties {}
+impl Properties for DummyProperties {}
+
 impl Job for DummyJob {
     type S = i32;
     type JS = DummyState;
@@ -89,6 +93,7 @@ impl Job for DummyJob {
     type E = DummyJobError;
     type CS = DummyChannelState;
     type PI = i32;
+    type PR = DummyProperties;
 
     fn provider(&self) -> &DummyProvider {
         &self.provider
@@ -98,7 +103,7 @@ impl Job for DummyJob {
         self.order.clone()
     }
 
-    fn execute(self, channel: DummyChannel) -> JobResult<DummyJob> {
+    fn execute(self, channel: DummyChannel, _properties: DummyProperties) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
             (DummyOrder::Success(_), DummyProvider::Success(_)) =>
                 JobResult::Complete(JobCompleted::new(channel, self.provider)),
@@ -270,7 +275,7 @@ fn provider_lowest_score() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone(), p2.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.schedule(DummyOrder::Success(0)) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
@@ -286,7 +291,7 @@ fn second_provider_success_after_first_provider_failure() {
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 0 });
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone(), p2.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     match job_context.schedule(DummyOrder::Success(0)) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _ }) => {
@@ -305,7 +310,7 @@ fn next_order_success_after_first_order_failed() {
     // that a failing job does not cause all available providers to be "blacklisted", i.e., when some mechanism
     // is used to downgrade a provider after it has failed to complete an order, a subsequent order should still
     // be able to use this provider, even though it has been downgraded.
-    let mut job_context: JobContext<DummyJob> = JobContext::new(successful_providers());
+    let mut job_context: JobContext<DummyJob> = JobContext::new(successful_providers(), DummyProperties{});
     job_context.schedule(DummyOrder::Failure(0));
     match job_context.schedule(DummyOrder::Success(1)) {
         ScheduleOutcome::Skipped => assert!(false, EXPECT_SCHEDULED),
@@ -328,7 +333,7 @@ fn provider_no_two_simultaneous_jobs() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone(), p2.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.schedule(DummyOrder::InfiniteBlocking(0)) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
@@ -350,7 +355,7 @@ fn provider_two_simultaneous_jobs_if_required() {
     // necessary if the number of providers is low and the frequency of newly arriving jobs is high.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.schedule(DummyOrder::InfiniteBlocking(0)) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx }) => {
@@ -374,7 +379,7 @@ fn order_skipped_if_already_in_progress() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let order = DummyOrder::InfiniteBlocking(0);
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     wait_until_provider_selected(job_context.schedule(order.clone()));
     match job_context.schedule(order.clone()) {
         ScheduleOutcome::Skipped => {},
@@ -390,7 +395,7 @@ fn order_not_skipped_after_completed() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let order = DummyOrder::Success(0);
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     wait_until_job_completed(job_context.schedule(order.clone()));
     match job_context.schedule(order.clone()) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
@@ -406,7 +411,7 @@ fn best_provider_selected() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: -1 });
     let p3 = DummyProvider::Success(DummyProviderItem { identifier: 3, score: 2 });
     let providers = vec![p1.clone(), p2.clone(), p3.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = job_context.schedule(DummyOrder::Success(0));
 
     let DummyJobSuccess { provider, state: _ } = wait_until_job_completed(result);
@@ -420,7 +425,7 @@ fn job_continued_after_partial_completion() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 2 });
     let p3 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 3 });
     let providers = vec![p1.clone(), p2.clone(), p3.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let (provider_first_scheduled, provider_finally_scheduled) = match job_context.schedule(DummyOrder::Success(0)) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx}) => {
@@ -444,7 +449,7 @@ fn no_infinite_loop() {
     // if all providers fail to fulfil the order, no infinite loop results.
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.schedule(DummyOrder::Success(0)) {
         ScheduleOutcome::Skipped => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx: _}) => {
@@ -467,7 +472,7 @@ fn downgrade_provider() {
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 2 });
     let providers = vec![p1.clone(), p2.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.schedule(DummyOrder::Success(0));
     wait_until_job_completed(result1);
     let result2 = job_context.schedule(DummyOrder::Success(1));
@@ -484,7 +489,7 @@ fn no_downgrade_if_all_providers_fail() {
     // the client or the order.
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.schedule(DummyOrder::Success(0));
     let DummyJobFailure { channel_state: _, failures } = wait_until_job_failed(result1);
     let failures = failures.get(&p1);
@@ -497,7 +502,7 @@ fn no_new_channel_established() {
     // it can be reused by a subsequent job.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.schedule(DummyOrder::Success(0));
     wait_until_job_completed(result1);
     let channel_establishment = match job_context.schedule(DummyOrder::Success(1)) {
@@ -520,7 +525,7 @@ fn new_channel_established_because_channel_in_use() {
     // we cannot reuse the existing channel, therefore, a new channel must be established.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.schedule(DummyOrder::InfiniteBlocking(0));
     wait_until_channel_established(result1);
     let channel_establishment = match job_context.schedule(DummyOrder::Success(1)) {
@@ -550,7 +555,7 @@ fn job_panic_results_in_main_panic() {
     let order1 = DummyOrder::Panic(0);
     let order2 = DummyOrder::Success(1);
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.schedule(order1);
     wait_until_job_failed(result1);
     job_context.schedule(order2);
@@ -564,7 +569,7 @@ fn reset_after_success() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let order1 = DummyOrder::Success(0);
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let DummyJobSuccess { provider: _, state } = wait_until_job_completed(job_context.schedule(order1));
     assert_eq!(state.is_reset, true);
 }
@@ -575,7 +580,7 @@ fn reset_after_failure() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let order1 = DummyOrder::Failure(0);
     let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let DummyJobFailure { channel_state, failures: _ } = wait_until_job_failed(job_context.schedule(order1));
     assert_eq!(channel_state.is_reset, true);
 }

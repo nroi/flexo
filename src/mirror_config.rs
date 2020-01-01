@@ -4,6 +4,7 @@ extern crate serde;
 
 use std::fs;
 use serde::Deserialize;
+use flexo::Properties;
 
 #[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, PartialEq, Eq)]
@@ -13,13 +14,13 @@ pub enum MirrorSelectionMethod {
 }
 
 #[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MirrorsRandomOrSort {
     Sort,
     Random,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub struct MirrorsAutoConfig {
     pub https_required: bool,
     pub ipv4: bool,
@@ -28,7 +29,12 @@ pub struct MirrorsAutoConfig {
     pub num_mirrors: usize,
     pub mirrors_random_or_sort: MirrorsRandomOrSort,
     pub timeout: u64,
+    pub low_speed_limit: Option<u32>,
+    pub low_speed_time_secs: Option<u64>,
+    pub max_speed_limit: Option<u64>,
 }
+
+impl Properties for MirrorsAutoConfig {}
 
 #[derive(Deserialize, Debug)]
 pub struct MirrorConfig {

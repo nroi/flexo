@@ -98,10 +98,11 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type E: std::fmt::Debug;
     type CS: ChannelState<J=Self> + std::marker::Copy;
     type PI: std::cmp::Eq;
+    type PR: Properties + std::marker::Copy + std::marker::Send + std::marker::Sync;
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
-    fn execute(self, channel: Self::C) -> JobResult<Self>;
+    fn execute(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>) -> (Self::C, ChannelEstablishment) {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
@@ -129,7 +130,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         provider_failures: &mut Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P , i32>>>,
         provider_current_usages: &mut Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, i32>>>,
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
-        tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>
+        tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
+        properties: <<Self as Order>::J as Job>::PR,
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -149,7 +151,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let job = provider.new_job(self_cloned);
             let (channel, channel_establishment) = job.get_channel(&channels);
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-            let result = job.execute(channel);
+            let result = job.execute(channel, properties);
             match &result {
                 JobResult::Complete(_) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
@@ -237,6 +239,9 @@ pub enum ChannelEstablishment {
 /// Marker trait.
 pub trait JobState {}
 
+/// Marker trait.
+pub trait Properties {}
+
 #[derive(Debug)]
 pub struct JobStateItem<J> where J: Job {
     pub order: J::O,
@@ -262,6 +267,7 @@ pub struct JobContext<J> where J: Job, {
     providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
+    properties: J::PR
 }
 
 pub struct ScheduledItem<J> where J: Job {
@@ -281,7 +287,7 @@ pub enum FlexoMessage <P> {
 }
 
 impl <J> JobContext<J> where J: Job {
-    pub fn new(initial_providers: Vec<J::P>) -> Self {
+    pub fn new(initial_providers: Vec<J::P>, properties: J::PR) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
         let orders_in_progress: Arc<Mutex<HashSet<J::O>>> = Arc::new(Mutex::new(HashSet::new()));
@@ -295,6 +301,7 @@ impl <J> JobContext<J> where J: Job {
             provider_failures: provider_records,
             providers_in_use,
             panic_monitor: thread_mutexes,
+            properties,
         }
     }
 
@@ -335,6 +342,7 @@ impl <J> JobContext<J> where J: Job {
             let orders_in_progress = Arc::clone(&self.orders_in_progress);
             let order_cloned = order;
             let (tx, rx) = channel::<FlexoMessage<J::P>>();
+            let x = self.properties;
             let t = thread::spawn(move || {
                 let _lock = mutex_cloned.lock().unwrap();
                 let order = order_cloned.clone();
@@ -343,7 +351,8 @@ impl <J> JobContext<J> where J: Job {
                     &mut provider_failures_cloned,
                     &mut providers_in_use_cloned,
                     channels_cloned.clone(),
-                    tx
+                    tx,
+                    x,
                 );
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {

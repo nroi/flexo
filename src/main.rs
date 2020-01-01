@@ -11,7 +11,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
-use crate::mirror_config::MirrorSelectionMethod;
+use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig};
 use std::cmp::Ordering;
 use crate::mirror_fetch::MirrorUrl;
 
@@ -90,6 +90,7 @@ impl Job for DownloadJob {
     type E = DownloadJobError;
     type CS = DownloadChannelState;
     type PI = Uri;
+    type PR = MirrorsAutoConfig;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider
@@ -99,14 +100,25 @@ impl Job for DownloadJob {
         self.order.clone()
     }
 
-    fn execute(self, mut channel: DownloadChannel) -> JobResult<DownloadJob> {
+    fn execute(self, mut channel: DownloadChannel, properties: MirrorsAutoConfig) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
         // TODO disable the speed limit before releasing this.
-        channel.handle.max_recv_speed(3_495_253 * 2).unwrap();
-        channel.handle.low_speed_time(std::time::Duration::from_secs(8)).unwrap();
-        channel.handle.low_speed_limit(524_288_000).unwrap();
+        match properties.low_speed_limit {
+            None => {},
+            Some(speed) => {
+                channel.handle.low_speed_limit(speed).unwrap();
+                let low_speed_time_secs = properties.low_speed_time_secs.unwrap_or(4);
+                channel.handle.low_speed_time(std::time::Duration::from_secs(low_speed_time_secs)).unwrap();
+            },
+        }
+        match properties.max_speed_limit {
+            None => {},
+            Some(speed) => {
+                channel.handle.max_recv_speed(speed).unwrap();
+            },
+        }
         channel.handle.follow_location(true).unwrap();
         channel.handle.max_redirections(3).unwrap();
         match channel.progress_indicator() {
@@ -322,7 +334,7 @@ fn main() {
         }).collect()
     };
     println!("{:#?}", providers);
-    let mut job_context: JobContext<DownloadJob> = JobContext::new(providers);
+    let mut job_context: JobContext<DownloadJob> = JobContext::new(providers, mirror_config.mirrors_auto);
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
