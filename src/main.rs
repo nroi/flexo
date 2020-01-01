@@ -113,6 +113,7 @@ impl Job for DownloadJob {
         channel.handle.low_speed_time(std::time::Duration::from_secs(8)).unwrap();
         channel.handle.low_speed_limit(524_288_000).unwrap();
         channel.handle.follow_location(true).unwrap();
+        channel.handle.max_redirections(3).unwrap();
         match channel.progress_indicator() {
             None => {},
             Some(start) => {
