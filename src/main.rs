@@ -11,12 +11,13 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use flexo::*;
-use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig};
+use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig, MirrorConfig};
 use std::cmp::Ordering;
 use crate::mirror_fetch::MirrorUrl;
 
 mod mirror_config;
 mod mirror_fetch;
+mod mirror_cache;
 
 static DIRECTORY: &str = "/tmp/curl_ex_out/";
 
@@ -292,37 +293,55 @@ impl Channel for DownloadChannel {
         &mut self.state
     }
 }
+
+fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+    let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
+        .into_iter()
+        .filter(|x| x.filter_predicate(&mirror_config))
+        .take(mirror_config.mirrors_auto.num_mirrors)
+        .collect();
+    let mut mirrors_with_latencies = Vec::new();
+    let timeout = Duration::from_millis(mirror_config.mirrors_auto.timeout);
+    for mirror in filtered_mirror_urls.into_iter() {
+        match mirror_fetch::measure_latency(&mirror.url, timeout) {
+            None => {},
+            Some(latency) => {
+                mirrors_with_latencies.push((mirror, latency));
+            }
+        }
+    }
+    mirrors_with_latencies.sort_unstable_by_key(|(_, latency)| {
+        *latency
+    });
+
+    mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
+        DownloadProvider {
+            uri: mirror.url.parse::<Uri>().unwrap(),
+            mirror_results,
+            country: mirror.country,
+        }
+    }).collect()
+}
+
 fn main() {
     let mirror_config = mirror_config::load_config();
     let providers: Vec<DownloadProvider> = if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        let mut mirror_urls: Vec<MirrorUrl> = mirror_fetch::fetch_providers();
-        mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
-        let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
-            .into_iter()
-            .filter(|x| x.filter_predicate(&mirror_config))
-            .take(mirror_config.mirrors_auto.num_mirrors)
-            .collect();
-        let mut mirrors_with_latencies = Vec::new();
-        let timeout = Duration::from_millis(mirror_config.mirrors_auto.timeout);
-        for mirror in filtered_mirror_urls.into_iter() {
-            match mirror_fetch::measure_latency(&mirror.url, timeout) {
-                None => {},
-                Some(latency) => {
-                    mirrors_with_latencies.push((mirror, latency));
-                }
-            }
+        match mirror_fetch::fetch_providers() {
+            Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
+            Err(e) => {
+                println!("Unable to fetch mirrors remotely: {:?}", e);
+                println!("Will try to fetch them from cache.");
+                let mirrors = mirror_cache::fetch().unwrap();
+                mirrors.iter().map(|url| {
+                    DownloadProvider {
+                        uri: url.parse::<Uri>().unwrap(),
+                        mirror_results: MirrorResults::default(),
+                        country: "unknown".to_owned(),
+                    }
+                }).collect()
+            },
         }
-        mirrors_with_latencies.sort_unstable_by_key(|(_, latency)| {
-            *latency
-        });
-
-        mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
-            DownloadProvider {
-                uri: mirror.url.parse::<Uri>().unwrap(),
-                mirror_results,
-                country: mirror.country,
-            }
-        }).collect()
     } else {
         let default_mirror_result: MirrorResults = Default::default();
         mirror_config.mirrors_predefined.into_iter().map(|uri| {
@@ -334,6 +353,10 @@ fn main() {
         }).collect()
     };
     println!("{:#?}", providers);
+
+    let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
+    mirror_cache::store(&urls);
+
     let mut job_context: JobContext<DownloadJob> = JobContext::new(providers, mirror_config.mirrors_auto);
 
     let stdin = io::stdin();

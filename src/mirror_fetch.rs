@@ -109,26 +109,26 @@ impl MirrorUrl {
     }
 }
 
-fn fetch_json() -> String {
+fn fetch_json() -> Result<String, curl::Error> {
     let mut received = Vec::new();
     let mut easy = Easy::new();
-    easy.url(JSON_URI).unwrap();
+    easy.url(JSON_URI)?;
     {
         let mut transfer = easy.transfer();
         transfer.write_function(|data| {
             received.extend_from_slice(data);
             Ok(data.len())
-        }).unwrap();
-        transfer.perform().unwrap();
+        })?;
+        transfer.perform()?
     }
-    std::str::from_utf8(received.as_slice()).unwrap().to_owned()
+    Ok(std::str::from_utf8(received.as_slice()).unwrap().to_owned())
 }
 
-pub fn fetch_providers() -> Vec<MirrorUrl> {
-    let json = fetch_json();
+pub fn fetch_providers() -> Result<Vec<MirrorUrl>, curl::Error> {
+    let json = fetch_json()?;
     let mirror_list_option: MirrorListOption = serde_json::from_str(&json).unwrap();
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
-    mirror_list.urls
+    Ok(mirror_list.urls)
 }
 
 pub fn measure_latency(url: &str, timeout: Duration) -> Option<MirrorResults> {
