@@ -209,6 +209,11 @@ impl JobState for FileState {
     type J = DownloadJob;
 }
 
+#[derive(Debug)]
+struct DownloadState {
+    job_state: JobStateItem<DownloadJob>
+}
+
 impl DownloadState {
     pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<Self> {
         let f = OpenOptions::new().create(true).append(true).open(DIRECTORY.to_owned() + &order.filepath)?;
@@ -233,15 +238,6 @@ impl DownloadState {
         }
         Ok(())
     }
-}
-
-#[derive(Debug)]
-struct DownloadState {
-    job_state: JobStateItem<DownloadJob>
-}
-
-impl JobState for DownloadState {
-    type J = DownloadJob;
 }
 
 impl Handler for DownloadState {
