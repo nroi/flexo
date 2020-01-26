@@ -305,6 +305,7 @@ impl <J> JobContext<J> where J: Job {
         }
     }
 
+    //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
