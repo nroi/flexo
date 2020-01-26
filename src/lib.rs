@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
-use std::sync::mpsc::{channel, Sender, Receiver};
 use std::collections::hash_map::Entry;
+use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -336,13 +336,13 @@ impl <J> JobContext<J> where J: Job {
         };
 
         if !order_in_progress {
+            let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
             let channels_cloned = Arc::clone(&self.channels);
             let mut providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
             let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
             let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
             let orders_in_progress = Arc::clone(&self.orders_in_progress);
             let order_cloned = order;
-            let (tx, rx) = channel::<FlexoMessage<J::P>>();
             let properties = self.properties;
             let t = thread::spawn(move || {
                 let _lock = mutex_cloned.lock().unwrap();

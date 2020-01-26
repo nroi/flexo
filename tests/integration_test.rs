@@ -2,8 +2,8 @@ extern crate http;
 extern crate rand;
 
 use flexo::*;
-use std::sync::mpsc::Receiver;
 use std::collections::HashMap;
+use crossbeam::crossbeam_channel::Receiver;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
 static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
