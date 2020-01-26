@@ -342,7 +342,7 @@ impl <J> JobContext<J> where J: Job {
             let orders_in_progress = Arc::clone(&self.orders_in_progress);
             let order_cloned = order;
             let (tx, rx) = channel::<FlexoMessage<J::P>>();
-            let x = self.properties;
+            let properties = self.properties;
             let t = thread::spawn(move || {
                 let _lock = mutex_cloned.lock().unwrap();
                 let order = order_cloned.clone();
@@ -352,7 +352,7 @@ impl <J> JobContext<J> where J: Job {
                     &mut providers_in_use_cloned,
                     channels_cloned.clone(),
                     tx,
-                    x,
+                    properties,
                 );
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {
