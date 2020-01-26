@@ -91,7 +91,7 @@ pub trait Provider where
 
 pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
     type S: std::cmp::Ord;
-    type JS: JobState;
+    type JS: JobState<J=Self>;
     type C: Channel<J=Self>;
     type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash;
     type P: Provider<J=Self>;
@@ -103,17 +103,17 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
     fn execute(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
-    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>) -> (Self::C, ChannelEstablishment) {
+    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>) -> (Self::C, ChannelEstablishment) {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(mut channel) => {
                 println!("Reusing previous channel: {:?}", &self.provider());
-                channel.reset_order(self.order());
+                channel.reset_order(self.order(), tx);
                 (channel, ChannelEstablishment::ExistingChannel)
             }
             None => {
                 println!("need to create new channel: {:?}", &self.provider());
-                let channel = self.order().new_channel();
+                let channel = self.order().new_channel(tx);
                 (channel, ChannelEstablishment::NewChannel)
             }
         }
@@ -122,7 +122,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
-    fn new_channel(self) -> <<Self as Order>::J as Job>::C;
+    fn new_channel(self, tx: Sender<FlexoProgress>) -> <<Self as Order>::J as Job>::C;
 
     fn try_until_success(
         self,
@@ -131,6 +131,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         provider_current_usages: &mut Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, i32>>>,
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
+        tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
@@ -149,7 +150,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             println!("selected provider: {:?}", &provider);
             let self_cloned: Self = self.clone();
             let job = provider.new_job(self_cloned);
-            let (channel, channel_establishment) = job.get_channel(&channels);
+            let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone());
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
             let result = job.execute(channel, properties);
             match &result {
@@ -215,7 +216,7 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
     type J: Job;
 
     fn progress_indicator(&self) -> Option<u64>;
-    fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O);
+    fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>);
     fn channel_state_item(&mut self) -> &mut JobStateItem<Self::J>;
     fn channel_state(&self) -> <<Self as Channel>::J as Job>::CS;
     fn channel_state_ref(&mut self) -> &mut <<Self as Channel>::J as Job>::CS;
@@ -237,7 +238,9 @@ pub enum ChannelEstablishment {
 }
 
 /// Marker trait.
-pub trait JobState {}
+pub trait JobState {
+    type J: Job;
+}
 
 /// Marker trait.
 pub trait Properties {}
@@ -245,11 +248,12 @@ pub trait Properties {}
 #[derive(Debug)]
 pub struct JobStateItem<J> where J: Job {
     pub order: J::O,
-    // Used to manage the resources acquired for a job. It is set to Some(_) if this there is an active job associated
+    // Used to manage the resources acquired for a job. It is set to Some(_) if there is an active job associated
     // with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
     // reason for using Optional (rather than just JS) is that this way, drop() will called on the JS as soon as we
     // reset the state to None, so that acquired resources are released as soon as possible.
-    pub state: Option<J::JS>
+    pub state: Option<J::JS>,
+    pub tx: Sender<FlexoProgress>,
 }
 
 impl <J> JobStateItem<J> where J: Job {
@@ -273,6 +277,7 @@ pub struct JobContext<J> where J: Job, {
 pub struct ScheduledItem<J> where J: Job {
     pub join_handle: JoinHandle<JobOutcome<J>>,
     pub rx: Receiver<FlexoMessage<J::P>>,
+    pub rx_progress: Receiver<FlexoProgress>,
 }
 
 pub enum ScheduleOutcome<J> where J: Job {
@@ -284,6 +289,12 @@ pub enum ScheduleOutcome<J> where J: Job {
 pub enum FlexoMessage <P> {
     ProviderSelected(P),
     ChannelEstablished(ChannelEstablishment),
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub enum FlexoProgress {
+    Progress(u64),
+    Completed,
 }
 
 impl <J> JobContext<J> where J: Job {
@@ -327,6 +338,8 @@ impl <J> JobContext<J> where J: Job {
         let order_in_progress = {
             let mut locked = self.orders_in_progress.lock().unwrap();
             if locked.contains(&order) {
+                // TODO locked should also contain the rx_progress, so that we can return it if the
+                // order is already in progress.
                 println!("order {:?} already in progress: nothing to do.", &order);
                 true
             } else {
@@ -337,6 +350,8 @@ impl <J> JobContext<J> where J: Job {
 
         if !order_in_progress {
             let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
+            let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
+            // TODO make use of the channels so that new consumers have access to the current state of an ongoing job.
             let channels_cloned = Arc::clone(&self.channels);
             let mut providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
             let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
@@ -353,6 +368,7 @@ impl <J> JobContext<J> where J: Job {
                     &mut providers_in_use_cloned,
                     channels_cloned.clone(),
                     tx,
+                    tx_progress,
                     properties,
                 );
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
@@ -376,7 +392,7 @@ impl <J> JobContext<J> where J: Job {
                 }
             });
 
-            ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx })
+            ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
         } else {
             ScheduleOutcome::Skipped
         }

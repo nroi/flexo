@@ -10,6 +10,7 @@ use http::Uri;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
+use crossbeam::crossbeam_channel::Sender;
 use flexo::*;
 use crate::mirror_config::{MirrorSelectionMethod, MirrorsAutoConfig, MirrorConfig};
 use std::cmp::Ordering;
@@ -169,9 +170,9 @@ struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self) -> DownloadChannel {
+    fn new_channel(self, tx: Sender<FlexoProgress>) -> DownloadChannel {
         DownloadChannel {
-            handle: Easy2::new(DownloadState::new(self).unwrap()),
+            handle: Easy2::new(DownloadState::new(self, tx).unwrap()),
             state: DownloadChannelState::new(),
         }
     }
@@ -204,10 +205,12 @@ struct FileState {
     size_written: u64,
 }
 
-impl JobState for FileState {}
+impl JobState for FileState {
+    type J = DownloadJob;
+}
 
 impl DownloadState {
-    pub fn new(order: DownloadOrder) -> std::io::Result<Self> {
+    pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<Self> {
         let f = OpenOptions::new().create(true).append(true).open(DIRECTORY.to_owned() + &order.filepath)?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
@@ -217,13 +220,14 @@ impl DownloadState {
                 buf_writer,
                 size_written,
             }),
+            tx,
         };
         Ok(DownloadState { job_state })
     }
 
-    pub fn reset(&mut self, order: DownloadOrder) -> std::io::Result<()> {
+    pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<()> {
         if order != self.job_state.order {
-            let c = DownloadState::new(order.clone())?;
+            let c = DownloadState::new(order.clone(), tx)?;
             self.job_state.state = c.job_state.state;
             self.job_state.order = order;
         }
@@ -236,7 +240,9 @@ struct DownloadState {
     job_state: JobStateItem<DownloadJob>
 }
 
-impl JobState for DownloadState {}
+impl JobState for DownloadState {
+    type J = DownloadJob;
+}
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
@@ -246,6 +252,8 @@ impl Handler for DownloadState {
                 file_state.size_written += data.len() as u64;
                 match file_state.buf_writer.write(data) {
                     Ok(size) => {
+                        let len = file_state.buf_writer.get_ref().metadata().unwrap().len();
+                        self.job_state.tx.send(FlexoProgress::Progress(len)).unwrap();
                         Ok(size)
                     },
                     Err(e) => {
@@ -277,8 +285,8 @@ impl Channel for DownloadChannel {
         }
     }
 
-    fn reset_order(&mut self, order: DownloadOrder) {
-        self.handle.get_mut().reset(order).unwrap();
+    fn reset_order(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) {
+        self.handle.get_mut().reset(order, tx).unwrap();
     }
 
     fn channel_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
