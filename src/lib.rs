@@ -278,6 +278,8 @@ pub struct JobContext<J> where J: Job, {
 pub struct ScheduledItem<J> where J: Job {
     pub join_handle: JoinHandle<JobOutcome<J>>,
     pub rx: Receiver<FlexoMessage<J::P>>,
+    // TODO reconsider if we really need this variable. We have introduced it before we decided
+    // to use a simple filesystem stat + polling mechanism.
     pub rx_progress: Receiver<FlexoProgress>,
 }
 
