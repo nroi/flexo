@@ -39,7 +39,7 @@ impl Provider for DownloadProvider {
         DownloadJob {
             provider,
             uri,
-            order
+            order,
         }
     }
 
@@ -249,7 +249,8 @@ impl Handler for DownloadState {
                 match file_state.buf_writer.write(data) {
                     Ok(size) => {
                         let len = file_state.buf_writer.get_ref().metadata().unwrap().len();
-                        self.job_state.tx.send(FlexoProgress::Progress(len)).unwrap();
+                        // TODO it seems that no one is listening.
+                        self.job_state.tx.send(FlexoProgress::Progress(len));
                         Ok(size)
                     },
                     Err(e) => {

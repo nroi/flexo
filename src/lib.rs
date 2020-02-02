@@ -103,6 +103,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
     fn execute(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
+
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>) -> (Self::C, ChannelEstablishment) {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
@@ -281,7 +282,7 @@ pub struct ScheduledItem<J> where J: Job {
 }
 
 pub enum ScheduleOutcome<J> where J: Job {
-    Skipped,
+    Skipped(Receiver<FlexoProgress>),
     Scheduled(ScheduledItem<J>),
 }
 
@@ -319,7 +320,6 @@ impl <J> JobContext<J> where J: Job {
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
-        let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
             match mutex.try_lock() {
                 Ok(_) => {
@@ -360,7 +360,7 @@ impl <J> JobContext<J> where J: Job {
             let order_cloned = order;
             let properties = self.properties;
             let t = thread::spawn(move || {
-                let _lock = mutex_cloned.lock().unwrap();
+//                let _lock = mutex_cloned.lock().unwrap();
                 let order = order_cloned.clone();
                 let result = order.try_until_success(
                     &mut providers_cloned,
@@ -394,7 +394,9 @@ impl <J> JobContext<J> where J: Job {
 
             ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
         } else {
-            ScheduleOutcome::Skipped
+            // TODO this won't work: We need to fetch an existing rx_progress from somewhere.
+            let (_, rx_progress) = unbounded::<FlexoProgress>();
+            ScheduleOutcome::Skipped(rx_progress)
         }
     }
 }
