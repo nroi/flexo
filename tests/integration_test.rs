@@ -108,13 +108,13 @@ impl Job for DummyJob {
     fn execute(self, channel: DummyChannel, _properties: DummyProperties) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
             (DummyOrder::Success(_), DummyProvider::Success(_)) => {
-                let _result = channel.collector.tx.send(FlexoProgress::Progress(0));
                 JobResult::Complete(JobCompleted::new(channel, self.provider))
             },
             (DummyOrder::Success(_), DummyProvider::PartialCompletion(_)) => {
                 JobResult::Partial(JobPartiallyCompleted { channel, continue_at: 1 })
             },
             (DummyOrder::InfiniteBlocking(_), DummyProvider::Success(_)) => {
+                let _result = channel.collector.tx.send(FlexoProgress::Progress(0));
                 std::thread::park(); // block forever.
                 JobResult::Complete(JobCompleted::new(channel, self.provider))
             }
@@ -592,16 +592,16 @@ fn reset_after_failure() {
 
 #[test]
 fn read_progress() {
+    // the rx_progress channel can be used to inform the caller about progress being made before the job
+    // has finished.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result = match job_context.schedule(DummyOrder::Success(0)) {
+    let result = match job_context.schedule(DummyOrder::InfiniteBlocking(0)) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress }) => {
             rx_progress.recv_timeout(std::time::Duration::from_millis(50)).unwrap()
         },
     };
-    // TODO perhaps we can update this so this test becomes more meaningful, because currently, we just test the code
-    // that has been written in this file, not in the actual library.
     assert_eq!(result, FlexoProgress::Progress(0));
 }
