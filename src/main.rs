@@ -216,7 +216,9 @@ struct DownloadState {
 
 impl DownloadState {
     pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<Self> {
-        let f = OpenOptions::new().create(true).append(true).open(DIRECTORY.to_owned() + &order.filepath)?;
+        let path = DIRECTORY.to_owned() + &order.filepath;
+        println!("Attempt to create file: {:?}", path);
+        let f = OpenOptions::new().create(true).append(true).open(path)?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
         let job_state = JobStateItem {
@@ -249,8 +251,7 @@ impl Handler for DownloadState {
                 match file_state.buf_writer.write(data) {
                     Ok(size) => {
                         let len = file_state.buf_writer.get_ref().metadata().unwrap().len();
-                        // TODO it seems that no one is listening.
-                        self.job_state.tx.send(FlexoProgress::Progress(len)).unwrap();
+                        let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
                         Ok(size)
                     },
                     Err(e) => {
