@@ -320,6 +320,7 @@ impl <J> JobContext<J> where J: Job {
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
+        let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
             match mutex.try_lock() {
                 Ok(_) => {
@@ -360,7 +361,7 @@ impl <J> JobContext<J> where J: Job {
             let order_cloned = order;
             let properties = self.properties;
             let t = thread::spawn(move || {
-//                let _lock = mutex_cloned.lock().unwrap();
+                let _lock = mutex_cloned.lock().unwrap();
                 let order = order_cloned.clone();
                 let result = order.try_until_success(
                     &mut providers_cloned,

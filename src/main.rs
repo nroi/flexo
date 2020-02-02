@@ -250,7 +250,7 @@ impl Handler for DownloadState {
                     Ok(size) => {
                         let len = file_state.buf_writer.get_ref().metadata().unwrap().len();
                         // TODO it seems that no one is listening.
-                        self.job_state.tx.send(FlexoProgress::Progress(len));
+                        self.job_state.tx.send(FlexoProgress::Progress(len)).unwrap();
                         Ok(size)
                     },
                     Err(e) => {
