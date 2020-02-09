@@ -605,20 +605,3 @@ fn read_progress() {
     };
     assert_eq!(result, FlexoProgress::Progress(0));
 }
-
-#[test]
-fn read_progress_existing() {
-    // Consider the case when the server receives a GET request for a file that is already being downloaded:
-    // We don't want to start a second download but instead make use of the existing download: So we need a way
-    // to "subscribe" to the existing download process, i.e., be informed whenever this process has made progress.
-    // TODO this "subscription" mechanism may be hard to implement, and we may not need it. An easier mechanism
-    // could be as follows:
-    //      * The HTTP server starts downloading the file, obtains the content length, and stores the information:
-    //        there is an ongoing download process for file f with content length l.
-    //      * CAUTION: GET requests coming in while we still haven't stored this information have to "wait in line",
-    //        to avoid race conditions (we don't want two ongoing downloads for the same file).
-    //      * If a new GET request for the same file comes in, we just do a stat-polling on the existing file.
-    //        meaning every 500 microseconds or so, we check if the file has grown and if so, we send it to the
-    //        client via sendfile.
-    unimplemented!()
-}
