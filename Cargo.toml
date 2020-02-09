@@ -8,9 +8,15 @@ edition = "2018"
 
 [dependencies]
 curl = "0.4.25"
+libc = "0.2"
 http = "0.2"
 rand = "0.7.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.5.5"
 crossbeam = "0.7.3"
+httparse = "1.3.4"
+time = "0.1.3"
+
+[dev-dependencies]
+tempfile = "3.1.0"

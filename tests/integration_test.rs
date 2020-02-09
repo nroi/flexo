@@ -605,3 +605,10 @@ fn read_progress() {
     };
     assert_eq!(result, FlexoProgress::Progress(0));
 }
+
+#[test]
+fn order_previously_completed() {
+    // A previously completed order can be fetched from the local cache, there is no need to communicate with
+    // a provider.
+    unimplemented!();
+}
