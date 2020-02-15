@@ -143,7 +143,6 @@ impl Job for DownloadJob {
     type CS = DownloadChannelState;
     type PI = Uri;
     type PR = MirrorsAutoConfig;
-    type CH = TcpStream;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider

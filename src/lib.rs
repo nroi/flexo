@@ -105,7 +105,6 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type CS: ChannelState<J=Self> + std::marker::Copy;
     type PI: std::cmp::Eq;
     type PR: Properties + std::marker::Copy + std::marker::Send + std::marker::Sync;
-    type CH: std::marker::Send; // client-handle
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
@@ -346,7 +345,7 @@ impl <J> JobContext<J> where J: Job {
     }
 
     //noinspection RsBorrowChecker
-    pub fn schedule(&mut self, order: J::O, mut client_handle: J::CH) -> ScheduleOutcome<J> {
+    pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
 
         let cached = Arc::clone(&self.cached);
         if order.is_cached(cached.lock().unwrap()) {

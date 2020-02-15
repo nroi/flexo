@@ -85,15 +85,16 @@ fn main() {
                         filepath: path.to_str().unwrap().to_owned()
                     };
                     let mut job_context = job_context.lock().unwrap();
-                    match job_context.schedule(order, stream) {
+                    match job_context.schedule(order.clone()) {
                         ScheduleOutcome::Skipped(_) => {
                             todo!("what now?")
                         },
                         ScheduleOutcome::Scheduled(_) => {
-                            todo!("download_from_growing_file")
+//                            todo!("download_from_growing_file")
                         },
                         ScheduleOutcome::Cached => {
-                            todo!("sendfile_from_cache()")
+                            let file: File = File::open(&order.filepath).unwrap();
+                            serve_file_from_cache(file, &mut stream);
                         }
                     }
                 },
