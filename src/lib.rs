@@ -298,25 +298,20 @@ pub struct JobContext<J> where J: Job, {
     properties: J::PR
 }
 
-pub enum Origin {
-    /// The order could be fetched from cache.
-    Cache,
-    /// The order had to be fetched from the provider.
-    Provider,
-}
-
 pub struct ScheduledItem<J> where J: Job {
     pub join_handle: JoinHandle<JobOutcome<J>>,
     pub rx: Receiver<FlexoMessage<J::P>>,
     // TODO reconsider if we really need this variable. We have introduced it before we decided
     // to use a simple filesystem stat + polling mechanism.
     pub rx_progress: Receiver<FlexoProgress>,
-    pub origin: Origin,
 }
 
 pub enum ScheduleOutcome<J> where J: Job {
     Skipped(Receiver<FlexoProgress>),
+    /// The order has to be fetched from a provider.
     Scheduled(ScheduledItem<J>),
+    /// The order is already available in the cache.
+    Cached,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -370,16 +365,6 @@ impl <J> JobContext<J> where J: Job {
             }
         }).collect();
         self.panic_monitor.push(mutex);
-
-        let order_already_completed = {
-            match self.cached.lock().unwrap().get(&order) {
-                None => false,
-                Some(_size) => {
-                    // TODO consider the case when we have a cached version, but the cached version is incomplete.
-                    true
-                }
-            }
-        };
 
         let order_in_progress = {
             let mut locked = self.orders_in_progress.lock().unwrap();
@@ -443,8 +428,7 @@ impl <J> JobContext<J> where J: Job {
                 }
             });
 
-            let origin = Origin::Provider;
-            ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress, origin })
+            ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
         } else {
             // TODO this won't work: We need to fetch an existing rx_progress from somewhere.
             let (_, rx_progress) = unbounded::<FlexoProgress>();

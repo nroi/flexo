@@ -72,7 +72,17 @@ fn main() {
                         filepath: path.to_str().unwrap().to_owned()
                     };
                     let mut job_context = job_context.lock().unwrap();
-                    job_context.schedule(order, stream);
+                    match job_context.schedule(order, stream) {
+                        ScheduleOutcome::Skipped(_) => {
+                            todo!("what now?")
+                        },
+                        ScheduleOutcome::Scheduled(_) => {
+                            todo!("download_from_growing_file")
+                        },
+                        ScheduleOutcome::Cached => {
+                            todo!("sendfile_from_cache()")
+                        }
+                    }
                 },
                 Err(e) => {
                     println!("error: {:?}", e);

@@ -231,7 +231,8 @@ fn wait_until_message_received <F, R>(
 fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyProvider {
     match schedule_outcome {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _, origin: _ }) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
                 match msg {
                     FlexoMessage::ProviderSelected(p) => Some(p.clone()),
@@ -246,7 +247,8 @@ fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> 
 fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyJob>) {
     match schedule_outcome {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _  }) => {
             let message_cmp = |msg: &FlexoMessage<DummyProvider>| {
                 match msg {
                     FlexoMessage::ChannelEstablished(_) => Some(true),
@@ -261,7 +263,8 @@ fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyJob>) {
 fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJobSuccess {
     let result = match schedule_outcome {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _  }) => {
             join_handle.join().unwrap()
         }
     };
@@ -274,7 +277,8 @@ fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyJob>) -> Dumm
 fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJobFailure {
     let result = match schedule_outcome {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _  }) => {
             join_handle.join().unwrap()
         }
     };
@@ -297,7 +301,8 @@ fn provider_lowest_score() {
     let client_handle = DummyClientHandle {};
     let result = match job_context.schedule(DummyOrder::Success(0), client_handle) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ }) => {
             // wait for the job to complete.
             join_handle.join()
         },
@@ -313,7 +318,8 @@ fn second_provider_success_after_first_provider_failure() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     match job_context.schedule(DummyOrder::Success(0), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ }) => {
             // wait for the job to complete.
             join_handle.join().unwrap();
         },
@@ -333,7 +339,8 @@ fn next_order_success_after_first_order_failed() {
     job_context.schedule(DummyOrder::Failure(0), DummyClientHandle{});
     match job_context.schedule(DummyOrder::Success(1), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => assert!(false, EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ }) => {
             let result = join_handle.join().unwrap();
             match result {
                 JobOutcome::Success(_, _) => {},
@@ -355,13 +362,15 @@ fn provider_no_two_simultaneous_jobs() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.schedule(DummyOrder::InfiniteBlocking(0), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         }
     };
     let provider_order2 = match job_context.schedule(DummyOrder::Success(1), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         }
     };
@@ -377,13 +386,15 @@ fn provider_two_simultaneous_jobs_if_required() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.schedule(DummyOrder::InfiniteBlocking(0), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         }
     };
     let provider_order2 = match job_context.schedule(DummyOrder::Success(1), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         }
     };
@@ -402,6 +413,7 @@ fn order_skipped_if_already_in_progress() {
     wait_until_provider_selected(job_context.schedule(order.clone(), DummyClientHandle{}));
     match job_context.schedule(order.clone(), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => {},
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(_) => panic!(EXPECT_SKIPPED)
     }
 }
@@ -418,6 +430,7 @@ fn order_not_skipped_after_completed() {
     wait_until_job_completed(job_context.schedule(order.clone(), DummyClientHandle{}));
     match job_context.schedule(order.clone(), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(_) => {}
     }
 }
@@ -447,7 +460,8 @@ fn job_continued_after_partial_completion() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let (provider_first_scheduled, provider_finally_scheduled) = match job_context.schedule(DummyOrder::Success(0), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx, rx_progress: _, origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx, rx_progress: _ }) => {
             let provider_first_scheduled = match rx.recv().unwrap() {
                 FlexoMessage::ProviderSelected(p) => p,
                 FlexoMessage::ChannelEstablished(_) => panic!("Did not expect this message")
@@ -471,7 +485,8 @@ fn no_infinite_loop() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.schedule(DummyOrder::Success(0), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx: _, rx_progress: _ , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx: _, rx_progress: _ }) => {
             join_handle.join().unwrap()
         }
     };
@@ -526,6 +541,7 @@ fn no_new_channel_established() {
     wait_until_job_completed(result1);
     let channel_establishment = match job_context.schedule(DummyOrder::Success(1), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(p) => {
             wait_until_message_received(p.rx, |msg| {
                 match msg {
@@ -549,6 +565,7 @@ fn new_channel_established_because_channel_in_use() {
     wait_until_channel_established(result1);
     let channel_establishment = match job_context.schedule(DummyOrder::Success(1), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
         ScheduleOutcome::Scheduled(p) => {
             wait_until_message_received(p.rx, |msg| {
                 match msg {
@@ -613,7 +630,8 @@ fn read_progress() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.schedule(DummyOrder::InfiniteBlocking(0), DummyClientHandle{}) {
         ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress , origin: _}) => {
+        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress }) => {
             rx_progress.recv_timeout(std::time::Duration::from_millis(50)).unwrap()
         },
     };
