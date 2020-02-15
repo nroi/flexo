@@ -20,13 +20,9 @@ use walkdir::WalkDir;
 use xattr;
 use std::ffi::OsString;
 use std::net::{TcpListener, Shutdown, TcpStream};
-use std::os::unix::io::AsRawFd;
 use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
-
-#[cfg(test)]
-use tempfile::tempfile;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -73,16 +69,6 @@ impl GetRequest {
         }
     }
 }
-
-
-
-// man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
-#[cfg(not(test))]
-const MAX_SENDFILE_COUNT: usize = 0x7ffff000;
-
-// Choose a smaller size in test, this makes it easier to have fast tests.
-#[cfg(test)]
-const MAX_SENDFILE_COUNT: usize = 128;
 
 pub static DIRECTORY: &str = "./curl_ex_out/";
 
@@ -258,45 +244,6 @@ impl Job for DownloadJob {
     }
 }
 
-fn reply_header(content_length: u64) -> String {
-    let now = time::now_utc();
-    let timestamp = now.rfc822();
-    let header = format!("\
-        HTTP/1.1 200 OK\r\n\
-        Server: webserver_test\r\n\
-        Date: {}\r\n\
-        Content-Length: {}\r\n\r\n", timestamp, content_length);
-    println!("header: {:?}", header);
-
-    return header.to_owned();
-}
-
-
-fn send_payload<T>(source: File, filesize: u64, receiver: &mut T) -> Result<i64, std::io::Error>  where T: AsRawFd {
-    let fd = source.as_raw_fd();
-    let sfd = receiver.as_raw_fd();
-    let size = unsafe {
-        let mut bytes_sent: i64 = 0;
-        while (bytes_sent as u64) < filesize {
-            libc::sendfile(sfd, fd, &mut bytes_sent, MAX_SENDFILE_COUNT);
-        }
-        bytes_sent
-    };
-    if size == -1 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(size)
-    }
-}
-
-fn serve_file_from_cache(file: File,  stream: &mut TcpStream) {
-    let filesize = file.metadata().unwrap().len();
-    let header = reply_header(filesize);
-    stream.write(header.as_bytes()).unwrap();
-    send_payload(file, filesize, stream).unwrap();
-}
-
-
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
@@ -310,25 +257,6 @@ impl Order for DownloadOrder {
         DownloadChannel {
             handle: Easy2::new(DownloadState::new(self, tx).unwrap()),
             state: DownloadChannelState::new(),
-        }
-    }
-
-    fn serve_from_cache(self, stream: &mut TcpStream) -> JobResult<DownloadJob> {
-        let file = File::open(&self.filepath).expect(&format!("Unable to open file {:?}", &self.filepath));
-        let filesize = file.metadata().unwrap().len();
-        let header = reply_header(filesize);
-        stream.write(header.as_bytes()).unwrap();
-        match send_payload(file, filesize, stream) {
-            Ok(_) => {
-                // TODO we're unable to provide an instance of JobCompleted, because currently, the assumption
-                // is that orders will always be completed using jobs, and jobs will always be completed
-                // with a provider. But when the result is from cache, there is no need to instantiate a provider.
-                let jc: JobCompleted<Self::J> = todo!();
-                JobResult::Complete(jc)
-            }
-            Err(_) => {
-                unimplemented!()
-            },
         }
     }
 }
@@ -609,17 +537,5 @@ mod tests {
         let mut stream = NoDelimiterReader::new();
         let result = read_header(&mut stream);
         assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
-    }
-
-    #[test]
-    fn test_filesize_exceeds_sendfile_count() {
-        let mut source: File = tempfile().unwrap();
-        let mut receiver: File = tempfile().unwrap();
-        let array: [u8; MAX_SENDFILE_COUNT * 3] = [b'a'; MAX_SENDFILE_COUNT * 3];
-        source.write(&array).unwrap();
-        source.flush().unwrap();
-        let filesize = source.metadata().unwrap().len();
-        let size = send_payload(source, filesize, &mut receiver).unwrap();
-        assert_eq!(size, (MAX_SENDFILE_COUNT * 3) as i64);
     }
 }

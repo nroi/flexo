@@ -161,10 +161,6 @@ impl Order for DummyOrder {
             }
         }
     }
-
-    fn serve_from_cache(self, client_handle: &mut DummyClientHandle) -> JobResult<Self::J> {
-        unimplemented!()
-    }
 }
 
 #[derive(Debug)]

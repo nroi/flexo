@@ -145,8 +145,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         }
     }
 
-    fn serve_from_cache(self, client_handle: &mut <<Self as Order>::J as Job>::CH) -> JobResult<Self::J>;
-
     fn try_until_success(
         self,
         mut providers: &mut Vec<<<Self as Order>::J as Job>::P>,
@@ -349,6 +347,12 @@ impl <J> JobContext<J> where J: Job {
 
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O, mut client_handle: J::CH) -> ScheduleOutcome<J> {
+
+        let cached = Arc::clone(&self.cached);
+        if order.is_cached(cached.lock().unwrap()) {
+            return ScheduleOutcome::Cached;
+        }
+
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
@@ -388,25 +392,20 @@ impl <J> JobContext<J> where J: Job {
             let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
             let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
             let orders_in_progress = Arc::clone(&self.orders_in_progress);
-            let cached = Arc::clone(&self.cached);
             let order_cloned = order;
             let properties = self.properties;
             let t = thread::spawn(move || {
                 let _lock = mutex_cloned.lock().unwrap();
                 let order: <J as Job>::O = order_cloned.clone();
-                let result = if order_cloned.is_cached(cached.lock().unwrap()) {
-                    order.serve_from_cache(&mut client_handle)
-                } else {
-                    order.try_until_success(
-                        &mut providers_cloned,
-                        &mut provider_failures_cloned,
-                        &mut providers_in_use_cloned,
-                        channels_cloned.clone(),
-                        tx,
-                        tx_progress,
-                        properties,
-                    )
-                };
+                let result = order.try_until_success(
+                    &mut providers_cloned,
+                    &mut provider_failures_cloned,
+                    &mut providers_in_use_cloned,
+                    channels_cloned.clone(),
+                    tx,
+                    tx_progress,
+                    properties,
+                );
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {
                     JobResult::Complete(mut complete_job) => {
