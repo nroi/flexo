@@ -12,10 +12,79 @@ use std::cmp::Ordering;
 use crossbeam::crossbeam_channel::Sender;
 use curl::easy::{Easy2, Handler, WriteError};
 use std::fs::OpenOptions;
-use std::io::BufWriter;
+use std::io::{BufWriter, Error};
 use std::io::prelude::*;
+use std::collections::hash_map::RandomState;
+use std::collections::HashMap;
+use walkdir::WalkDir;
+use xattr;
+use std::ffi::OsString;
+use std::net::{TcpListener, Shutdown, TcpStream};
+use std::os::unix::io::AsRawFd;
+use httparse::{Status, Header};
+use std::io::{Read, ErrorKind, Write};
+use std::path::{Path, PathBuf};
 
-pub static DIRECTORY: &str = "/tmp/curl_ex_out/";
+#[cfg(test)]
+use tempfile::tempfile;
+
+// Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
+// we keep things simple by just setting a fixed buffer length.
+// TODO return 414 (Request-URI Too Large) if this size is exceeded, instead of just panicking.
+const MAX_HEADER_SIZE: usize = 8192;
+
+const MAX_HEADER_COUNT: usize = 64;
+
+#[cfg(test)]
+pub const PATH_PREFIX: &str = "./";
+
+#[cfg(not (test))]
+pub const PATH_PREFIX: &str = "./";
+
+#[cfg(test)]
+const TEST_CHUNK_SIZE: usize = 128;
+
+#[cfg(test)]
+const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum StreamReadError {
+    BufferSizeExceeded,
+    TimedOut,
+    SocketClosed,
+    Other(ErrorKind)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct GetRequest {
+    pub path: PathBuf,
+}
+
+impl GetRequest {
+    fn new(request: httparse::Request) -> Self {
+        match request.method {
+            Some("GET") => {},
+            method => panic!("Unexpected method: #{:?}", method)
+        }
+        let p = &request.path.unwrap()[1..]; // Skip the leading "/"
+        let path = Path::new(p).to_path_buf();
+        Self {
+            path,
+        }
+    }
+}
+
+
+
+// man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
+#[cfg(not(test))]
+const MAX_SENDFILE_COUNT: usize = 0x7ffff000;
+
+// Choose a smaller size in test, this makes it easier to have fast tests.
+#[cfg(test)]
+const MAX_SENDFILE_COUNT: usize = 128;
+
+pub static DIRECTORY: &str = "./curl_ex_out/";
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
@@ -88,6 +157,7 @@ impl Job for DownloadJob {
     type CS = DownloadChannelState;
     type PI = Uri;
     type PR = MirrorsAutoConfig;
+    type CH = TcpStream;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider
@@ -97,7 +167,39 @@ impl Job for DownloadJob {
         self.order.clone()
     }
 
-    fn execute(self, mut channel: DownloadChannel, properties: MirrorsAutoConfig) -> JobResult<DownloadJob> {
+    fn initialize_cache() -> HashMap<DownloadOrder, u64, RandomState> {
+        let mut hashmap: HashMap<Self::O, u64> = HashMap::new();
+        for entry in WalkDir::new(DIRECTORY) {
+            let entry = entry.expect("Error while reading directory entry");
+            let key = OsString::from("user.content_length");
+            if entry.file_type().is_file() {
+                let file = File::open(entry.path()).expect(&format!("Unable to open file {:?}", entry.path()));
+                let file_size = file.metadata().expect("Unable to fetch file metadata").len();
+                let value = file_size.to_string();
+                println!("File: {:?}", entry.path());
+                match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
+                    Some(_) => {},
+                    None => {
+                        // Flexo sets the extended attributes for all files, but this file lacks this attribute:
+                        // We assume that this mostly happens when the user copies files into the directory used
+                        // by flexo, and we further assume that users will do this only if this file is complete.
+                        // Therefore, we can set the content length attribute of this file to the file size.
+                        println!("Set content length for file: #{:?}", entry.path());
+                        xattr::set(entry.path(), &key, &value.as_bytes())
+                            .expect("Unable to set extended file attributes");
+                    },
+                }
+                let order = DownloadOrder {
+                    filepath: entry.path().to_str().unwrap().to_owned()
+                };
+                hashmap.insert(order, file_size);
+            }
+        }
+
+        return hashmap;
+    }
+
+    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorsAutoConfig) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
@@ -156,6 +258,45 @@ impl Job for DownloadJob {
     }
 }
 
+fn reply_header(content_length: u64) -> String {
+    let now = time::now_utc();
+    let timestamp = now.rfc822();
+    let header = format!("\
+        HTTP/1.1 200 OK\r\n\
+        Server: webserver_test\r\n\
+        Date: {}\r\n\
+        Content-Length: {}\r\n\r\n", timestamp, content_length);
+    println!("header: {:?}", header);
+
+    return header.to_owned();
+}
+
+
+fn send_payload<T>(source: File, filesize: u64, receiver: &mut T) -> Result<i64, std::io::Error>  where T: AsRawFd {
+    let fd = source.as_raw_fd();
+    let sfd = receiver.as_raw_fd();
+    let size = unsafe {
+        let mut bytes_sent: i64 = 0;
+        while (bytes_sent as u64) < filesize {
+            libc::sendfile(sfd, fd, &mut bytes_sent, MAX_SENDFILE_COUNT);
+        }
+        bytes_sent
+    };
+    if size == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(size)
+    }
+}
+
+fn serve_file_from_cache(file: File,  stream: &mut TcpStream) {
+    let filesize = file.metadata().unwrap().len();
+    let header = reply_header(filesize);
+    stream.write(header.as_bytes()).unwrap();
+    send_payload(file, filesize, stream).unwrap();
+}
+
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
@@ -169,6 +310,25 @@ impl Order for DownloadOrder {
         DownloadChannel {
             handle: Easy2::new(DownloadState::new(self, tx).unwrap()),
             state: DownloadChannelState::new(),
+        }
+    }
+
+    fn serve_from_cache(self, stream: &mut TcpStream) -> JobResult<DownloadJob> {
+        let file = File::open(&self.filepath).expect(&format!("Unable to open file {:?}", &self.filepath));
+        let filesize = file.metadata().unwrap().len();
+        let header = reply_header(filesize);
+        stream.write(header.as_bytes()).unwrap();
+        match send_payload(file, filesize, stream) {
+            Ok(_) => {
+                // TODO we're unable to provide an instance of JobCompleted, because currently, the assumption
+                // is that orders will always be completed using jobs, and jobs will always be completed
+                // with a provider. But when the result is from cache, there is no need to instantiate a provider.
+                let jc: JobCompleted<Self::J> = todo!();
+                JobResult::Complete(jc)
+            }
+            Err(_) => {
+                unimplemented!()
+            },
         }
     }
 }
@@ -325,3 +485,141 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
     }).collect()
 }
 
+pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> where T: Read {
+    let mut buf = [0; MAX_HEADER_SIZE + 1];
+    let mut size_read_all = 0;
+
+    loop {
+        if size_read_all >= MAX_HEADER_SIZE {
+            return Err(StreamReadError::BufferSizeExceeded);
+        }
+        let size = match stream.read(&mut buf[size_read_all..]) {
+            Ok(s) if s > MAX_HEADER_SIZE => return Err(StreamReadError::BufferSizeExceeded),
+            Ok(s) if s > 0 => s,
+            Ok(_) => {
+                // we need this branch in case the socket is closed: Otherwise, we would read a size of 0
+                // indefinitely.
+                return Err(StreamReadError::SocketClosed);
+            }
+            Err(e) => {
+                let error = match e.kind() {
+                    ErrorKind::TimedOut => StreamReadError::TimedOut,
+                    ErrorKind::WouldBlock => StreamReadError::TimedOut,
+                    other => StreamReadError::Other(other),
+                };
+                return Err(error);
+            }
+        };
+        size_read_all += size;
+
+        println!("size: {:?}", size);
+        println!("buf: {:?}", &buf[0..31]);
+
+        let mut headers: [Header; 64] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
+        let mut req: httparse::Request = httparse::Request::new(&mut headers);
+        let res: std::result::Result<httparse::Status<usize>, httparse::Error> = req.parse(&buf[..size_read_all]);
+
+        match res {
+            Ok(Status::Complete(result)) => {
+                println!("done! {:?}", result);
+                println!("req: {:?}", req);
+                break(Ok(GetRequest::new(req)))
+            }
+            Ok(Status::Partial) => {
+                println!("partial");
+            }
+            Err(e) => {
+                println!("error: #{:?}", e)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Error, Write};
+
+    struct TooMuchDataReader {}
+    impl Read for TooMuchDataReader {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+            // Notice that we cause an error by writing the exact amount of the maximum header size,
+            // has received this exact amount of bytes, or if it has received more than 8192 bytes but the returned value
+            // is 8192 because that is the maximum buffer size. So we cautiously assume the latter case and return an error.
+            let too_much_data = [0; MAX_HEADER_SIZE + 1];
+            buf[..too_much_data.len()].copy_from_slice(&too_much_data);
+            Ok(MAX_HEADER_SIZE + 1)
+        }
+    }
+
+    // writes a single byte at a time.
+    struct OneByteReader {
+        size_read: usize,
+    }
+    impl OneByteReader {
+        fn new() -> Self {
+            OneByteReader {
+                size_read: 0,
+            }
+        }
+    }
+    impl Read for OneByteReader {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+            if self.size_read < TEST_REQUEST_HEADER.len() {
+                buf[0] = TEST_REQUEST_HEADER[self.size_read];
+                self.size_read += 1;
+                Ok(1)
+            } else {
+                Ok(0)
+            }
+        }
+    }
+    struct NoDelimiterReader {
+    }
+    impl NoDelimiterReader {
+        fn new() -> Self {
+            NoDelimiterReader {}
+        }
+    }
+    impl Read for NoDelimiterReader {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+            let array: [u8; TEST_CHUNK_SIZE] = [b'a'; TEST_CHUNK_SIZE];
+            buf[0..TEST_CHUNK_SIZE].copy_from_slice(&array);
+            Ok(256)
+        }
+    }
+
+    #[test]
+    fn test_buffer_size_exceeded() {
+        let mut stream = TooMuchDataReader {};
+        let result = read_header(&mut stream);
+        assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
+    }
+
+    #[test]
+    fn test_one_by_one() {
+        let mut stream = OneByteReader::new();
+        let result = read_header(&mut stream);
+        println!("result: {:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_no_delimiter() {
+        let mut stream = NoDelimiterReader::new();
+        let result = read_header(&mut stream);
+        assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
+    }
+
+    #[test]
+    fn test_filesize_exceeds_sendfile_count() {
+        let mut source: File = tempfile().unwrap();
+        let mut receiver: File = tempfile().unwrap();
+        let array: [u8; MAX_SENDFILE_COUNT * 3] = [b'a'; MAX_SENDFILE_COUNT * 3];
+        source.write(&array).unwrap();
+        source.flush().unwrap();
+        let filesize = source.metadata().unwrap().len();
+        let size = send_payload(source, filesize, &mut receiver).unwrap();
+        assert_eq!(size, (MAX_SENDFILE_COUNT * 3) as i64);
+    }
+}

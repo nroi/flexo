@@ -17,6 +17,8 @@ toml = "0.5.5"
 crossbeam = "0.7.3"
 httparse = "1.3.4"
 time = "0.1.3"
+walkdir = "2.3.1"
+xattr = "0.2.2"
 
 [dev-dependencies]
 tempfile = "3.1.0"

@@ -7,6 +7,12 @@ use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum FetchType {
+    Cache,
+    Provider,
+}
+
 #[derive(Debug)]
 pub struct JobPartiallyCompleted<J> where J: Job {
     pub channel: J::C,
@@ -99,10 +105,12 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type CS: ChannelState<J=Self> + std::marker::Copy;
     type PI: std::cmp::Eq;
     type PR: Properties + std::marker::Copy + std::marker::Send + std::marker::Sync;
+    type CH: std::marker::Send; // client-handle
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
-    fn execute(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
+    fn initialize_cache() -> HashMap<Self::O, u64>;
+    fn serve_from_provider(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
 
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>) -> (Self::C, ChannelEstablishment) {
         let mut channels = channels.lock().unwrap();
@@ -121,9 +129,23 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     }
 }
 
+
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
     fn new_channel(self, tx: Sender<FlexoProgress>) -> <<Self as Order>::J as Job>::C;
+
+    fn is_cached(&self, cached: MutexGuard<HashMap<Self, u64>>) -> bool {
+        match &cached.get(self) {
+            None => false,
+            Some(_size) => {
+                // TODO We also need to ensure that the size of the cached file is equal to the content length
+                // of the file to retrieve.
+                true
+            },
+        }
+    }
+
+    fn serve_from_cache(self, client_handle: &mut <<Self as Order>::J as Job>::CH) -> JobResult<Self::J>;
 
     fn try_until_success(
         self,
@@ -133,7 +155,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
-        properties: <<Self as Order>::J as Job>::PR,
+        properties: <<Self as Order>::J as Job>::PR
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -153,7 +175,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let job = provider.new_job(self_cloned);
             let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone());
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-            let result = job.execute(channel, properties);
+            let result = job.serve_from_provider(channel, properties);
             match &result {
                 JobResult::Complete(_) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
@@ -269,6 +291,7 @@ pub struct JobContext<J> where J: Job, {
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
     orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
+    cached: Arc<Mutex<HashMap<J::O, u64>>>,
     providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
@@ -305,6 +328,7 @@ impl <J> JobContext<J> where J: Job {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
         let orders_in_progress: Arc<Mutex<HashSet<J::O>>> = Arc::new(Mutex::new(HashSet::new()));
+        let cached: Arc<Mutex<HashMap<J::O, u64>>> = Arc::new(Mutex::new(J::initialize_cache()));
         let providers_in_use: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let provider_records: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let thread_mutexes: Vec<Arc<Mutex<i32>>> = Vec::new();
@@ -312,6 +336,7 @@ impl <J> JobContext<J> where J: Job {
             providers,
             channels,
             orders_in_progress,
+            cached,
             provider_failures: provider_records,
             providers_in_use,
             panic_monitor: thread_mutexes,
@@ -320,7 +345,7 @@ impl <J> JobContext<J> where J: Job {
     }
 
     //noinspection RsBorrowChecker
-    pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
+    pub fn schedule(&mut self, order: J::O, mut client_handle: J::CH) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
@@ -337,6 +362,12 @@ impl <J> JobContext<J> where J: Job {
             }
         }).collect();
         self.panic_monitor.push(mutex);
+
+        let order_already_completed = {
+            // TODO check the cached variable. After startup, this variable is filled with all files which have
+            // previously been downloaded.
+            false
+        };
 
         let order_in_progress = {
             let mut locked = self.orders_in_progress.lock().unwrap();
@@ -360,20 +391,25 @@ impl <J> JobContext<J> where J: Job {
             let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
             let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
             let orders_in_progress = Arc::clone(&self.orders_in_progress);
+            let cached = Arc::clone(&self.cached);
             let order_cloned = order;
             let properties = self.properties;
             let t = thread::spawn(move || {
                 let _lock = mutex_cloned.lock().unwrap();
-                let order = order_cloned.clone();
-                let result = order.try_until_success(
-                    &mut providers_cloned,
-                    &mut provider_failures_cloned,
-                    &mut providers_in_use_cloned,
-                    channels_cloned.clone(),
-                    tx,
-                    tx_progress,
-                    properties,
-                );
+                let order: <J as Job>::O = order_cloned.clone();
+                let result = if order_cloned.is_cached(cached.lock().unwrap()) {
+                    order.serve_from_cache(&mut client_handle)
+                } else {
+                    order.try_until_success(
+                        &mut providers_cloned,
+                        &mut provider_failures_cloned,
+                        &mut providers_in_use_cloned,
+                        channels_cloned.clone(),
+                        tx,
+                        tx_progress,
+                        properties,
+                    )
+                };
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {
                     JobResult::Complete(mut complete_job) => {
