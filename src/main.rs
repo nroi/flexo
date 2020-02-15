@@ -93,7 +93,8 @@ fn main() {
 //                            todo!("download_from_growing_file")
                         },
                         ScheduleOutcome::Cached => {
-                            let file: File = File::open(&order.filepath).unwrap();
+                            let path = DIRECTORY.to_owned() + &order.filepath;
+                            let file: File = File::open(&path).unwrap();
                             serve_file_from_cache(file, &mut stream);
                         }
                     }

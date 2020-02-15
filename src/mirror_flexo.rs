@@ -32,10 +32,10 @@ const MAX_HEADER_SIZE: usize = 8192;
 const MAX_HEADER_COUNT: usize = 64;
 
 #[cfg(test)]
-pub const PATH_PREFIX: &str = "./";
+pub const PATH_PREFIX: &str = "";
 
 #[cfg(not (test))]
-pub const PATH_PREFIX: &str = "./";
+pub const PATH_PREFIX: &str = "";
 
 #[cfg(test)]
 const TEST_CHUNK_SIZE: usize = 128;
@@ -174,8 +174,9 @@ impl Job for DownloadJob {
                             .expect("Unable to set extended file attributes");
                     },
                 }
+                let sub_path = entry.path().strip_prefix(DIRECTORY).unwrap();
                 let order = DownloadOrder {
-                    filepath: entry.path().to_str().unwrap().to_owned()
+                    filepath: sub_path.to_str().unwrap().to_owned()
                 };
                 hashmap.insert(order, file_size);
             }
