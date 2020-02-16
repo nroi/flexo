@@ -10,7 +10,7 @@ use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
 use crossbeam::crossbeam_channel::Sender;
-use curl::easy::{Easy2, Handler, WriteError, List};
+use curl::easy::{Easy2, Handler, WriteError};
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::collections::hash_map::RandomState;
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use walkdir::WalkDir;
 use xattr;
 use std::ffi::OsString;
-use httparse::{Status, Header, parse_headers};
+use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
@@ -348,11 +348,13 @@ impl Handler for DownloadState {
         match parse_content_length(data) {
             None => {},
             Some(value) => {
-                let path = Path::new(&self.job_state.order.filepath);
+                let path = Path::new(DIRECTORY).join(Path::new(&self.job_state.order.filepath));
                 let key = OsString::from("user.content_length");
                 xattr::set(path, &key, &value.as_bytes())
                     .expect("Unable to set extended file attributes");
-                let message: FlexoProgress = FlexoProgress::JobSize(0);
+                let content_length = value.parse::<u64>().unwrap();
+                println!("Sending content length: {}", content_length);
+                let message: FlexoProgress = FlexoProgress::JobSize(content_length);
                 let _ = self.job_state.tx.send(message);
             }
         }

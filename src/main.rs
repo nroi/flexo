@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use http::Uri;
 use flexo::*;
 use crate::mirror_config::MirrorSelectionMethod;
-use crossbeam::crossbeam_channel::{Sender, Receiver};
+use crossbeam::crossbeam_channel::Receiver;
 use mirror_flexo::*;
 use std::os::unix::io::AsRawFd;
 
@@ -92,19 +92,19 @@ fn main() {
                         ScheduleOutcome::Skipped(_) => {
                             todo!("what now?")
                         },
-                        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx, rx_progress, }) => {
+                        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
                             let content_length = receive_content_length(rx_progress);
                             let path = DIRECTORY.to_owned() + &order.filepath;
                             let file: File = File::open(&path).unwrap();
                             serve_from_growing_file(file, content_length, &mut stream);
-                            unimplemented!();
                         },
                         ScheduleOutcome::Cached => {
                             let path = DIRECTORY.to_owned() + &order.filepath;
-                            let file: File = File::open(&path).unwrap();
+                            let file: File = File::open(Path::new(DIRECTORY).join(&path)).unwrap();
                             serve_from_complete_file(file, &mut stream);
                         }
                     }
+//                    stream.shutdown(Shutdown::Both).unwrap();
                 },
                 Err(e) => {
                     println!("error: {:?}", e);
@@ -126,9 +126,22 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> u64 {
     }
 }
 
-fn serve_from_growing_file(file: File, content_length: u64, stream: &mut TcpStream) {
-    // TODO we need to content length (or "job size").
-    unimplemented!("TODO");
+fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut TcpStream) {
+    let header = reply_header(content_length);
+    stream.write(header.as_bytes()).unwrap();
+    let mut bytes_sent = 0;
+    while bytes_sent < content_length {
+        let filesize = file.metadata().unwrap().len();
+        if filesize > bytes_sent {
+            // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
+            let result = send_payload(&mut file, filesize, bytes_sent as i64, stream);
+            bytes_sent = result.unwrap() as u64;
+        }
+        if bytes_sent < content_length {
+            std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+    }
+    println!("File completely served from growing file.");
 }
 
 fn reply_header(content_length: u64) -> String {
@@ -144,22 +157,23 @@ fn reply_header(content_length: u64) -> String {
     return header.to_owned();
 }
 
-fn serve_from_complete_file(file: File, stream: &mut TcpStream) {
+fn serve_from_complete_file(mut file: File, stream: &mut TcpStream) {
     let filesize = file.metadata().unwrap().len();
     let header = reply_header(filesize);
     stream.write(header.as_bytes()).unwrap();
-    send_payload(file, filesize, stream).unwrap();
+    send_payload(&mut file, filesize, 0, stream).unwrap();
 }
 
-fn send_payload<T>(source: File, filesize: u64, receiver: &mut T) -> Result<i64, std::io::Error>  where T: AsRawFd {
+fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut T) -> Result<i64, std::io::Error> where T: AsRawFd {
     let fd = source.as_raw_fd();
     let sfd = receiver.as_raw_fd();
     let size = unsafe {
-        let mut bytes_sent: i64 = 0;
-        while (bytes_sent as u64) < filesize {
-            libc::sendfile(sfd, fd, &mut bytes_sent, MAX_SENDFILE_COUNT);
+        let mut offset = bytes_sent;
+        while (offset as u64) < filesize {
+            libc::sendfile(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
         }
-        bytes_sent
+        println!("offset: {}", offset);
+        offset
     };
     if size == -1 {
         Err(std::io::Error::last_os_error())
@@ -176,6 +190,6 @@ fn test_filesize_exceeds_sendfile_count() {
     source.write(&array).unwrap();
     source.flush().unwrap();
     let filesize = source.metadata().unwrap().len();
-    let size = send_payload(source, filesize, &mut receiver).unwrap();
+    let size = send_payload(&mut source, filesize, 0, &mut receiver).unwrap();
     assert_eq!(size, (MAX_SENDFILE_COUNT * 3) as i64);
 }
