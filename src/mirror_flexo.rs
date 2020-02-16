@@ -345,25 +345,28 @@ impl Handler for DownloadState {
     }
 
     fn header(&mut self, data: &[u8]) -> bool {
-        let header = std::str::from_utf8(data).unwrap();
         match parse_content_length(data) {
             None => {},
-            Some(v) => {
-                let message: FlexoProgress = FlexoProgress::ContentLength(0);
-                self.job_state.tx.send(message);
+            Some(value) => {
+                let path = Path::new(&self.job_state.order.filepath);
+                let key = OsString::from("user.content_length");
+                xattr::set(path, &key, &value.as_bytes())
+                    .expect("Unable to set extended file attributes");
+                let message: FlexoProgress = FlexoProgress::JobSize(0);
+                let _ = self.job_state.tx.send(message);
             }
         }
         true
     }
 }
 
-fn parse_content_length(header_data: &[u8]) -> Option<u64> {
+fn parse_content_length(header_data: &[u8]) -> Option<&str> {
     let header = std::str::from_utf8(header_data).unwrap();
     let mut iter = header.splitn(2, ":");
     let key: &str = iter.next()?;
     let value: &str = iter.next()?.trim();
     if key.to_lowercase() == "content-length" {
-        Some(value.parse::<u64>().unwrap())
+        Some(value)
     } else {
         None
     }

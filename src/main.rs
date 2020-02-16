@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use http::Uri;
 use flexo::*;
 use crate::mirror_config::MirrorSelectionMethod;
+use crossbeam::crossbeam_channel::{Sender, Receiver};
 use mirror_flexo::*;
 use std::os::unix::io::AsRawFd;
 
@@ -87,18 +88,21 @@ fn main() {
                     let result = job_context.schedule(order.clone());
                     // This is a new concept to be introduced to the flexo library: The job size. The library has to
                     // be able to tell us the job size if the job has to be fetched from the provider.
-//                    let path = DIRECTORY.to_owned() + &order.filepath;
-//                    let file: File = File::open(&path).unwrap();
                     match result {
                         ScheduleOutcome::Skipped(_) => {
                             todo!("what now?")
                         },
-                        ScheduleOutcome::Scheduled(_) => {
-                            // TODO we require the content length to fulfil this request.
-//                            serve_from_growing_file(file, &mut stream);
+                        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx, rx_progress, }) => {
+                            let content_length = receive_content_length(rx_progress);
+                            let path = DIRECTORY.to_owned() + &order.filepath;
+                            let file: File = File::open(&path).unwrap();
+                            serve_from_growing_file(file, content_length, &mut stream);
+                            unimplemented!();
                         },
                         ScheduleOutcome::Cached => {
-//                            serve_from_complete_file(file, &mut stream);
+                            let path = DIRECTORY.to_owned() + &order.filepath;
+                            let file: File = File::open(&path).unwrap();
+                            serve_from_complete_file(file, &mut stream);
                         }
                     }
                 },
@@ -110,7 +114,19 @@ fn main() {
     }
 }
 
-fn serve_from_growing_file(file: File, stream: &mut TcpStream) {
+fn receive_content_length(rx: Receiver<FlexoProgress>) -> u64 {
+    loop {
+        match rx.recv() {
+            Ok(FlexoProgress::JobSize(content_length)) => {
+                break content_length;
+            }
+            Ok(_) => {},
+            Err(_) => {},
+        }
+    }
+}
+
+fn serve_from_growing_file(file: File, content_length: u64, stream: &mut TcpStream) {
     // TODO we need to content length (or "job size").
     unimplemented!("TODO");
 }
