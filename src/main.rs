@@ -3,7 +3,6 @@ extern crate rand;
 extern crate flexo;
 
 use std::io::prelude::*;
-use std::io;
 use std::sync::{Arc, Mutex};
 use http::Uri;
 use flexo::*;
@@ -19,7 +18,7 @@ mod mirror_flexo;
 use std::net::{TcpListener, Shutdown, TcpStream};
 use std::thread;
 use std::time::Duration;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs::File;
 
 #[cfg(test)]
@@ -67,8 +66,8 @@ fn main() {
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&urls);
 
-    let mut job_context: JobContext<DownloadJob> = JobContext::new(providers, mirror_config.mirrors_auto);
-    let mut job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(job_context));
+    let job_context: JobContext<DownloadJob> = JobContext::new(providers, mirror_config.mirrors_auto);
+    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(job_context));
 
     let listener = TcpListener::bind("localhost:7878").unwrap();
     for stream in listener.incoming() {
@@ -76,7 +75,7 @@ fn main() {
         println!("connection established!");
         stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
 
-        let mut job_context = job_context.clone();
+        let job_context = job_context.clone();
         let _t = thread::spawn(move || {
             match read_header(&mut stream) {
                 Ok(get_request) => {

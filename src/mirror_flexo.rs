@@ -12,14 +12,12 @@ use std::cmp::Ordering;
 use crossbeam::crossbeam_channel::Sender;
 use curl::easy::{Easy2, Handler, WriteError};
 use std::fs::OpenOptions;
-use std::io::{BufWriter, Error};
-use std::io::prelude::*;
+use std::io::BufWriter;
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use walkdir::WalkDir;
 use xattr;
 use std::ffi::OsString;
-use std::net::{TcpListener, Shutdown, TcpStream};
 use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -466,7 +464,7 @@ pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> whe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Error, Write};
+    use std::io::Error;
 
     struct TooMuchDataReader {}
     impl Read for TooMuchDataReader {
