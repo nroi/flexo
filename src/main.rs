@@ -84,17 +84,21 @@ fn main() {
                         filepath: path.to_str().unwrap().to_owned()
                     };
                     let mut job_context = job_context.lock().unwrap();
-                    match job_context.schedule(order.clone()) {
+                    let result = job_context.schedule(order.clone());
+                    // This is a new concept to be introduced to the flexo library: The job size. The library has to
+                    // be able to tell us the job size if the job has to be fetched from the provider.
+//                    let path = DIRECTORY.to_owned() + &order.filepath;
+//                    let file: File = File::open(&path).unwrap();
+                    match result {
                         ScheduleOutcome::Skipped(_) => {
                             todo!("what now?")
                         },
                         ScheduleOutcome::Scheduled(_) => {
-//                            todo!("download_from_growing_file")
+                            // TODO we require the content length to fulfil this request.
+//                            serve_from_growing_file(file, &mut stream);
                         },
                         ScheduleOutcome::Cached => {
-                            let path = DIRECTORY.to_owned() + &order.filepath;
-                            let file: File = File::open(&path).unwrap();
-                            serve_file_from_cache(file, &mut stream);
+//                            serve_from_complete_file(file, &mut stream);
                         }
                     }
                 },
@@ -106,18 +110,9 @@ fn main() {
     }
 }
 
-fn serve_from_cache(order: DownloadOrder, stream: &mut TcpStream) {
-    let file = File::open(&order.filepath).expect(&format!("Unable to open file {:?}", &order.filepath));
-    let filesize = file.metadata().unwrap().len();
-    let header = reply_header(filesize);
-    stream.write(header.as_bytes()).unwrap();
-    match send_payload(file, filesize, stream) {
-        Ok(_) => {
-        }
-        Err(_) => {
-            unimplemented!()
-        },
-    }
+fn serve_from_growing_file(file: File, stream: &mut TcpStream) {
+    // TODO we need to content length (or "job size").
+    unimplemented!("TODO");
 }
 
 fn reply_header(content_length: u64) -> String {
@@ -131,6 +126,13 @@ fn reply_header(content_length: u64) -> String {
     println!("header: {:?}", header);
 
     return header.to_owned();
+}
+
+fn serve_from_complete_file(file: File, stream: &mut TcpStream) {
+    let filesize = file.metadata().unwrap().len();
+    let header = reply_header(filesize);
+    stream.write(header.as_bytes()).unwrap();
+    send_payload(file, filesize, stream).unwrap();
 }
 
 fn send_payload<T>(source: File, filesize: u64, receiver: &mut T) -> Result<i64, std::io::Error>  where T: AsRawFd {
@@ -149,14 +151,6 @@ fn send_payload<T>(source: File, filesize: u64, receiver: &mut T) -> Result<i64,
         Ok(size)
     }
 }
-
-fn serve_file_from_cache(file: File,  stream: &mut TcpStream) {
-    let filesize = file.metadata().unwrap().len();
-    let header = reply_header(filesize);
-    stream.write(header.as_bytes()).unwrap();
-    send_payload(file, filesize, stream).unwrap();
-}
-
 
 #[test]
 fn test_filesize_exceeds_sendfile_count() {

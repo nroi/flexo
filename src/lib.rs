@@ -319,6 +319,7 @@ pub enum FlexoMessage <P> {
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum FlexoProgress {
+    ContentLength(u64),
     Progress(u64),
     Completed,
 }

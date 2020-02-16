@@ -10,7 +10,7 @@ use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
 use crossbeam::crossbeam_channel::Sender;
-use curl::easy::{Easy2, Handler, WriteError};
+use curl::easy::{Easy2, Handler, WriteError, List};
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::collections::hash_map::RandomState;
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use walkdir::WalkDir;
 use xattr;
 use std::ffi::OsString;
-use httparse::{Status, Header};
+use httparse::{Status, Header, parse_headers};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
@@ -343,9 +343,33 @@ impl Handler for DownloadState {
             }
         }
     }
+
+    fn header(&mut self, data: &[u8]) -> bool {
+        let header = std::str::from_utf8(data).unwrap();
+        match parse_content_length(data) {
+            None => {},
+            Some(v) => {
+                let message: FlexoProgress = FlexoProgress::ContentLength(0);
+                self.job_state.tx.send(message);
+            }
+        }
+        true
+    }
 }
 
-#[derive(Debug)]
+fn parse_content_length(header_data: &[u8]) -> Option<u64> {
+    let header = std::str::from_utf8(header_data).unwrap();
+    let mut iter = header.splitn(2, ":");
+    let key: &str = iter.next()?;
+    let value: &str = iter.next()?.trim();
+    if key.to_lowercase() == "content-length" {
+        Some(value.parse::<u64>().unwrap())
+    } else {
+        None
+    }
+}
+
+    #[derive(Debug)]
 pub struct DownloadChannel {
     handle: Easy2<DownloadState>,
     state: DownloadChannelState,
@@ -448,7 +472,6 @@ pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> whe
         match res {
             Ok(Status::Complete(result)) => {
                 println!("done! {:?}", result);
-                println!("req: {:?}", req);
                 break(Ok(GetRequest::new(req)))
             }
             Ok(Status::Partial) => {
