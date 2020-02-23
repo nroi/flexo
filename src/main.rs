@@ -86,6 +86,7 @@ fn main() {
                     };
                     let mut job_context = job_context.lock().unwrap();
                     let result = job_context.schedule(order.clone());
+                    // TODO also consider requests for .db files, we need to serve them via redirect.
                     match result {
                         ScheduleOutcome::Skipped(_) => {
                             todo!("what now?")

@@ -154,8 +154,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
-        properties: <<Self as Order>::J as Job>::PR,
-        cached: Arc<Mutex<HashMap<<Self::J as Job>::O, u64, RandomState>>>
+        properties: <<Self as Order>::J as Job>::PR
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -177,9 +176,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
             let result = job.serve_from_provider(channel, properties);
             match &result {
-                JobResult::Complete(jc) => {
+                JobResult::Complete(_) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
-                    cached.lock().unwrap().insert(self.clone(), jc.size as u64);
                 },
                 JobResult::Partial(partial_job) => {
                     provider.clone().punish(provider_failures.lock().unwrap());
@@ -408,8 +406,7 @@ impl <J> JobContext<J> where J: Job {
                     channels_cloned.clone(),
                     tx,
                     tx_progress,
-                    properties,
-                    cached.clone()
+                    properties
                 );
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {
@@ -418,6 +415,7 @@ impl <J> JobContext<J> where J: Job {
                         complete_job.channel.reset();
                         let state = complete_job.channel.channel_state();
                         channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
+                        cached.lock().unwrap().insert(order_cloned.clone(), complete_job.size as u64);
                         JobOutcome::Success(complete_job.provider.clone(), state)
                     }
                     JobResult::Partial(JobPartiallyCompleted { channel, .. }) => {
