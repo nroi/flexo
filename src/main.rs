@@ -21,6 +21,7 @@ use std::thread;
 use std::time::Duration;
 use std::path::Path;
 use std::fs::File;
+use crossbeam::crossbeam_channel::RecvTimeoutError;
 
 #[cfg(test)]
 use tempfile::tempfile;
@@ -80,11 +81,13 @@ fn main() {
         let _t = thread::spawn(move || {
             match read_header(&mut stream) {
                 Ok(get_request) => {
+                    println!("Got header, GET request is: {:?}", get_request);
                     let path = Path::new(PATH_PREFIX).join(&get_request.path);
                     let order = DownloadOrder {
                         filepath: path.to_str().unwrap().to_owned()
                     };
                     let mut job_context = job_context.lock().unwrap();
+                    println!("Attempt to schedule new job");
                     let result = job_context.schedule(order.clone());
                     // TODO also consider requests for .db files, we need to serve them via redirect.
                     match result {
@@ -92,7 +95,9 @@ fn main() {
                             todo!("what now?")
                         },
                         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
+                            println!("Job was scheduled, will serve from growing file");
                             let content_length = receive_content_length(rx_progress);
+                            println!("Received content length via channel: {}", content_length);
                             let path = DIRECTORY.to_owned() + &order.filepath;
                             let file: File = File::open(&path).unwrap();
                             serve_from_growing_file(file, content_length, &mut stream);
@@ -101,6 +106,10 @@ fn main() {
                             let path = DIRECTORY.to_owned() + &order.filepath;
                             let file: File = File::open(path).unwrap();
                             serve_from_complete_file(file, &mut stream);
+                        }
+                        ScheduleOutcome::Uncacheable(p) => {
+                            let uri_string = format!("{}{}", p.uri, order.filepath);
+                            serve_via_redirect(uri_string, &mut stream);
                         }
                     }
                    stream.shutdown(Shutdown::Both).unwrap();
@@ -115,12 +124,13 @@ fn main() {
 
 fn receive_content_length(rx: Receiver<FlexoProgress>) -> u64 {
     loop {
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(FlexoProgress::JobSize(content_length)) => {
                 break content_length;
             }
+            Err(RecvTimeoutError::Disconnected) => panic!("Disconnected while waiting for content length"),
+            Err(RecvTimeoutError::Timeout) => panic!("Timeout while waiting for content length"),
             Ok(_) => {},
-            Err(_) => {},
         }
     }
 }
@@ -156,11 +166,29 @@ fn reply_header(content_length: u64) -> String {
     return header.to_owned();
 }
 
+fn redirect_header(path: &str) -> String {
+    let now = time::now_utc();
+    let timestamp = now.rfc822();
+    let header = format!("\
+        HTTP/1.1 301 Moved Permanently\r\n\
+        Server: webserver_test\r\n\
+        Date: {}\r\n\
+        Location: {}\r\n\r\n", timestamp, path);
+    println!("header: {:?}", header);
+
+    return header.to_owned();
+}
+
 fn serve_from_complete_file(mut file: File, stream: &mut TcpStream) {
     let filesize = file.metadata().unwrap().len();
     let header = reply_header(filesize);
     stream.write(header.as_bytes()).unwrap();
     send_payload(&mut file, filesize, 0, stream).unwrap();
+}
+
+fn serve_via_redirect(uri: String, stream: &mut TcpStream) {
+    let header = redirect_header(&uri);
+    stream.write(header.as_bytes()).unwrap();
 }
 
 fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut T) -> Result<i64, std::io::Error> where T: AsRawFd {

@@ -135,6 +135,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     type J: Job<O=Self>;
     fn new_channel(self, tx: Sender<FlexoProgress>) -> <<Self as Order>::J as Job>::C;
 
+    /// Returns true if this order can be served from cache, false otherwise.
+    fn is_cacheable(&self) -> bool;
+
     fn is_cached(&self, cached: MutexGuard<HashMap<Self, u64>>) -> bool {
         match &cached.get(self) {
             None => false,
@@ -160,7 +163,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let mut punished_providers = Vec::new();
         let result = loop {
             num_attempt += 1;
-            println!("available providers: {:?}", &providers);
             let provider = self.select_provider(&mut providers, provider_current_usages.lock().unwrap(), provider_failures.lock().unwrap());
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
@@ -182,7 +184,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 JobResult::Partial(partial_job) => {
                     provider.clone().punish(provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
-                    println!("will continue job at {:?}", partial_job.continue_at);
+                    println!("Job only partially finished until size {:?}", partial_job.continue_at);
                 },
                 JobResult::Error(e) => {
                     provider.clone().punish(provider_failures.lock().unwrap());
@@ -311,6 +313,8 @@ pub enum ScheduleOutcome<J> where J: Job {
     Scheduled(ScheduledItem<J>),
     /// The order is already available in the cache.
     Cached,
+    /// the order cannot be served from cache
+    Uncacheable(J::P),
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -349,6 +353,11 @@ impl <J> JobContext<J> where J: Job {
 
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
+
+        if !order.is_cacheable() {
+            let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
+            return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
+        }
 
         let cached = Arc::clone(&self.cached);
         if order.is_cached(cached.lock().unwrap()) {

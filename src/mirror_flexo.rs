@@ -81,7 +81,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, order: DownloadOrder) -> DownloadJob {
-        let uri_string = format!("{}/{}", self.uri, order.filepath);
+        let uri_string = format!("{}{}", self.uri, order.filepath);
         let uri = uri_string.parse::<Uri>().unwrap();
         let provider = self.clone();
         DownloadJob {
@@ -185,6 +185,7 @@ impl Job for DownloadJob {
 
     fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorsAutoConfig) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
+        println!("Fetch package from remote mirror: {}", &url);
         channel.handle.url(&url).unwrap();
         // Limit the speed to facilitate debugging.
         // TODO disable the speed limit before releasing this.
@@ -214,9 +215,13 @@ impl Job for DownloadJob {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
                 if response_code >= 200 && response_code < 300 {
-                    println!("Success!");
+                    println!("Received header from provider, status OK");
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
+                } else if response_code == 404 {
+                    // TODO this case hasn't been considered in the library yet: 404 is not necessarily an error,
+                    // so returning JobResult::Error is not necessarily the appropriate thing to do.
+                    unimplemented!("TODO");
                 } else {
                     let termination = JobTerminated {
                         channel,
@@ -226,6 +231,7 @@ impl Job for DownloadJob {
                 }
             },
             Err(e) => {
+                println!("Error occurred during download from provider: {:?}", e);
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
                         JobResult::Partial(JobPartiallyCompleted::new(channel, size))
@@ -257,6 +263,10 @@ impl Order for DownloadOrder {
             handle: Easy2::new(DownloadState::new(self, tx).unwrap()),
             state: DownloadChannelState::new(),
         }
+    }
+
+    fn is_cacheable(&self) -> bool {
+        !(self.filepath.ends_with(".db") || self.filepath.ends_with(".sig"))
     }
 }
 
@@ -316,8 +326,10 @@ impl DownloadState {
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<()> {
         if order != self.job_state.order {
-            let c = DownloadState::new(order.clone(), tx)?;
+            // TODO this is a mess. Why do we need two clones of tx?
+            let c = DownloadState::new(order.clone(), tx.clone())?;
             self.job_state.state = c.job_state.state;
+            self.job_state.tx = tx.clone();
             self.job_state.order = order;
         }
         Ok(())
@@ -468,23 +480,20 @@ pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> whe
         };
         size_read_all += size;
 
-        println!("size: {:?}", size);
-        println!("buf: {:?}", &buf[0..31]);
-
         let mut headers: [Header; 64] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
         let mut req: httparse::Request = httparse::Request::new(&mut headers);
         let res: std::result::Result<httparse::Status<usize>, httparse::Error> = req.parse(&buf[..size_read_all]);
 
         match res {
             Ok(Status::Complete(result)) => {
-                println!("done! {:?}", result);
+                println!("Received header");
                 break(Ok(GetRequest::new(req)))
             }
             Ok(Status::Partial) => {
-                println!("partial");
+                unimplemented!()
             }
             Err(e) => {
-                println!("error: #{:?}", e)
+                unimplemented!()
             }
         }
     }
