@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
-use std::collections::hash_map::Entry;
+use std::collections::hash_map::{Entry, RandomState};
 use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
@@ -37,14 +37,16 @@ impl <J> JobPartiallyCompleted<J> where J: Job {
 #[derive(Debug)]
 pub struct JobCompleted<J> where J: Job {
     pub channel: J::C,
-    pub provider: J::P
+    pub provider: J::P,
+    pub size: i64,
 }
 
 impl <J> JobCompleted<J> where J: Job {
-    pub fn new(channel: J::C, provider: J::P) -> Self {
+    pub fn new(channel: J::C, provider: J::P, size: i64) -> Self {
         Self {
             channel,
             provider,
+            size,
         }
     }
 }
@@ -152,7 +154,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
-        properties: <<Self as Order>::J as Job>::PR
+        properties: <<Self as Order>::J as Job>::PR,
+        cached: Arc<Mutex<HashMap<<Self::J as Job>::O, u64, RandomState>>>
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -174,8 +177,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
             let result = job.serve_from_provider(channel, properties);
             match &result {
-                JobResult::Complete(_) => {
+                JobResult::Complete(jc) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
+                    cached.lock().unwrap().insert(self.clone(), jc.size as u64);
                 },
                 JobResult::Partial(partial_job) => {
                     provider.clone().punish(provider_failures.lock().unwrap());
@@ -405,6 +409,7 @@ impl <J> JobContext<J> where J: Job {
                     tx,
                     tx_progress,
                     properties,
+                    cached.clone()
                 );
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {

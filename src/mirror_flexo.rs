@@ -215,7 +215,8 @@ impl Job for DownloadJob {
                 let response_code = channel.handle.response_code().unwrap();
                 if response_code >= 200 && response_code < 300 {
                     println!("Success!");
-                    JobResult::Complete(JobCompleted::new(channel, self.provider))
+                    let size = channel.progress_indicator().unwrap();
+                    JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
                 } else {
                     let termination = JobTerminated {
                         channel,

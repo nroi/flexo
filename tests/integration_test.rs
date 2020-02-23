@@ -7,6 +7,7 @@ use crossbeam::crossbeam_channel::{Sender, Receiver};
 use std::collections::hash_map::RandomState;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
+static EXPECT_CACHED: &str = "Expected the job to be in cache";
 static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
 static ORDER_PANIC: &str = "this order results in a panic!";
 static EXPECT_SUCCESS: &str = "Expected the job to be completed successfully";
@@ -113,7 +114,8 @@ impl Job for DummyJob {
     fn serve_from_provider(self, channel: DummyChannel, _properties: DummyProperties) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
             (DummyOrder::Success(_), DummyProvider::Success(_)) => {
-                JobResult::Complete(JobCompleted::new(channel, self.provider))
+                let jc = JobCompleted::new(channel, self.provider, 1);
+                JobResult::Complete(jc)
             },
             (DummyOrder::Success(_), DummyProvider::PartialCompletion(_)) => {
                 JobResult::Partial(JobPartiallyCompleted { channel, continue_at: 1 })
@@ -121,7 +123,7 @@ impl Job for DummyJob {
             (DummyOrder::InfiniteBlocking(_), DummyProvider::Success(_)) => {
                 let _result = channel.collector.tx.send(FlexoProgress::Progress(0));
                 std::thread::park(); // block forever.
-                JobResult::Complete(JobCompleted::new(channel, self.provider))
+                JobResult::Complete(JobCompleted::new(channel, self.provider, 1))
             }
             (DummyOrder::Panic(_), _) => panic!(ORDER_PANIC),
             _ => JobResult::Error(JobTerminated { channel, error: DummyJobError {} }),
@@ -409,23 +411,6 @@ fn order_skipped_if_already_in_progress() {
     }
 }
 
-
-#[test]
-fn order_not_skipped_after_completed() {
-    // Orders should only be skipped if they are currently in progress: If, on the other hand, they have already
-    // been completed, we can schedule new orders.
-    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
-    let order = DummyOrder::Success(0);
-    let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    wait_until_job_completed(job_context.schedule(order.clone()));
-    match job_context.schedule(order.clone()) {
-        ScheduleOutcome::Skipped(_) => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Cached => panic!(EXPECT_SCHEDULED),
-        ScheduleOutcome::Scheduled(_) => {}
-    }
-}
-
 #[test]
 fn best_provider_selected() {
     // Given many providers with different scores: If no failures have occurred yet, and no providers are
@@ -630,8 +615,18 @@ fn read_progress() {
 }
 
 #[test]
-fn order_previously_completed() {
+fn order_previously_completed_from_cache() {
     // A previously completed order can be fetched from the local cache, there is no need to communicate with
     // a provider.
-    unimplemented!();
+    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
+    let order = DummyOrder::Success(1);
+    let providers = vec![p1.clone()];
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
+    let result = job_context.schedule(order);
+    wait_until_job_completed(result);
+    match job_context.schedule(order) {
+        ScheduleOutcome::Skipped(_) => panic!(EXPECT_CACHED),
+        ScheduleOutcome::Cached => {},
+        ScheduleOutcome::Scheduled(_) => panic!(EXPECT_CACHED),
+    }
 }
