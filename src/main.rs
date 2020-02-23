@@ -86,8 +86,6 @@ fn main() {
                     };
                     let mut job_context = job_context.lock().unwrap();
                     let result = job_context.schedule(order.clone());
-                    // This is a new concept to be introduced to the flexo library: The job size. The library has to
-                    // be able to tell us the job size if the job has to be fetched from the provider.
                     match result {
                         ScheduleOutcome::Skipped(_) => {
                             todo!("what now?")
@@ -100,11 +98,11 @@ fn main() {
                         },
                         ScheduleOutcome::Cached => {
                             let path = DIRECTORY.to_owned() + &order.filepath;
-                            let file: File = File::open(Path::new(DIRECTORY).join(&path)).unwrap();
+                            let file: File = File::open(path).unwrap();
                             serve_from_complete_file(file, &mut stream);
                         }
                     }
-//                    stream.shutdown(Shutdown::Both).unwrap();
+                   stream.shutdown(Shutdown::Both).unwrap();
                 },
                 Err(e) => {
                     println!("error: {:?}", e);
