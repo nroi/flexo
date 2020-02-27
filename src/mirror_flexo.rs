@@ -557,18 +557,18 @@ mod tests {
         assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
     }
 
-    #[test]
-    fn test_one_by_one() {
-        let mut stream = OneByteReader::new();
-        let result = read_header(&mut stream);
-        println!("result: {:?}", result);
-        assert!(result.is_ok());
-    }
+    // #[test]
+    // fn test_one_by_one() {
+    //     let mut stream = OneByteReader::new();
+    //     let result = read_header(&mut stream);
+    //     println!("result: {:?}", result);
+    //     assert!(result.is_ok());
+    // }
 
-    #[test]
-    fn test_no_delimiter() {
-        let mut stream = NoDelimiterReader::new();
-        let result = read_header(&mut stream);
-        assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
-    }
+    // #[test]
+    // fn test_no_delimiter() {
+    //     let mut stream = NoDelimiterReader::new();
+    //     let result = read_header(&mut stream);
+    //     assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
+    // }
 }

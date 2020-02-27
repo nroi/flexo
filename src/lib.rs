@@ -272,10 +272,10 @@ pub trait Properties {}
 #[derive(Debug)]
 pub struct JobStateItem<J> where J: Job {
     pub order: J::O,
-    // Used to manage the resources acquired for a job. It is set to Some(_) if there is an active job associated
-    // with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
-    // reason for using Optional (rather than just JS) is that this way, drop() will called on the JS as soon as we
-    // reset the state to None, so that acquired resources are released as soon as possible.
+    /// Used to manage the resources acquired for a job. It is set to Some(_) if there is an active job associated
+    /// with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
+    /// reason for using Optional (rather than just JS) is that this way, drop() will called on the JS as soon as we
+    /// reset the state to None, so that acquired resources are released as soon as possible.
     pub state: Option<J::JS>,
     pub tx: Sender<FlexoProgress>,
 }
