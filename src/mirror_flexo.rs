@@ -326,11 +326,8 @@ impl DownloadState {
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<()> {
         if order != self.job_state.order {
-            // TODO this is a mess. Why do we need two clones of tx?
             let c = DownloadState::new(order.clone(), tx.clone())?;
-            self.job_state.state = c.job_state.state;
-            self.job_state.tx = tx.clone();
-            self.job_state.order = order;
+            self.job_state = c.job_state;
         }
         Ok(())
     }
