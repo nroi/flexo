@@ -152,14 +152,15 @@ impl Job for DownloadJob {
 
     fn initialize_cache() -> HashMap<DownloadOrder, u64, RandomState> {
         let mut hashmap: HashMap<Self::O, u64> = HashMap::new();
+        let mut sum_size = 0;
         for entry in WalkDir::new(DIRECTORY) {
             let entry = entry.expect("Error while reading directory entry");
             let key = OsString::from("user.content_length");
             if entry.file_type().is_file() {
                 let file = File::open(entry.path()).expect(&format!("Unable to open file {:?}", entry.path()));
                 let file_size = file.metadata().expect("Unable to fetch file metadata").len();
+                sum_size += file_size;
                 let value = file_size.to_string();
-                println!("File: {:?}", entry.path());
                 match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
                     Some(_) => {},
                     None => {
@@ -179,6 +180,8 @@ impl Job for DownloadJob {
                 hashmap.insert(order, file_size);
             }
         }
+        let size_formatted = size_to_human_readable(sum_size);
+        println!("Retrieved {} files with a total size of {} from local file system.", hashmap.len(), size_formatted);
 
         return hashmap;
     }
@@ -496,6 +499,28 @@ pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> whe
     }
 }
 
+fn size_to_human_readable(size_in_bytes: u64) -> String {
+    let exponent = ((size_in_bytes as f64).log2() / 10.0) as u32;
+    let (unit, too_large) = match exponent {
+        0 => ("B", false),
+        1 => ("KiB", false),
+        2 => ("MiB", false),
+        3 => ("GiB", false),
+        4 => ("TiB", false),
+        5 => ("PiB", false),
+        6 => ("EiB", false),
+        7 => ("ZiB", false),
+        8 => ("YiB", false),
+        _ => ("B", true),
+    };
+    if too_large {
+        format!("{}", size_in_bytes)
+    } else {
+        let quantity = (size_in_bytes as f64) / ((1024u64).pow(exponent) as f64);
+        format!("{:.2} {}", quantity, unit)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,4 +584,28 @@ mod tests {
     //     let result = read_header(&mut stream);
     //     assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
     // }
+
+    #[test]
+    fn test_formatting_two_kilobytes() {
+        let result = size_to_human_readable(2048);
+        assert_eq!(result, "2.00 KiB");
+    }
+
+    #[test]
+    fn test_formatting_two_point_something_kilobytes() {
+        let result = size_to_human_readable(2300);
+        assert_eq!(result, "2.25 KiB");
+    }
+
+    #[test]
+    fn test_formatting_gigabyte() {
+        let result = size_to_human_readable(7040779151);
+        assert_eq!(result, "6.56 GiB");
+    }
+
+    #[test]
+    fn test_formatting_two_bytes() {
+        let result = size_to_human_readable(2);
+        assert_eq!(result, "2.00 B");
+    }
 }

@@ -40,53 +40,57 @@ fn main() {
 
     let listener = TcpListener::bind("localhost:7878").unwrap();
     for stream in listener.incoming() {
-        let mut stream: TcpStream = stream.unwrap();
-        println!("connection established!");
+        let stream: TcpStream = stream.unwrap();
+        println!("connection established.");
         stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
 
         let job_context = job_context.clone();
         let _t = thread::spawn(move || {
-            match read_header(&mut stream) {
-                Ok(get_request) => {
-                    println!("Got header, GET request is: {:?}", get_request);
-                    let path = Path::new(PATH_PREFIX).join(&get_request.path);
-                    let order = DownloadOrder {
-                        filepath: path.to_str().unwrap().to_owned()
-                    };
-                    let mut job_context = job_context.lock().unwrap();
-                    println!("Attempt to schedule new job");
-                    let result = job_context.schedule(order.clone());
-                    // TODO also consider requests for .db files, we need to serve them via redirect.
-                    match result {
-                        ScheduleOutcome::Skipped(_) => {
-                            todo!("what now?")
-                        },
-                        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
-                            println!("Job was scheduled, will serve from growing file");
-                            let content_length = receive_content_length(rx_progress);
-                            println!("Received content length via channel: {}", content_length);
-                            let path = DIRECTORY.to_owned() + &order.filepath;
-                            let file: File = File::open(&path).unwrap();
-                            serve_from_growing_file(file, content_length, &mut stream);
-                        },
-                        ScheduleOutcome::Cached => {
-                            let path = DIRECTORY.to_owned() + &order.filepath;
-                            let file: File = File::open(path).unwrap();
-                            serve_from_complete_file(file, &mut stream);
-                        }
-                        ScheduleOutcome::Uncacheable(p) => {
-                            let uri_string = format!("{}{}", p.uri, order.filepath);
-                            serve_via_redirect(uri_string, &mut stream);
-                        }
-                    }
-                   stream.shutdown(Shutdown::Both).unwrap();
-                },
-                Err(e) => {
-                    println!("error: {:?}", e);
-                },
-            };
+            handle_connection(job_context, stream);
         });
     }
+}
+
+fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream) {
+    match read_header(&mut stream) {
+        Ok(get_request) => {
+            println!("Got header, GET request is: {:?}", get_request);
+            let path = Path::new(PATH_PREFIX).join(&get_request.path);
+            let order = DownloadOrder {
+                filepath: path.to_str().unwrap().to_owned()
+            };
+            let mut job_context = job_context.lock().unwrap();
+            println!("Attempt to schedule new job");
+            let result = job_context.schedule(order.clone());
+            // TODO also consider requests for .db files, we need to serve them via redirect.
+            match result {
+                ScheduleOutcome::Skipped(_) => {
+                    todo!("what now?")
+                },
+                ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
+                    println!("Job was scheduled, will serve from growing file");
+                    let content_length = receive_content_length(rx_progress);
+                    println!("Received content length via channel: {}", content_length);
+                    let path = DIRECTORY.to_owned() + &order.filepath;
+                    let file: File = File::open(&path).unwrap();
+                    serve_from_growing_file(file, content_length, &mut stream);
+                },
+                ScheduleOutcome::Cached => {
+                    let path = DIRECTORY.to_owned() + &order.filepath;
+                    let file: File = File::open(path).unwrap();
+                    serve_from_complete_file(file, &mut stream);
+                }
+                ScheduleOutcome::Uncacheable(p) => {
+                    let uri_string = format!("{}{}", p.uri, order.filepath);
+                    serve_via_redirect(uri_string, &mut stream);
+                }
+            }
+            stream.shutdown(Shutdown::Both).unwrap();
+        },
+        Err(e) => {
+            println!("error: {:?}", e);
+        },
+    };
 }
 
 fn initialize_job_context() -> JobContext<DownloadJob> {
