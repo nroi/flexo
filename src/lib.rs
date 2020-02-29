@@ -283,9 +283,9 @@ impl <J> JobStateItem<J> where J: Job {
 /// The context in which a job is executed, including all stateful information required by the job.
 /// This context is meant to be initialized once during the program's lifecycle.
 pub struct JobContext<J> where J: Job, {
+    orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
-    orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
     cached: Arc<Mutex<HashMap<J::O, u64>>>,
     providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
@@ -300,7 +300,8 @@ pub struct ScheduledItem<J> where J: Job {
 }
 
 pub enum ScheduleOutcome<J> where J: Job {
-    Skipped(Receiver<FlexoProgress>),
+    /// The order is already in progress, no new order was scheduled.
+    Skipped,
     /// The order has to be fetched from a provider.
     Scheduled(ScheduledItem<J>),
     /// The order is already available in the cache.
@@ -346,6 +347,17 @@ impl <J> JobContext<J> where J: Job {
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
 
+        let order_in_progress = {
+            let mut locked = self.orders_in_progress.lock().unwrap();
+            if locked.contains(&order) {
+                println!("order {:?} already in progress: nothing to do.", &order);
+                true
+            } else {
+                locked.insert(order.clone());
+                false
+            }
+        };
+
         if !order.is_cacheable() {
             let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
             return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
@@ -372,19 +384,6 @@ impl <J> JobContext<J> where J: Job {
             }
         }).collect();
         self.panic_monitor.push(mutex);
-
-        let order_in_progress = {
-            let mut locked = self.orders_in_progress.lock().unwrap();
-            if locked.contains(&order) {
-                // TODO locked should also contain the rx_progress, so that we can return it if the
-                // order is already in progress.
-                println!("order {:?} already in progress: nothing to do.", &order);
-                true
-            } else {
-                locked.insert(order.clone());
-                false
-            }
-        };
 
         if !order_in_progress {
             let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
@@ -434,9 +433,7 @@ impl <J> JobContext<J> where J: Job {
 
             ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
         } else {
-            // TODO this won't work: We need to fetch an existing rx_progress from somewhere.
-            let (_, rx_progress) = unbounded::<FlexoProgress>();
-            ScheduleOutcome::Skipped(rx_progress)
+            ScheduleOutcome::Skipped
         }
     }
 }

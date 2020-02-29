@@ -386,7 +386,7 @@ fn order_skipped_if_already_in_progress() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     wait_until_provider_selected(job_context.schedule(order.clone()));
     match job_context.schedule(order.clone()) {
-        ScheduleOutcome::Skipped(_) => {},
+        ScheduleOutcome::Skipped => {},
         _ => panic!(EXPECT_SCHEDULED),
     }
 }

@@ -45,6 +45,7 @@ fn main() {
         stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
 
         let job_context = job_context.clone();
+
         let _t = thread::spawn(move || {
             handle_connection(job_context, stream);
         });
@@ -61,11 +62,15 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
             };
             let mut job_context = job_context.lock().unwrap();
             println!("Attempt to schedule new job");
+
             let result = job_context.schedule(order.clone());
             // TODO also consider requests for .db files, we need to serve them via redirect.
             match result {
-                ScheduleOutcome::Skipped(_) => {
-                    todo!("what now?")
+                ScheduleOutcome::Skipped => {
+                    println!("Job is already in progress");
+                    // TODO this hasn't been tested yet.
+                    let path = DIRECTORY.to_owned() + &order.filepath;
+                    serve_from_existing_growing_file(&path, &mut stream);
                 },
                 ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
                     println!("Job was scheduled, will serve from growing file");
@@ -144,6 +149,12 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> u64 {
             Ok(_) => {},
         }
     }
+}
+
+fn serve_from_existing_growing_file(path: &str, stream: &mut TcpStream) {
+    let content_length: u64 = todo!("get content length");
+    let file: File = todo!("get file");
+    serve_from_growing_file(file, content_length, stream);
 }
 
 fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut TcpStream) {
