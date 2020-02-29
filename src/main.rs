@@ -6,7 +6,7 @@ use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use http::Uri;
 use flexo::*;
-use crate::mirror_config::MirrorSelectionMethod;
+use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig};
 use crossbeam::crossbeam_channel::Receiver;
 use mirror_flexo::*;
 use std::os::unix::io::AsRawFd;
@@ -25,6 +25,7 @@ use crossbeam::crossbeam_channel::RecvTimeoutError;
 
 #[cfg(test)]
 use tempfile::tempfile;
+use crate::mirror_fetch::fetch_providers_from_json_endpoint;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -37,38 +38,14 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 fn main() {
     let mirror_config = mirror_config::load_config();
-    let providers: Vec<DownloadProvider> = if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        match mirror_fetch::fetch_providers() {
-            Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
-            Err(e) => {
-                println!("Unable to fetch mirrors remotely: {:?}", e);
-                println!("Will try to fetch them from cache.");
-                let mirrors = mirror_cache::fetch().unwrap();
-                mirrors.iter().map(|url| {
-                    DownloadProvider {
-                        uri: url.parse::<Uri>().unwrap(),
-                        mirror_results: MirrorResults::default(),
-                        country: "unknown".to_owned(),
-                    }
-                }).collect()
-            },
-        }
-    } else {
-        let default_mirror_result: MirrorResults = Default::default();
-        mirror_config.mirrors_predefined.into_iter().map(|uri| {
-            DownloadProvider {
-                uri: uri.parse::<Uri>().unwrap(),
-                mirror_results: default_mirror_result,
-                country: "Unknown".to_owned(),
-            }
-        }).collect()
-    };
+    let mirrors_auto = mirror_config.mirrors_auto;
+    let providers: Vec<DownloadProvider> = fetch_providers(mirror_config);
     println!("{:#?}", providers);
 
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&urls);
 
-    let job_context: JobContext<DownloadJob> = JobContext::new(providers, mirror_config.mirrors_auto);
+    let job_context: JobContext<DownloadJob> = JobContext::new(providers, mirrors_auto);
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(job_context));
 
     let listener = TcpListener::bind("localhost:7878").unwrap();
@@ -119,6 +96,35 @@ fn main() {
                 },
             };
         });
+    }
+}
+
+fn fetch_providers(mirror_config: MirrorConfig) -> Vec<DownloadProvider> {
+    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
+        match mirror_fetch::fetch_providers_from_json_endpoint() {
+            Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
+            Err(e) => {
+                println!("Unable to fetch mirrors remotely: {:?}", e);
+                println!("Will try to fetch them from cache.");
+                let mirrors = mirror_cache::fetch().unwrap();
+                mirrors.iter().map(|url| {
+                    DownloadProvider {
+                        uri: url.parse::<Uri>().unwrap(),
+                        mirror_results: MirrorResults::default(),
+                        country: "unknown".to_owned(),
+                    }
+                }).collect()
+            },
+        }
+    } else {
+        let default_mirror_result: MirrorResults = Default::default();
+        mirror_config.mirrors_predefined.into_iter().map(|uri| {
+            DownloadProvider {
+                uri: uri.parse::<Uri>().unwrap(),
+                mirror_results: default_mirror_result,
+                country: "Unknown".to_owned(),
+            }
+        }).collect()
     }
 }
 

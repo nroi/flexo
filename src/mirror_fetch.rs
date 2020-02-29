@@ -124,7 +124,7 @@ fn fetch_json() -> Result<String, curl::Error> {
     Ok(std::str::from_utf8(received.as_slice()).unwrap().to_owned())
 }
 
-pub fn fetch_providers() -> Result<Vec<MirrorUrl>, curl::Error> {
+pub fn fetch_providers_from_json_endpoint() -> Result<Vec<MirrorUrl>, curl::Error> {
     let json = fetch_json()?;
     let mirror_list_option: MirrorListOption = serde_json::from_str(&json).unwrap();
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
