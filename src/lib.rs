@@ -7,12 +7,6 @@ use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum FetchType {
-    Cache,
-    Provider,
-}
-
 #[derive(Debug)]
 pub struct JobPartiallyCompleted<J> where J: Job {
     pub channel: J::C,

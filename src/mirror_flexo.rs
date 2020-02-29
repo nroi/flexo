@@ -183,7 +183,7 @@ impl Job for DownloadJob {
         let size_formatted = size_to_human_readable(sum_size);
         println!("Retrieved {} files with a total size of {} from local file system.", hashmap.len(), size_formatted);
 
-        return hashmap;
+        hashmap
     }
 
     fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorsAutoConfig) -> JobResult<DownloadJob> {
