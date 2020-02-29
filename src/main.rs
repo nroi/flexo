@@ -37,16 +37,7 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 
 fn main() {
-    let mirror_config = mirror_config::load_config();
-    let mirrors_auto = mirror_config.mirrors_auto;
-    let providers: Vec<DownloadProvider> = fetch_providers(mirror_config);
-    println!("{:#?}", providers);
-
-    let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
-    mirror_cache::store(&urls);
-
-    let job_context: JobContext<DownloadJob> = JobContext::new(providers, mirrors_auto);
-    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(job_context));
+    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context()));
 
     let listener = TcpListener::bind("localhost:7878").unwrap();
     for stream in listener.incoming() {
@@ -97,6 +88,17 @@ fn main() {
             };
         });
     }
+}
+
+fn initialize_job_context() -> JobContext<DownloadJob> {
+    let mirror_config = mirror_config::load_config();
+    let mirrors_auto = mirror_config.mirrors_auto;
+    let providers: Vec<DownloadProvider> = fetch_providers(mirror_config);
+    println!("{:#?}", providers);
+    let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
+    mirror_cache::store(&urls);
+
+    JobContext::new(providers, mirrors_auto)
 }
 
 fn fetch_providers(mirror_config: MirrorConfig) -> Vec<DownloadProvider> {
