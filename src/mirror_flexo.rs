@@ -264,7 +264,7 @@ impl Order for DownloadOrder {
     fn new_channel(self, tx: Sender<FlexoProgress>) -> DownloadChannel {
         DownloadChannel {
             handle: Easy2::new(DownloadState::new(self, tx).unwrap()),
-            state: DownloadChannelState::new(),
+            state: DownloadChannelState {},
         }
     }
 
@@ -274,24 +274,14 @@ impl Order for DownloadOrder {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+// TODO what do we need this for?
 pub struct DownloadChannelState {
-    is_reset: bool,
 }
 
-impl DownloadChannelState {
-    fn new() -> Self {
-        Self {
-            is_reset: false
-        }
-    }
-}
 
+// TODO do we still need this?
 impl ChannelState for DownloadChannelState {
     type J = DownloadJob;
-
-    fn reset(&mut self) {
-        self.is_reset = true;
-    }
 }
 
 #[derive(Debug)]
@@ -318,7 +308,7 @@ impl DownloadState {
         let buf_writer = BufWriter::new(f);
         let job_state = JobStateItem {
             order,
-            state: Some(FileState {
+            job_state: Some(FileState {
                 buf_writer,
                 size_written,
             }),
@@ -338,7 +328,7 @@ impl DownloadState {
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
-        match self.job_state.state.iter_mut().next() {
+        match self.job_state.job_state.iter_mut().next() {
             None => panic!("Expected the state to be initialized."),
             Some(file_state) => {
                 file_state.size_written += data.len() as u64;
@@ -397,7 +387,7 @@ impl Channel for DownloadChannel {
     type J = DownloadJob;
 
     fn progress_indicator(&self) -> Option<u64> {
-        let file_state = self.handle.get_ref().job_state.state.as_ref().unwrap();
+        let file_state = self.handle.get_ref().job_state.job_state.as_ref().unwrap();
         let size_written = file_state.size_written;
         if size_written > 0 {
             Some(size_written)
@@ -410,7 +400,7 @@ impl Channel for DownloadChannel {
         self.handle.get_mut().reset(order, tx).unwrap();
     }
 
-    fn channel_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
+    fn job_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
         &mut self.handle.get_mut().job_state
     }
 

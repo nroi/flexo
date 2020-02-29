@@ -235,18 +235,18 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
 
     fn progress_indicator(&self) -> Option<u64>;
     fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>);
-    fn channel_state_item(&mut self) -> &mut JobStateItem<Self::J>;
+    fn job_state_item(&mut self) -> &mut JobStateItem<Self::J>;
     fn channel_state(&self) -> <<Self as Channel>::J as Job>::CS;
     fn channel_state_ref(&mut self) -> &mut <<Self as Channel>::J as Job>::CS;
-    fn reset(&mut self) {
-        self.channel_state_item().reset();
-        self.channel_state_ref().reset();
+
+    /// After a job has completed, all stateful information associated with this particular job should be dropped.
+    fn reset_job_state(&mut self) {
+        self.job_state_item().reset();
     }
 }
 
 pub trait ChannelState where Self: std::marker::Send + 'static {
     type J: Job;
-    fn reset(&mut self);
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
@@ -270,13 +270,13 @@ pub struct JobStateItem<J> where J: Job {
     /// with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
     /// reason for using Optional (rather than just JS) is that this way, drop() will called on the JS as soon as we
     /// reset the state to None, so that acquired resources are released as soon as possible.
-    pub state: Option<J::JS>,
+    pub job_state: Option<J::JS>,
     pub tx: Sender<FlexoProgress>,
 }
 
 impl <J> JobStateItem<J> where J: Job {
     fn reset(&mut self) {
-        self.state = None
+        self.job_state = None
     }
 }
 
@@ -414,19 +414,20 @@ impl <J> JobContext<J> where J: Job {
                 orders_in_progress.lock().unwrap().remove(&order_cloned);
                 match result {
                     JobResult::Complete(mut complete_job) => {
+                        complete_job.channel.reset_job_state();
                         let mut channels_cloned = channels_cloned.lock().unwrap();
-                        complete_job.channel.reset();
                         let state = complete_job.channel.channel_state();
                         channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
                         cached.lock().unwrap().insert(order_cloned.clone(), complete_job.size as u64);
                         JobOutcome::Success(complete_job.provider.clone(), state)
                     }
-                    JobResult::Partial(JobPartiallyCompleted { channel, .. }) => {
+                    JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
+                        channel.reset_job_state();
                         let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                         JobOutcome::Error(provider_failures, channel.channel_state())
                     }
                     JobResult::Error(JobTerminated { mut channel, .. } ) => {
-                        channel.reset();
+                        channel.reset_job_state();
                         let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                         JobOutcome::Error(provider_failures, channel.channel_state())
                     }

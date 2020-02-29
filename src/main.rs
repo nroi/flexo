@@ -41,7 +41,7 @@ fn main() {
     let listener = TcpListener::bind("localhost:7878").unwrap();
     for stream in listener.incoming() {
         let stream: TcpStream = stream.unwrap();
-        println!("connection established.");
+        println!("Established connection with client.");
         stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
 
         let job_context = job_context.clone();
@@ -210,7 +210,6 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
         while (offset as u64) < filesize {
             libc::sendfile(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
         }
-        println!("offset: {}", offset);
         offset
     };
     if size == -1 {

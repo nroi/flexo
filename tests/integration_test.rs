@@ -30,16 +30,10 @@ struct DummyState {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
-struct DummyChannelState {
-    pub is_reset: bool,
-}
+struct DummyChannelState {}
 
 impl ChannelState for DummyChannelState {
     type J = DummyJob;
-
-    fn reset(&mut self) {
-        self.is_reset = true;
-    }
 }
 
 impl JobState for DummyState {
@@ -150,12 +144,10 @@ impl Order for DummyOrder {
             handle: 1,
             collector: JobStateItem {
                 order: self,
-                state: None,
+                job_state: None,
                 tx,
             },
-            state: DummyChannelState {
-                is_reset: false,
-            }
+            state: DummyChannelState {}
         }
     }
 
@@ -180,7 +172,7 @@ impl Channel for DummyChannel {
 
     fn reset_order(&mut self, _order: DummyOrder, _tx: Sender<FlexoProgress>) {}
 
-    fn channel_state_item(&mut self) -> &mut JobStateItem<DummyJob> {
+    fn job_state_item(&mut self) -> &mut JobStateItem<DummyJob> {
         &mut self.collector
     }
 
@@ -195,11 +187,9 @@ impl Channel for DummyChannel {
 
 struct DummyJobSuccess {
     provider: DummyProvider,
-    state: DummyChannelState,
 }
 
 struct DummyJobFailure {
-    channel_state: DummyChannelState,
     failures: HashMap<DummyProvider, i32>
 }
 
@@ -263,7 +253,7 @@ fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyJob>) -> Dumm
         _ => panic!(EXPECT_SCHEDULED),
     };
     match result {
-        JobOutcome::Success(provider, state) => DummyJobSuccess { provider, state},
+        JobOutcome::Success(provider, _state) => DummyJobSuccess { provider },
         JobOutcome::Error(_, _) => panic!(EXPECT_SUCCESS),
     }
 }
@@ -277,9 +267,8 @@ fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJo
     };
     match result {
         JobOutcome::Success(_, _) => panic!(EXPECT_FAILURE),
-        JobOutcome::Error(failures, channel_state) => DummyJobFailure {
+        JobOutcome::Error(failures, _channel_state) => DummyJobFailure {
             failures,
-            channel_state,
         }
     }
 }
@@ -315,7 +304,7 @@ fn second_provider_success_after_first_provider_failure() {
         _ => panic!(EXPECT_SCHEDULED),
     }
     let result = job_context.schedule(DummyOrder::Success(1));
-    let DummyJobSuccess { provider, state: _ } = wait_until_job_completed(result);
+    let DummyJobSuccess { provider } = wait_until_job_completed(result);
     assert_eq!(provider, p2);
 }
 
@@ -413,7 +402,7 @@ fn best_provider_selected() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = job_context.schedule(DummyOrder::Success(0));
 
-    let DummyJobSuccess { provider, state: _ } = wait_until_job_completed(result);
+    let DummyJobSuccess { provider } = wait_until_job_completed(result);
     assert_eq!(provider, p2);
 }
 
@@ -490,7 +479,7 @@ fn no_downgrade_if_all_providers_fail() {
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.schedule(DummyOrder::Success(0));
-    let DummyJobFailure { channel_state: _, failures } = wait_until_job_failed(result1);
+    let DummyJobFailure { failures } = wait_until_job_failed(result1);
     let failures = failures.get(&p1);
     assert_eq!(failures, Some(&0));
 }
@@ -558,30 +547,6 @@ fn job_panic_results_in_main_panic() {
     let result1 = job_context.schedule(order1);
     wait_until_job_failed(result1);
     job_context.schedule(order2);
-}
-
-#[test]
-fn reset_after_success() {
-    // To ensure that all resources acquired for a given job are closed, a Channel is associated with a
-    // ChannelStateItem. The ChannelStateItem should be dropped in order to close all resources that are
-    // no longer required.
-    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
-    let order1 = DummyOrder::Success(0);
-    let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let DummyJobSuccess { provider: _, state } = wait_until_job_completed(job_context.schedule(order1));
-    assert_eq!(state.is_reset, true);
-}
-
-#[test]
-fn reset_after_failure() {
-    // Same as reset_after_success, the resources are not required anymore and should therefore be released.
-    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
-    let order1 = DummyOrder::Failure(0);
-    let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let DummyJobFailure { channel_state, failures: _ } = wait_until_job_failed(job_context.schedule(order1));
-    assert_eq!(channel_state.is_reset, true);
 }
 
 #[test]
