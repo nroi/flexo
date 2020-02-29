@@ -7,6 +7,7 @@ use crossbeam::crossbeam_channel::{Sender, Receiver};
 use std::collections::hash_map::RandomState;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
+static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
 static EXPECT_CACHED: &str = "Expected the job to be in cache";
 static ORDER_PANIC: &str = "this order results in a panic!";
 static EXPECT_SUCCESS: &str = "Expected the job to be completed successfully";
@@ -100,7 +101,7 @@ impl Job for DummyJob {
         self.order.clone()
     }
 
-    fn initialize_cache() -> HashMap<Self::O, u64, RandomState> {
+    fn initialize_cache() -> HashMap<Self::O, OrderState, RandomState> {
         HashMap::new()
     }
 
@@ -385,9 +386,16 @@ fn order_skipped_if_already_in_progress() {
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     wait_until_provider_selected(job_context.schedule(order.clone()));
+
     match job_context.schedule(order.clone()) {
-        ScheduleOutcome::Skipped => {},
-        _ => panic!(EXPECT_SCHEDULED),
+        ScheduleOutcome::Skipped =>
+            {},
+        ScheduleOutcome::Scheduled(_) =>
+            panic!(EXPECT_SKIPPED),
+        ScheduleOutcome::Cached =>
+            panic!(EXPECT_SKIPPED),
+        ScheduleOutcome::Uncacheable(_) =>
+            panic!(EXPECT_SKIPPED),
     }
 }
 

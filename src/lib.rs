@@ -104,7 +104,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
-    fn initialize_cache() -> HashMap<Self::O, u64>;
+    fn initialize_cache() -> HashMap<Self::O, OrderState>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
 
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>) -> (Self::C, ChannelEstablishment) {
@@ -132,14 +132,14 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     /// Returns true if this order can be served from cache, false otherwise.
     fn is_cacheable(&self) -> bool;
 
-    fn is_cached(&self, cached: MutexGuard<HashMap<Self, u64>>) -> bool {
+    fn is_cached(&self, cached: MutexGuard<HashMap<Self, OrderState>>) -> bool {
         match &cached.get(self) {
-            None => false,
-            Some(_size) => {
+            Some(OrderState::Cached(_size)) => {
                 // TODO We also need to ensure that the size of the cached file is equal to the content length
                 // of the file to retrieve.
                 true
             },
+            _ => false,
         }
     }
 
@@ -280,13 +280,18 @@ impl <J> JobStateItem<J> where J: Job {
     }
 }
 
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+pub enum OrderState {
+    Cached(u64),
+    InProgress
+}
+
 /// The context in which a job is executed, including all stateful information required by the job.
 /// This context is meant to be initialized once during the program's lifecycle.
 pub struct JobContext<J> where J: Job, {
-    orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
-    cached: Arc<Mutex<HashMap<J::O, u64>>>,
+    order_states: Arc<Mutex<HashMap<J::O, OrderState>>>,
     providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
@@ -327,16 +332,14 @@ impl <J> JobContext<J> where J: Job {
     pub fn new(initial_providers: Vec<J::P>, properties: J::PR) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
-        let orders_in_progress: Arc<Mutex<HashSet<J::O>>> = Arc::new(Mutex::new(HashSet::new()));
-        let cached: Arc<Mutex<HashMap<J::O, u64>>> = Arc::new(Mutex::new(J::initialize_cache()));
+        let order_states: Arc<Mutex<HashMap<J::O, OrderState>>> = Arc::new(Mutex::new(J::initialize_cache()));
         let providers_in_use: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let provider_records: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let thread_mutexes: Vec<Arc<Mutex<i32>>> = Vec::new();
         Self {
             providers,
             channels,
-            orders_in_progress,
-            cached,
+            order_states,
             provider_failures: provider_records,
             providers_in_use,
             panic_monitor: thread_mutexes,
@@ -347,25 +350,24 @@ impl <J> JobContext<J> where J: Job {
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
 
-        let order_in_progress = {
-            let mut locked = self.orders_in_progress.lock().unwrap();
-            if locked.contains(&order) {
-                println!("order {:?} already in progress: nothing to do.", &order);
-                true
-            } else {
-                locked.insert(order.clone());
-                false
-            }
-        };
-
         if !order.is_cacheable() {
             let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
             return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
         }
 
-        let cached = Arc::clone(&self.cached);
-        if order.is_cached(cached.lock().unwrap()) {
-            return ScheduleOutcome::Cached;
+        {
+            let mut order_states = self.order_states.lock().unwrap();
+            match order_states.get(&order) {
+                None => {},
+                Some(OrderState::Cached(size)) => {
+                    return ScheduleOutcome::Cached;
+                },
+                Some(OrderState::InProgress) => {
+                    println!("order {:?} already in progress: nothing to do.", &order);
+                    return ScheduleOutcome::Skipped;
+                }
+            }
+            order_states.insert(order.clone(), OrderState::InProgress);
         }
 
         let mutex = Arc::new(Mutex::new(0));
@@ -385,55 +387,52 @@ impl <J> JobContext<J> where J: Job {
         }).collect();
         self.panic_monitor.push(mutex);
 
-        if !order_in_progress {
-            let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
-            let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
-            // TODO make use of the channels so that new consumers have access to the current state of an ongoing job.
-            let channels_cloned = Arc::clone(&self.channels);
-            let mut providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
-            let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
-            let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
-            let orders_in_progress = Arc::clone(&self.orders_in_progress);
-            let order_cloned = order;
-            let properties = self.properties;
-            let t = thread::spawn(move || {
-                let _lock = mutex_cloned.lock().unwrap();
-                let order: <J as Job>::O = order_cloned.clone();
-                let result = order.try_until_success(
-                    &mut providers_cloned,
-                    &mut provider_failures_cloned,
-                    &mut providers_in_use_cloned,
-                    channels_cloned.clone(),
-                    tx,
-                    tx_progress,
-                    properties
-                );
-                orders_in_progress.lock().unwrap().remove(&order_cloned);
-                match result {
-                    JobResult::Complete(mut complete_job) => {
-                        complete_job.channel.reset_job_state();
-                        let mut channels_cloned = channels_cloned.lock().unwrap();
-                        let state = complete_job.channel.channel_state();
-                        channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
-                        cached.lock().unwrap().insert(order_cloned.clone(), complete_job.size as u64);
-                        JobOutcome::Success(complete_job.provider.clone(), state)
-                    }
-                    JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
-                        channel.reset_job_state();
-                        let provider_failures = provider_failures_cloned.lock().unwrap().clone();
-                        JobOutcome::Error(provider_failures, channel.channel_state())
-                    }
-                    JobResult::Error(JobTerminated { mut channel, .. } ) => {
-                        channel.reset_job_state();
-                        let provider_failures = provider_failures_cloned.lock().unwrap().clone();
-                        JobOutcome::Error(provider_failures, channel.channel_state())
-                    }
+        let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
+        let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
+        // TODO make use of the channels so that new consumers have access to the current state of an ongoing job.
+        let channels_cloned = Arc::clone(&self.channels);
+        let mut providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
+        let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
+        let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
+        let order_states = Arc::clone(&self.order_states);
+        let order_cloned = order.clone();
+        let properties = self.properties;
+        let t = thread::spawn(move || {
+            let _lock = mutex_cloned.lock().unwrap();
+            let order: <J as Job>::O = order_cloned.clone();
+            let result = order.try_until_success(
+                &mut providers_cloned,
+                &mut provider_failures_cloned,
+                &mut providers_in_use_cloned,
+                channels_cloned.clone(),
+                tx,
+                tx_progress,
+                properties
+            );
+            order_states.lock().unwrap().remove(&order_cloned);
+            match result {
+                JobResult::Complete(mut complete_job) => {
+                    complete_job.channel.reset_job_state();
+                    let mut channels_cloned = channels_cloned.lock().unwrap();
+                    let state = complete_job.channel.channel_state();
+                    channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
+                    let order_state = OrderState::Cached(complete_job.size as u64);
+                    order_states.lock().unwrap().insert(order_cloned.clone(), order_state);
+                    JobOutcome::Success(complete_job.provider.clone(), state)
                 }
-            });
+                JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
+                    channel.reset_job_state();
+                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    JobOutcome::Error(provider_failures, channel.channel_state())
+                }
+                JobResult::Error(JobTerminated { mut channel, .. } ) => {
+                    channel.reset_job_state();
+                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    JobOutcome::Error(provider_failures, channel.channel_state())
+                }
+            }
+        });
 
-            ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
-        } else {
-            ScheduleOutcome::Skipped
-        }
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
     }
 }

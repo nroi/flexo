@@ -150,8 +150,8 @@ impl Job for DownloadJob {
         self.order.clone()
     }
 
-    fn initialize_cache() -> HashMap<DownloadOrder, u64, RandomState> {
-        let mut hashmap: HashMap<Self::O, u64> = HashMap::new();
+    fn initialize_cache() -> HashMap<DownloadOrder, OrderState, RandomState> {
+        let mut hashmap: HashMap<Self::O, OrderState> = HashMap::new();
         let mut sum_size = 0;
         for entry in WalkDir::new(DIRECTORY) {
             let entry = entry.expect("Error while reading directory entry");
@@ -177,7 +177,8 @@ impl Job for DownloadJob {
                 let order = DownloadOrder {
                     filepath: sub_path.to_str().unwrap().to_owned()
                 };
-                hashmap.insert(order, file_size);
+                let state = OrderState::Cached(file_size);
+                hashmap.insert(order, state);
             }
         }
         let size_formatted = size_to_human_readable(sum_size);
