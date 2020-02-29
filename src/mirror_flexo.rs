@@ -482,14 +482,14 @@ pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> whe
         let res: std::result::Result<httparse::Status<usize>, httparse::Error> = req.parse(&buf[..size_read_all]);
 
         match res {
-            Ok(Status::Complete(result)) => {
+            Ok(Status::Complete(_result)) => {
                 println!("Received header");
                 break(Ok(GetRequest::new(req)))
             }
             Ok(Status::Partial) => {
                 unimplemented!()
             }
-            Err(e) => {
+            Err(_e) => {
                 unimplemented!()
             }
         }
@@ -517,13 +517,6 @@ mod tests {
     struct OneByteReader {
         size_read: usize,
     }
-    impl OneByteReader {
-        fn new() -> Self {
-            OneByteReader {
-                size_read: 0,
-            }
-        }
-    }
     impl Read for OneByteReader {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             if self.size_read < TEST_REQUEST_HEADER.len() {
@@ -536,11 +529,6 @@ mod tests {
         }
     }
     struct NoDelimiterReader {
-    }
-    impl NoDelimiterReader {
-        fn new() -> Self {
-            NoDelimiterReader {}
-        }
     }
     impl Read for NoDelimiterReader {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {

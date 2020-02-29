@@ -8,7 +8,6 @@ use std::collections::hash_map::RandomState;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
 static EXPECT_CACHED: &str = "Expected the job to be in cache";
-static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
 static ORDER_PANIC: &str = "this order results in a panic!";
 static EXPECT_SUCCESS: &str = "Expected the job to be completed successfully";
 static EXPECT_FAILURE: &str = "Expected the job to fail, but it completed successfully";

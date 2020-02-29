@@ -25,7 +25,6 @@ use crossbeam::crossbeam_channel::RecvTimeoutError;
 
 #[cfg(test)]
 use tempfile::tempfile;
-use crate::mirror_fetch::fetch_providers_from_json_endpoint;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
