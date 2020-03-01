@@ -214,7 +214,7 @@ fn reply_header(content_length: u64) -> String {
     let timestamp = now.rfc822();
     let header = format!("\
         HTTP/1.1 200 OK\r\n\
-        Server: webserver_test\r\n\
+        Server: flexo\r\n\
         Date: {}\r\n\
         Content-Length: {}\r\n\r\n", timestamp, content_length);
     println!("header: {:?}", header);
@@ -227,7 +227,7 @@ fn redirect_header(path: &str) -> String {
     let timestamp = now.rfc822();
     let header = format!("\
         HTTP/1.1 301 Moved Permanently\r\n\
-        Server: webserver_test\r\n\
+        Server: flexo\r\n\
         Date: {}\r\n\
         Location: {}\r\n\r\n", timestamp, path);
     println!("header: {:?}", header);
