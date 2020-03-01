@@ -22,6 +22,8 @@ use std::time::Duration;
 use std::path::Path;
 use std::fs::File;
 use crossbeam::crossbeam_channel::RecvTimeoutError;
+use std::ffi::OsString;
+
 
 #[cfg(test)]
 use tempfile::tempfile;
@@ -62,7 +64,6 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
             };
             let mut job_context = job_context.lock().unwrap();
             println!("Attempt to schedule new job");
-
             let result = job_context.schedule(order.clone());
             // TODO also consider requests for .db files, we need to serve them via redirect.
             match result {
@@ -70,7 +71,9 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
                     println!("Job is already in progress");
                     // TODO this hasn't been tested yet.
                     let path = DIRECTORY.to_owned() + &order.filepath;
-                    serve_from_existing_growing_file(&path, &mut stream);
+                    let content_length: u64 = try_content_length_from_path(&path).unwrap();
+                    let file: File = File::open(&path).unwrap();
+                    serve_from_growing_file(file, content_length, &mut stream);
                 },
                 ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
                     println!("Job was scheduled, will serve from growing file");
@@ -151,10 +154,41 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> u64 {
     }
 }
 
-fn serve_from_existing_growing_file(path: &str, stream: &mut TcpStream) {
-    let content_length: u64 = todo!("get content length");
-    let file: File = todo!("get file");
-    serve_from_growing_file(file, content_length, stream);
+fn try_content_length_from_path(path: &str) -> Option<u64> {
+    let mut num_attempts = 0;
+    // Timeout after 2 seconds.
+    while num_attempts < 2_000 * 2 {
+        match content_length_from_path(path) {
+            None => {
+                std::thread::sleep(std::time::Duration::from_micros(500));
+            },
+            Some(v) => return Some(v),
+        }
+        num_attempts += 1;
+    }
+
+    println!("Number of attempts exceeded: File {} not found.", &path);
+    None
+}
+
+fn content_length_from_path(path: &str) -> Option<u64> {
+    let key = OsString::from("user.content_length");
+    let value = xattr::get(&path, &key);
+    match value {
+        Ok(Some(value)) => {
+            let content_length = String::from_utf8(value).unwrap().parse::<u64>().unwrap();
+            println!("Found file! content length is {}", content_length);
+            Some(content_length)
+        },
+        Ok(None) => {
+            println!("file exists, but no content length is set.");
+            None
+        }
+        Err(_) => {
+            // println!("file does not exist yet.");
+            None
+        }
+    }
 }
 
 fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut TcpStream) {

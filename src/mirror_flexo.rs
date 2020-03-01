@@ -202,8 +202,11 @@ impl Job for DownloadJob {
             },
         }
         match properties.max_speed_limit {
-            None => {},
+            None => {
+                println!("No speed limit was set.")
+            },
             Some(speed) => {
+                println!("Apply speed limit of {}/s", size_to_human_readable(speed));
                 channel.handle.max_recv_speed(speed).unwrap();
             },
         }
@@ -352,7 +355,7 @@ impl Handler for DownloadState {
         match parse_content_length(data) {
             None => {},
             Some(value) => {
-                let path = Path::new(DIRECTORY).join(Path::new(&self.job_state.order.filepath));
+                let path = Path::new(DIRECTORY).join(&self.job_state.order.filepath);
                 let key = OsString::from("user.content_length");
                 xattr::set(path, &key, &value.as_bytes())
                     .expect("Unable to set extended file attributes");
