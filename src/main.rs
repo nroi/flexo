@@ -88,7 +88,7 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
                     let path = DIRECTORY.to_owned() + &order.filepath;
                     let file: File = File::open(path).unwrap();
                     serve_from_complete_file(file, &mut stream);
-                }
+                },
                 ScheduleOutcome::Uncacheable(p) => {
                     println!("Serve file via redirect.");
                     let uri_string = format!("{}{}", p.uri, order.filepath);

@@ -105,7 +105,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
     fn initialize_cache() -> HashMap<Self::O, OrderState>;
-    fn serve_from_provider(self, channel: Self::C, properties: Self::PR) -> JobResult<Self>;
+    fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
 
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>) -> (Self::C, ChannelEstablishment) {
         let mut channels = channels.lock().unwrap();
@@ -151,7 +151,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
-        properties: <<Self as Order>::J as Job>::PR
+        properties: <<Self as Order>::J as Job>::PR,
+        cached_size: u64
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -170,7 +171,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let job = provider.new_job(self_cloned);
             let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone());
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-            let result = job.serve_from_provider(channel, properties);
+            let result = job.serve_from_provider(channel, properties, cached_size);
             match &result {
                 JobResult::Complete(_) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
@@ -281,8 +282,14 @@ impl <J> JobStateItem<J> where J: Job {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+pub struct CachedItem {
+    pub complete_size: u64,
+    pub cached_size: u64,
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub enum OrderState {
-    Cached(u64),
+    Cached(CachedItem),
     InProgress
 }
 
@@ -355,20 +362,22 @@ impl <J> JobContext<J> where J: Job {
             return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
         }
 
-        {
+        let cached_size: u64 = {
             let mut order_states = self.order_states.lock().unwrap();
-            match order_states.get(&order) {
-                None => {},
-                Some(OrderState::Cached(size)) => {
+            let cached_size = match order_states.get(&order) {
+                None => 0,
+                Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) if complete_size == cached_size => {
                     return ScheduleOutcome::Cached;
                 },
+                Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) => *cached_size,
                 Some(OrderState::InProgress) => {
                     println!("order {:?} already in progress: nothing to do.", &order);
                     return ScheduleOutcome::Skipped;
                 }
-            }
+            };
             order_states.insert(order.clone(), OrderState::InProgress);
-        }
+            cached_size
+        };
 
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
@@ -407,7 +416,8 @@ impl <J> JobContext<J> where J: Job {
                 channels_cloned.clone(),
                 tx,
                 tx_progress,
-                properties
+                properties,
+                cached_size,
             );
             order_states.lock().unwrap().remove(&order_cloned);
             match result {
@@ -416,7 +426,11 @@ impl <J> JobContext<J> where J: Job {
                     let mut channels_cloned = channels_cloned.lock().unwrap();
                     let state = complete_job.channel.channel_state();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
-                    let order_state = OrderState::Cached(complete_job.size as u64);
+                    let cached_item = CachedItem {
+                        complete_size: complete_job.size as u64,
+                        cached_size: complete_job.size as u64,
+                    };
+                    let order_state = OrderState::Cached(cached_item);
                     order_states.lock().unwrap().insert(order_cloned.clone(), order_state);
                     JobOutcome::Success(complete_job.provider.clone(), state)
                 }

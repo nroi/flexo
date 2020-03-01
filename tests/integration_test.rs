@@ -105,7 +105,7 @@ impl Job for DummyJob {
         HashMap::new()
     }
 
-    fn serve_from_provider(self, channel: DummyChannel, _properties: DummyProperties) -> JobResult<DummyJob> {
+    fn serve_from_provider(self, channel: DummyChannel, _properties: DummyProperties, cached_size: u64) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
             (DummyOrder::Success(_), DummyProvider::Success(_)) => {
                 let jc = JobCompleted::new(channel, self.provider, 1);
