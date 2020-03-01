@@ -62,9 +62,9 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
             let order = DownloadOrder {
                 filepath: path.to_str().unwrap().to_owned()
             };
-            let mut job_context = job_context.lock().unwrap();
             println!("Attempt to schedule new job");
-            let result = job_context.schedule(order.clone());
+            let result = job_context.lock().unwrap().schedule(order.clone());
+            // let result = job_context.schedule(order.clone());
             // TODO also consider requests for .db files, we need to serve them via redirect.
             match result {
                 ScheduleOutcome::Skipped => {
@@ -84,11 +84,13 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
                     serve_from_growing_file(file, content_length, &mut stream);
                 },
                 ScheduleOutcome::Cached => {
+                    println!("Serve file from cache.");
                     let path = DIRECTORY.to_owned() + &order.filepath;
                     let file: File = File::open(path).unwrap();
                     serve_from_complete_file(file, &mut stream);
                 }
                 ScheduleOutcome::Uncacheable(p) => {
+                    println!("Serve file via redirect.");
                     let uri_string = format!("{}{}", p.uri, order.filepath);
                     serve_via_redirect(uri_string, &mut stream);
                 }
