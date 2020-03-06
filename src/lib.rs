@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
@@ -369,7 +369,7 @@ impl <J> JobContext<J> where J: Job {
                 Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) if complete_size == cached_size => {
                     return ScheduleOutcome::Cached;
                 },
-                Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) => *cached_size,
+                Some(OrderState::Cached(CachedItem { complete_size: _, cached_size } )) => *cached_size,
                 Some(OrderState::InProgress) => {
                     println!("order {:?} already in progress: nothing to do.", &order);
                     return ScheduleOutcome::Skipped;
