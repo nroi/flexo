@@ -199,8 +199,6 @@ impl Job for DownloadJob {
         println!("Fetch package from remote mirror: {}", &url);
         channel.handle.url(&url).unwrap();
         channel.handle.resume_from(cached_size).unwrap();
-        // Limit the speed to facilitate debugging.
-        // TODO disable the speed limit before releasing this.
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {

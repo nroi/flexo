@@ -398,7 +398,6 @@ impl <J> JobContext<J> where J: Job {
 
         let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
         let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
-        // TODO make use of the channels so that new consumers have access to the current state of an ongoing job.
         let channels_cloned = Arc::clone(&self.channels);
         let mut providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
         let mut provider_failures_cloned = Arc::clone(&self.provider_failures);

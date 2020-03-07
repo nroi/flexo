@@ -64,8 +64,6 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
             };
             println!("Attempt to schedule new job");
             let result = job_context.lock().unwrap().schedule(order.clone());
-            // let result = job_context.schedule(order.clone());
-            // TODO also consider requests for .db files, we need to serve them via redirect.
             match result {
                 ScheduleOutcome::Skipped => {
                     println!("Job is already in progress");
