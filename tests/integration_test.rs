@@ -388,8 +388,8 @@ fn order_skipped_if_already_in_progress() {
     wait_until_provider_selected(job_context.schedule(order.clone()));
 
     match job_context.schedule(order.clone()) {
-        ScheduleOutcome::Skipped =>
-            {},
+        ScheduleOutcome::AlreadyInProgress =>
+            {}
         ScheduleOutcome::Scheduled(_) =>
             panic!(EXPECT_SKIPPED),
         ScheduleOutcome::Cached =>

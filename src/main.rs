@@ -65,14 +65,14 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
             println!("Attempt to schedule new job");
             let result = job_context.lock().unwrap().schedule(order.clone());
             match result {
-                ScheduleOutcome::Skipped => {
+                ScheduleOutcome::AlreadyInProgress => {
                     println!("Job is already in progress");
                     // TODO this hasn't been tested yet.
                     let path = DIRECTORY.to_owned() + &order.filepath;
                     let content_length: u64 = try_content_length_from_path(&path).unwrap();
                     let file: File = File::open(&path).unwrap();
                     serve_from_growing_file(file, content_length, &mut stream);
-                },
+                }
                 ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
                     println!("Job was scheduled, will serve from growing file");
                     let content_length = receive_content_length(rx_progress);

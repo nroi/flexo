@@ -313,7 +313,7 @@ pub struct ScheduledItem<J> where J: Job {
 
 pub enum ScheduleOutcome<J> where J: Job {
     /// The order is already in progress, no new order was scheduled.
-    Skipped,
+    AlreadyInProgress,
     /// The order has to be fetched from a provider.
     Scheduled(ScheduledItem<J>),
     /// The order is already available in the cache.
@@ -372,7 +372,7 @@ impl <J> JobContext<J> where J: Job {
                 Some(OrderState::Cached(CachedItem { complete_size: _, cached_size } )) => *cached_size,
                 Some(OrderState::InProgress) => {
                     println!("order {:?} already in progress: nothing to do.", &order);
-                    return ScheduleOutcome::Skipped;
+                    return ScheduleOutcome::AlreadyInProgress;
                 }
             };
             order_states.insert(order.clone(), OrderState::InProgress);
