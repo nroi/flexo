@@ -346,6 +346,8 @@ impl DownloadState {
         if order != self.job_state.order {
             let c = DownloadState::new(order.clone(), tx.clone(), self.last_chance)?;
             self.job_state = c.job_state;
+            self.header_success = None;
+            self.received_header = Vec::new();
         }
         Ok(())
     }
@@ -397,15 +399,14 @@ impl Handler for DownloadState {
             Ok(Status::Complete(_header_size)) => {
                 println!("Received complete header from server");
                 let code = req.code.unwrap();
+                println!("code is {}", code);
                 if code >= 200 && code < 300 {
                     let content_length = req.headers.iter().find_map(|header|
-                        match std::str::from_utf8(header.value) {
-                            Ok(value) if value.to_lowercase() == "content-length" =>
-                                Some(value.parse::<u64>().unwrap()),
-                            Ok(_) =>
-                                None,
-                            Err(_) =>
-                                None,
+                        if header.name.eq_ignore_ascii_case("content-length") {
+                            Some(std::str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
+                            // Some(header.value.parse::<u64>().unwrap())
+                        } else {
+                            None
                         }
                     ).unwrap();
                     self.header_success = Some(HeaderOutcome::Ok(content_length));
