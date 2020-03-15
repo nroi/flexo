@@ -44,7 +44,7 @@ impl JobState for DummyState {
 impl Provider for DummyProvider {
     type J = DummyJob;
 
-    fn new_job(&self, order: DummyOrder) -> DummyJob {
+    fn new_job(&self, order: DummyOrder, _last_chance: bool) -> DummyJob {
         DummyJob {
             provider: self.clone(),
             order,
@@ -140,7 +140,7 @@ enum DummyOrder {
 impl Order for DummyOrder {
     type J = DummyJob;
 
-    fn new_channel(self, tx: Sender<FlexoProgress>) -> DummyChannel {
+    fn new_channel(self, tx: Sender<FlexoProgress>, last_chance: bool) -> DummyChannel {
         DummyChannel {
             handle: 1,
             collector: JobStateItem {

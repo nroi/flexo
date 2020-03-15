@@ -1,7 +1,7 @@
 extern crate serde;
 use serde::Deserialize;
 use crate::mirror_config::MirrorConfig;
-use curl::easy::Easy;
+use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use crate::MirrorResults;
 
@@ -138,6 +138,9 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Option<MirrorResults> {
     easy.connect_only(true).unwrap();
     easy.dns_cache_timeout(Duration::from_secs(3600 * 24)).unwrap();
     easy.connect_timeout(timeout).unwrap();
+    // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
+    // any benefit for our use case (afaik), so this setting should not have any downsides.
+    easy.http_version(HttpVersion::V11).unwrap();
     easy.transfer().perform().ok()?;
     Some(MirrorResults {
         namelookup_duration: easy.namelookup_time().ok()?,

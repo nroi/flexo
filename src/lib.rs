@@ -50,6 +50,8 @@ pub enum JobResult<J> where J: Job {
     Complete(JobCompleted<J>),
     Partial(JobPartiallyCompleted<J>),
     Error(JobTerminated<J>),
+    /// No provider was able to fulfil the order since the order was unavailable at all providers.
+    Unavailable(J::C),
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -71,7 +73,7 @@ pub trait Provider where
     Self: std::marker::Sized + std::fmt::Debug + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::marker::Send + 'static,
 {
     type J: Job;
-    fn new_job(&self, order: <<Self as Provider>::J as Job>::O) -> Self::J;
+    fn new_job(&self, order: <<Self as Provider>::J as Job>::O, last_chance: bool) -> Self::J;
 
     /// returns an identifier that remains unchanged throughout the lifetime of the program.
     /// the intention is that while some properties of the provider change (i.e., its score),
@@ -107,7 +109,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn initialize_cache() -> HashMap<Self::O, OrderState>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
 
-    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>) -> (Self::C, ChannelEstablishment) {
+    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> (Self::C, ChannelEstablishment) {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(mut channel) => {
@@ -117,7 +119,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
             }
             None => {
                 println!("need to create new channel: {:?}", &self.provider());
-                let channel = self.order().new_channel(tx);
+                let channel = self.order().new_channel(tx, last_chance);
                 (channel, ChannelEstablishment::NewChannel)
             }
         }
@@ -127,7 +129,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
-    fn new_channel(self, tx: Sender<FlexoProgress>) -> <<Self as Order>::J as Job>::C;
+    fn new_channel(self, tx: Sender<FlexoProgress>, last_chance: bool) -> <<Self as Order>::J as Job>::C;
 
     /// Returns true if this order can be served from cache, false otherwise.
     fn is_cacheable(&self) -> bool;
@@ -158,7 +160,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let mut punished_providers = Vec::new();
         let result = loop {
             num_attempt += 1;
-            let provider = self.select_provider(&mut providers, provider_current_usages.lock().unwrap(), provider_failures.lock().unwrap());
+            let (provider, is_last_provider) =
+                self.select_provider(&mut providers, provider_current_usages.lock().unwrap(), provider_failures.lock().unwrap());
+            let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
@@ -168,8 +172,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             }
             println!("selected provider: {:?}", &provider);
             let self_cloned: Self = self.clone();
-            let job = provider.new_job(self_cloned);
-            let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone());
+            let job = provider.new_job(self_cloned, last_chance);
+            let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
             let result = job.serve_from_provider(channel, properties, cached_size);
             match &result {
@@ -186,8 +190,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     punished_providers.push(provider.clone());
                     println!("Error: {:?}, try again", e)
                 },
+                JobResult::Unavailable(_) => {
+                    println!("Order is not available, let's try again with a different provider.")
+                }
             };
-            if result.is_success() || providers.is_empty() || num_attempt >= NUM_MAX_ATTEMPTS {
+            if result.is_success() || providers.is_empty() || last_chance {
                 break result;
             }
         };
@@ -203,7 +210,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         providers: &mut Vec<<<Self as Order>::J as Job>::P>,
         provider_current_usages: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>,
         provider_failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>,
-    ) -> <<Self as Order>::J as Job>::P {
+    ) -> (<<Self as Order>::J as Job>::P, bool) {
         let (idx, (_, _, _, _)) = providers
             .iter()
             .map(|x| (provider_failures.get(&x).unwrap_or(&0), provider_current_usages.get(&x).unwrap_or(&0), x.score(), x))
@@ -213,7 +220,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 (num_failures_x, num_usages_x, score_x).cmp(&(num_failures_y, num_usages_y, score_y)))
             .unwrap();
 
-        providers.remove(idx)
+        let provider = providers.remove(idx);
+        (provider, providers.is_empty())
     }
 
     fn pardon(punished_providers: Vec<<<Self as Order>::J as Job>::P>,
@@ -330,6 +338,8 @@ pub enum FlexoMessage <P> {
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum FlexoProgress {
+    /// The job cannot be completed because the requested order is not available.
+    Unavailable,
     JobSize(u64),
     Progress(u64),
     Completed,
@@ -439,6 +449,12 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures, channel.channel_state())
                 }
                 JobResult::Error(JobTerminated { mut channel, .. } ) => {
+                    channel.reset_job_state();
+                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    JobOutcome::Error(provider_failures, channel.channel_state())
+                }
+                JobResult::Unavailable(mut channel) => {
+                    println!("The given order was unavailable for all providers.");
                     channel.reset_job_state();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures, channel.channel_state())

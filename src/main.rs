@@ -16,7 +16,7 @@ mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
 
-use std::net::{TcpListener, Shutdown, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 use std::path::Path;
@@ -49,13 +49,13 @@ fn main() {
         let job_context = job_context.clone();
 
         let _t = thread::spawn(move || {
-            handle_connection(job_context, stream);
+            serve_file(job_context, stream);
         });
     }
 }
 
-fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream) {
-    match read_header(&mut stream) {
+fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream) {
+    match read_client_header(&mut stream) {
         Ok(get_request) => {
             println!("Got header, GET request is: {:?}", get_request);
             let path = Path::new(PATH_PREFIX).join(&get_request.path);
@@ -74,12 +74,23 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
                     serve_from_growing_file(file, content_length, &mut stream);
                 }
                 ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
+                    // TODO this branch is also executed when the server returns 404.
                     println!("Job was scheduled, will serve from growing file");
-                    let content_length = receive_content_length(rx_progress);
-                    println!("Received content length via channel: {}", content_length);
-                    let path = DIRECTORY.to_owned() + &order.filepath;
-                    let file: File = File::open(&path).unwrap();
-                    serve_from_growing_file(file, content_length, &mut stream);
+                    match receive_content_length(rx_progress) {
+                        Ok(content_length) => {
+                            println!("Received content length via channel: {}", content_length);
+                            let path = DIRECTORY.to_owned() + &order.filepath;
+                            let file: File = File::open(&path).unwrap();
+                            serve_from_growing_file(file, content_length, &mut stream);
+                        },
+                        Err(ContentLengthError::Unavailable) => {
+                            println!("Will send 404 reply to client.");
+                            serve_404_header(&mut stream);
+                        }
+                        Err(e) => {
+                            panic!("Error: {:?}", e)
+                        },
+                    }
                 },
                 ScheduleOutcome::Cached => {
                     println!("Serve file from cache.");
@@ -93,7 +104,6 @@ fn handle_connection(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut strea
                     serve_via_redirect(uri_string, &mut stream);
                 }
             }
-            stream.shutdown(Shutdown::Both).unwrap();
         },
         Err(e) => {
             println!("error: {:?}", e);
@@ -141,15 +151,28 @@ fn fetch_providers(mirror_config: MirrorConfig) -> Vec<DownloadProvider> {
     }
 }
 
-fn receive_content_length(rx: Receiver<FlexoProgress>) -> u64 {
+#[derive(Debug)]
+enum ContentLengthError {
+    TransmissionError(RecvTimeoutError),
+    Unavailable,
+}
+
+fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<u64, ContentLengthError> {
     loop {
         match rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(FlexoProgress::JobSize(content_length)) => {
-                break content_length;
+                break Ok(content_length);
             }
-            Err(RecvTimeoutError::Disconnected) => panic!("Disconnected while waiting for content length"),
-            Err(RecvTimeoutError::Timeout) => panic!("Timeout while waiting for content length"),
-            Ok(_) => {},
+            Ok(FlexoProgress::Unavailable) => {
+                break Err(ContentLengthError::Unavailable);
+            }
+            Err(e) => break Err(ContentLengthError::TransmissionError(e)),
+            Ok(_) => {
+                // TODO we're just ignoring whatever is being send on this channel. This is kind of dangerous and
+                // not clean: If there is a message on this channel that is not intended for us, than ignoring
+                // it will cause problems. If no such messages are sent on the channel, then we wouldn't need
+                // this branch.
+            },
         }
     }
 }
@@ -192,7 +215,7 @@ fn content_length_from_path(path: &str) -> Option<u64> {
 }
 
 fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut TcpStream) {
-    let header = reply_header(content_length);
+    let header = reply_header_success(content_length);
     stream.write(header.as_bytes()).unwrap();
     let mut bytes_sent = 0;
     while bytes_sent < content_length {
@@ -209,14 +232,28 @@ fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut Tcp
     println!("File completely served from growing file.");
 }
 
-fn reply_header(content_length: u64) -> String {
+fn serve_404_header(stream: &mut TcpStream) {
+    let header = reply_header_not_found();
+    stream.write(header.as_bytes()).unwrap();
+    stream.write("\r\n".as_bytes());
+}
+
+fn reply_header_success(content_length: u64) -> String {
+    reply_header("200 OK", content_length)
+}
+
+fn reply_header_not_found() -> String {
+    reply_header("404 Not Found", 0)
+}
+
+fn reply_header(status_line: &str, content_length: u64) -> String {
     let now = time::now_utc();
     let timestamp = now.rfc822();
     let header = format!("\
-        HTTP/1.1 200 OK\r\n\
+        HTTP/1.1 {}\r\n\
         Server: flexo\r\n\
         Date: {}\r\n\
-        Content-Length: {}\r\n\r\n", timestamp, content_length);
+        Content-Length: {}\r\n\r\n", status_line, timestamp, content_length);
     println!("header: {:?}", header);
 
     return header.to_owned();
@@ -237,7 +274,7 @@ fn redirect_header(path: &str) -> String {
 
 fn serve_from_complete_file(mut file: File, stream: &mut TcpStream) {
     let filesize = file.metadata().unwrap().len();
-    let header = reply_header(filesize);
+    let header = reply_header_success(filesize);
     stream.write(header.as_bytes()).unwrap();
     send_payload(&mut file, filesize, 0, stream).unwrap();
 }

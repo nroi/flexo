@@ -10,7 +10,7 @@ use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
 use crossbeam::crossbeam_channel::Sender;
-use curl::easy::{Easy2, Handler, WriteError};
+use curl::easy::{Easy2, Handler, WriteError, HttpVersion};
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::collections::hash_map::RandomState;
@@ -18,9 +18,10 @@ use std::collections::HashMap;
 use walkdir::WalkDir;
 use xattr;
 use std::ffi::OsString;
-use httparse::{Status, Header};
+use httparse::{Status, Header, Error};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::str::Utf8Error;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -80,7 +81,7 @@ pub struct DownloadProvider {
 impl Provider for DownloadProvider {
     type J = DownloadJob;
 
-    fn new_job(&self, order: DownloadOrder) -> DownloadJob {
+    fn new_job(&self, order: DownloadOrder, last_chance: bool) -> DownloadJob {
         let uri_string = format!("{}{}", self.uri, order.filepath);
         let uri = uri_string.parse::<Uri>().unwrap();
         let provider = self.clone();
@@ -199,6 +200,9 @@ impl Job for DownloadJob {
         println!("Fetch package from remote mirror: {}", &url);
         channel.handle.url(&url).unwrap();
         channel.handle.resume_from(cached_size).unwrap();
+        // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
+        // any benefit for our use case (afaik), so this setting should not have any downsides.
+        channel.handle.http_version(HttpVersion::V11).unwrap();
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
@@ -232,9 +236,7 @@ impl Job for DownloadJob {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
                 } else if response_code == 404 {
-                    // TODO this case hasn't been considered in the library yet: 404 is not necessarily an error,
-                    // so returning JobResult::Error is not necessarily the appropriate thing to do.
-                    unimplemented!("TODO");
+                    JobResult::Unavailable(channel)
                 } else {
                     let termination = JobTerminated {
                         channel,
@@ -271,9 +273,9 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, tx: Sender<FlexoProgress>) -> DownloadChannel {
+    fn new_channel(self, tx: Sender<FlexoProgress>, last_chance: bool) -> DownloadChannel {
         DownloadChannel {
-            handle: Easy2::new(DownloadState::new(self, tx).unwrap()),
+            handle: Easy2::new(DownloadState::new(self, tx, last_chance).unwrap()),
             state: DownloadChannelState {},
         }
     }
@@ -305,12 +307,24 @@ impl JobState for FileState {
 }
 
 #[derive(Debug)]
+enum HeaderOutcome {
+    /// Header was read successfully and we're ready to write the payload to the local file system.
+    Ok(u64),
+    /// Server has returned 404.
+    Unavailable,
+}
+
+#[derive(Debug)]
 struct DownloadState {
-    job_state: JobStateItem<DownloadJob>
+    job_state: JobStateItem<DownloadJob>,
+    // TODO maybe the following items belong to the job state.
+    received_header: Vec<u8>,
+    last_chance: bool,
+    header_success: Option<HeaderOutcome>,
 }
 
 impl DownloadState {
-    pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<Self> {
+    pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
         let path = DIRECTORY.to_owned() + &order.filepath;
         println!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path)?;
@@ -324,12 +338,13 @@ impl DownloadState {
             }),
             tx,
         };
-        Ok(DownloadState { job_state })
+        let received_header = Vec::new();
+        Ok(DownloadState { job_state, received_header, last_chance, header_success: None })
     }
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<()> {
         if order != self.job_state.order {
-            let c = DownloadState::new(order.clone(), tx.clone())?;
+            let c = DownloadState::new(order.clone(), tx.clone(), self.last_chance)?;
             self.job_state = c.job_state;
         }
         Ok(())
@@ -338,6 +353,19 @@ impl DownloadState {
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
+        match self.header_success {
+            Some(HeaderOutcome::Ok(_content_length)) => {},
+            Some(HeaderOutcome::Unavailable) => {
+                // If the header says the file is not available, we return early without writing anything to
+                // the file on disk. The content returned is just the HTML code saying the file is not available,
+                // so there is no reason to write this data to disk.
+                println!("File unavailable - return content length without writing anything.");
+                return Ok(data.len());
+            },
+            None => {
+                unreachable!("The header should have been parsed before this function is called");
+            }
+        }
         match self.job_state.job_state.iter_mut().next() {
             None => panic!("Expected the state to be initialized."),
             Some(file_state) => {
@@ -358,44 +386,71 @@ impl Handler for DownloadState {
     }
 
     fn header(&mut self, data: &[u8]) -> bool {
-        match parse_content_length(data) {
-            None => {},
-            Some(value) => {
-                let path = Path::new(DIRECTORY).join(&self.job_state.order.filepath);
-                let key = OsString::from("user.content_length");
-                // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
-                // the job state that stores the size the job should be started with. With the current implementation,
-                // we assume that the header method is always called before anything is written to the file.
-                let size_written = self.job_state.job_state.as_ref().unwrap().size_written;
-                // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
-                // as communicated to the client, i.e., what the client receives in his headers.
-                // provider_content_length = the content length we send to the provider.
-                let client_content_length = size_written + value.parse::<u64>().unwrap();
-                let value = format!("{}", client_content_length);
-                xattr::set(path, &key, &value.as_bytes())
-                    .expect("Unable to set extended file attributes");
-                println!("Sending content length: {}", client_content_length);
-                let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
-                let _ = self.job_state.tx.send(message);
+        self.received_header.extend(data);
+
+        let mut headers: [Header; 64] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
+        let mut req: httparse::Response = httparse::Response::new(&mut headers);
+        let result: std::result::Result<httparse::Status<usize>, httparse::Error> =
+            req.parse(self.received_header.as_slice());
+
+        match result {
+            Ok(Status::Complete(_header_size)) => {
+                println!("Received complete header from server");
+                let code = req.code.unwrap();
+                if code >= 200 && code < 300 {
+                    let content_length = req.headers.iter().find_map(|header|
+                        match std::str::from_utf8(header.value) {
+                            Ok(value) if value.to_lowercase() == "content-length" =>
+                                Some(value.parse::<u64>().unwrap()),
+                            Ok(_) =>
+                                None,
+                            Err(_) =>
+                                None,
+                        }
+                    ).unwrap();
+                    self.header_success = Some(HeaderOutcome::Ok(content_length));
+                    let path = Path::new(DIRECTORY).join(&self.job_state.order.filepath);
+                    let key = OsString::from("user.content_length");
+                    // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
+                    // the job state that stores the size the job should be started with. With the current implementation,
+                    // we assume that the header method is always called before anything is written to the file.
+                    let size_written = self.job_state.job_state.as_ref().unwrap().size_written;
+                    // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
+                    // as communicated to the client, i.e., what the client receives in his headers.
+                    // provider_content_length = the content length we send to the provider.
+                    let client_content_length = size_written + content_length;
+                    let value = format!("{}", client_content_length);
+                    xattr::set(path, &key, &value.as_bytes())
+                        .expect("Unable to set extended file attributes");
+                    println!("Sending content length: {}", client_content_length);
+                    let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
+                    let _ = self.job_state.tx.send(message);
+                } else if code == 404 && !self.last_chance {
+                    self.header_success = Some(HeaderOutcome::Unavailable);
+                    println!("Hoping that another provider can fulfil this request…");
+                } else if code == 404 && self.last_chance {
+                    self.header_success = Some(HeaderOutcome::Unavailable);
+                    println!("All providers have been unable to fulfil this request.");
+                    let message: FlexoProgress = FlexoProgress::Unavailable;
+                    let _ = self.job_state.tx.send(message);
+                } else {
+                    // TODO handle status codes like 500 etc.
+                    unimplemented!("TODO don't know what to do with this status code.")
+                }
+            }
+            Ok(Status::Partial) => {
+                // nothing to do, wait until this function is invoked again.
+            }
+            Err(e) => {
+                panic!("Error: {:?}", e)
             }
         }
+
         true
     }
 }
 
-fn parse_content_length(header_data: &[u8]) -> Option<&str> {
-    let header = std::str::from_utf8(header_data).unwrap();
-    let mut iter = header.splitn(2, ":");
-    let key: &str = iter.next()?;
-    let value: &str = iter.next()?.trim();
-    if key.to_lowercase() == "content-length" {
-        Some(value)
-    } else {
-        None
-    }
-}
-
-    #[derive(Debug)]
+#[derive(Debug)]
 pub struct DownloadChannel {
     handle: Easy2<DownloadState>,
     state: DownloadChannelState,
@@ -461,7 +516,7 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
     }).collect()
 }
 
-pub fn read_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> where T: Read {
+pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> where T: Read {
     let mut buf = [0; MAX_HEADER_SIZE + 1];
     let mut size_read_all = 0;
 
@@ -574,24 +629,9 @@ mod tests {
     #[test]
     fn test_buffer_size_exceeded() {
         let mut stream = TooMuchDataReader {};
-        let result = read_header(&mut stream);
+        let result = read_client_header(&mut stream);
         assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
     }
-
-    // #[test]
-    // fn test_one_by_one() {
-    //     let mut stream = OneByteReader::new();
-    //     let result = read_header(&mut stream);
-    //     println!("result: {:?}", result);
-    //     assert!(result.is_ok());
-    // }
-
-    // #[test]
-    // fn test_no_delimiter() {
-    //     let mut stream = NoDelimiterReader::new();
-    //     let result = read_header(&mut stream);
-    //     assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
-    // }
 
     #[test]
     fn test_formatting_two_kilobytes() {
