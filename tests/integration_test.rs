@@ -89,7 +89,6 @@ impl Job for DummyJob {
     type O = DummyOrder;
     type P = DummyProvider;
     type E = DummyJobError;
-    type CS = DummyChannelState;
     type PI = i32;
     type PR = DummyProperties;
 
@@ -176,14 +175,6 @@ impl Channel for DummyChannel {
     fn job_state_item(&mut self) -> &mut JobStateItem<DummyJob> {
         &mut self.collector
     }
-
-    fn channel_state(&self) -> DummyChannelState {
-        self.state
-    }
-
-    fn channel_state_ref(&mut self) -> &mut DummyChannelState {
-        &mut self.state
-    }
 }
 
 struct DummyJobSuccess {
@@ -254,8 +245,8 @@ fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyJob>) -> Dumm
         _ => panic!(EXPECT_SCHEDULED),
     };
     match result {
-        JobOutcome::Success(provider, _state) => DummyJobSuccess { provider },
-        JobOutcome::Error(_, _) => panic!(EXPECT_SUCCESS),
+        JobOutcome::Success(provider) => DummyJobSuccess { provider },
+        JobOutcome::Error(_) => panic!(EXPECT_SUCCESS),
     }
 }
 
@@ -267,8 +258,8 @@ fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJo
         _ => panic!(EXPECT_SCHEDULED),
     };
     match result {
-        JobOutcome::Success(_, _) => panic!(EXPECT_FAILURE),
-        JobOutcome::Error(failures, _channel_state) => DummyJobFailure {
+        JobOutcome::Success(_) => panic!(EXPECT_FAILURE),
+        JobOutcome::Error(failures) => DummyJobFailure {
             failures,
         }
     }
@@ -321,7 +312,7 @@ fn next_order_success_after_first_order_failed() {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ }) => {
             let result = join_handle.join().unwrap();
             match result {
-                JobOutcome::Success(_, _) => {},
+                JobOutcome::Success(_) => {},
                 _ => panic!("Expected success"),
             }
         },
@@ -429,8 +420,8 @@ fn job_continued_after_partial_completion() {
                 FlexoMessage::ChannelEstablished(_) => panic!("Did not expect this message")
             };
             let provider_finally_scheduled = match join_handle.join().unwrap() {
-                JobOutcome::Success(p, _) => p,
-                JobOutcome::Error(_, _) => panic!("Expected success"),
+                JobOutcome::Success(p) => p,
+                JobOutcome::Error(_) => panic!("Expected success"),
             };
             (provider_first_scheduled, provider_finally_scheduled)
         },
@@ -454,8 +445,8 @@ fn no_infinite_loop() {
     };
 
     match result {
-        JobOutcome::Success(_, _) => panic!(EXPECT_SUCCESS),
-        JobOutcome::Error(_, _) => {},
+        JobOutcome::Success(_) => panic!(EXPECT_SUCCESS),
+        JobOutcome::Error(_) => {},
     }
 }
 

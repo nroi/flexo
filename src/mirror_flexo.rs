@@ -138,7 +138,6 @@ impl Job for DownloadJob {
     type O = DownloadOrder;
     type P = DownloadProvider;
     type E = DownloadJobError;
-    type CS = DownloadChannelState;
     type PI = Uri;
     type PR = MirrorsAutoConfig;
 
@@ -275,7 +274,6 @@ impl Order for DownloadOrder {
     fn new_channel(self, tx: Sender<FlexoProgress>, last_chance: bool) -> DownloadChannel {
         DownloadChannel {
             handle: Easy2::new(DownloadState::new(self, tx, last_chance).unwrap()),
-            state: DownloadChannelState {},
         }
     }
 
@@ -453,7 +451,6 @@ impl Handler for DownloadState {
 #[derive(Debug)]
 pub struct DownloadChannel {
     handle: Easy2<DownloadState>,
-    state: DownloadChannelState,
 }
 
 impl Channel for DownloadChannel {
@@ -475,14 +472,6 @@ impl Channel for DownloadChannel {
 
     fn job_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
         &mut self.handle.get_mut().job_state
-    }
-
-    fn channel_state(&self) -> DownloadChannelState {
-        self.state
-    }
-
-    fn channel_state_ref(&mut self) -> &mut DownloadChannelState {
-        &mut self.state
     }
 }
 

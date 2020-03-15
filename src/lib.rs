@@ -56,8 +56,8 @@ pub enum JobResult<J> where J: Job {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum JobOutcome <J> where J: Job {
-    Success(J::P, J::CS),
-    Error(HashMap<J::P, i32>, J::CS),
+    Success(J::P),
+    Error(HashMap<J::P, i32>),
 }
 
 impl <J> JobResult<J> where J: Job {
@@ -100,7 +100,6 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash;
     type P: Provider<J=Self>;
     type E: std::fmt::Debug;
-    type CS: ChannelState<J=Self> + std::marker::Copy;
     type PI: std::cmp::Eq;
     type PR: Properties + std::marker::Copy + std::marker::Send + std::marker::Sync;
 
@@ -245,8 +244,6 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
     fn progress_indicator(&self) -> Option<u64>;
     fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>);
     fn job_state_item(&mut self) -> &mut JobStateItem<Self::J>;
-    fn channel_state(&self) -> <<Self as Channel>::J as Job>::CS;
-    fn channel_state_ref(&mut self) -> &mut <<Self as Channel>::J as Job>::CS;
 
     /// After a job has completed, all stateful information associated with this particular job should be dropped.
     fn reset_job_state(&mut self) {
@@ -433,7 +430,6 @@ impl <J> JobContext<J> where J: Job {
                 JobResult::Complete(mut complete_job) => {
                     complete_job.channel.reset_job_state();
                     let mut channels_cloned = channels_cloned.lock().unwrap();
-                    let state = complete_job.channel.channel_state();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
                     let cached_item = CachedItem {
                         complete_size: complete_job.size as u64,
@@ -441,23 +437,23 @@ impl <J> JobContext<J> where J: Job {
                     };
                     let order_state = OrderState::Cached(cached_item);
                     order_states.lock().unwrap().insert(order_cloned.clone(), order_state);
-                    JobOutcome::Success(complete_job.provider.clone(), state)
+                    JobOutcome::Success(complete_job.provider.clone())
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
                     channel.reset_job_state();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
-                    JobOutcome::Error(provider_failures, channel.channel_state())
+                    JobOutcome::Error(provider_failures)
                 }
                 JobResult::Error(JobTerminated { mut channel, .. } ) => {
                     channel.reset_job_state();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
-                    JobOutcome::Error(provider_failures, channel.channel_state())
+                    JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
                     println!("The given order was unavailable for all providers.");
                     channel.reset_job_state();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
-                    JobOutcome::Error(provider_failures, channel.channel_state())
+                    JobOutcome::Error(provider_failures)
                 }
             }
         });
