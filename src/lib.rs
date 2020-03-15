@@ -73,7 +73,7 @@ pub trait Provider where
     Self: std::marker::Sized + std::fmt::Debug + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::marker::Send + 'static,
 {
     type J: Job;
-    fn new_job(&self, order: <<Self as Provider>::J as Job>::O, last_chance: bool) -> Self::J;
+    fn new_job(&self, order: <<Self as Provider>::J as Job>::O) -> Self::J;
 
     /// returns an identifier that remains unchanged throughout the lifetime of the program.
     /// the intention is that while some properties of the provider change (i.e., its score),
@@ -172,7 +172,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             }
             println!("selected provider: {:?}", &provider);
             let self_cloned: Self = self.clone();
-            let job = provider.new_job(self_cloned, last_chance);
+            let job = provider.new_job(self_cloned);
             let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
             let result = job.serve_from_provider(channel, properties, cached_size);

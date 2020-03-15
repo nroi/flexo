@@ -18,10 +18,9 @@ use std::collections::HashMap;
 use walkdir::WalkDir;
 use xattr;
 use std::ffi::OsString;
-use httparse::{Status, Header, Error};
+use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::str::Utf8Error;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -81,7 +80,7 @@ pub struct DownloadProvider {
 impl Provider for DownloadProvider {
     type J = DownloadJob;
 
-    fn new_job(&self, order: DownloadOrder, last_chance: bool) -> DownloadJob {
+    fn new_job(&self, order: DownloadOrder) -> DownloadJob {
         let uri_string = format!("{}{}", self.uri, order.filepath);
         let uri = uri_string.parse::<Uri>().unwrap();
         let provider = self.clone();

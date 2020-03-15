@@ -235,7 +235,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut Tcp
 fn serve_404_header(stream: &mut TcpStream) {
     let header = reply_header_not_found();
     stream.write(header.as_bytes()).unwrap();
-    stream.write("\r\n".as_bytes());
+    stream.write("\r\n".as_bytes()).unwrap();
 }
 
 fn reply_header_success(content_length: u64) -> String {
