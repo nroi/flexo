@@ -1,4 +1,4 @@
-static CONFIG_FILE: &str = "/etc/cpcache/cpcache.toml";
+static CONFIG_FILE: &str = "/etc/flexo/flexo.toml";
 
 extern crate serde;
 

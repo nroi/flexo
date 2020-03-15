@@ -41,6 +41,8 @@ const TEST_CHUNK_SIZE: usize = 128;
 #[cfg(test)]
 const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
 
+pub static DIRECTORY: &str = "/var/cache/flexo";
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamReadError {
     BufferSizeExceeded,
@@ -67,8 +69,6 @@ impl GetRequest {
         }
     }
 }
-
-pub static DIRECTORY: &str = "./curl_ex_out/";
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
