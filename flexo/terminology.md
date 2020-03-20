@@ -1,14 +1,5 @@
-# Flexo
-
-A simple binary used to manage the downloads of 
-[cpcache](https://github.com/nroi/cpcache). It uses curl to download the files and it provides
-some functionality on top, in particular:
-* Performance tests: Flexo runs some tests on the official Arch Linux mirrors in order to select
-fast and reliable mirrors.
-* Robust failure handling: If a download from one particular mirror stalls or does not succeed,
-flexo will try another one.
-
-
+TODO flexo was originally intended to *extend* (rather than replace) cpcache. The document does not
+yet reflect this change.
 
 ## Terminology
 Flexo is not meant to be a reusable library, it is only used by this particular program, called
