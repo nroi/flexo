@@ -322,7 +322,7 @@ struct DownloadState {
 
 impl DownloadState {
     pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
-        let path = DIRECTORY.to_owned() + &order.filepath;
+        let path = Path::new(DIRECTORY).join(&order.filepath);
         println!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path)?;
         let size_written = f.metadata()?.len();

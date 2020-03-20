@@ -68,7 +68,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                 ScheduleOutcome::AlreadyInProgress => {
                     println!("Job is already in progress");
                     // TODO this hasn't been tested yet.
-                    let path = DIRECTORY.to_owned() + &order.filepath;
+                    let path = Path::new(DIRECTORY).join(&order.filepath);
                     let content_length: u64 = try_content_length_from_path(&path).unwrap();
                     let file: File = File::open(&path).unwrap();
                     serve_from_growing_file(file, content_length, &mut stream);
@@ -79,7 +79,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                     match receive_content_length(rx_progress) {
                         Ok(content_length) => {
                             println!("Received content length via channel: {}", content_length);
-                            let path = DIRECTORY.to_owned() + &order.filepath;
+                            let path = Path::new(DIRECTORY).join(&order.filepath);
                             let file: File = File::open(&path).unwrap();
                             serve_from_growing_file(file, content_length, &mut stream);
                         },
@@ -94,7 +94,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                 },
                 ScheduleOutcome::Cached => {
                     println!("Serve file from cache.");
-                    let path = DIRECTORY.to_owned() + &order.filepath;
+                    let path = Path::new(DIRECTORY).join(&order.filepath);
                     let file: File = File::open(path).unwrap();
                     serve_from_complete_file(file, &mut stream);
                 },
@@ -177,7 +177,7 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<u64, ContentLen
     }
 }
 
-fn try_content_length_from_path(path: &str) -> Option<u64> {
+fn try_content_length_from_path(path: &Path) -> Option<u64> {
     let mut num_attempts = 0;
     // Timeout after 2 seconds.
     while num_attempts < 2_000 * 2 {
@@ -190,11 +190,11 @@ fn try_content_length_from_path(path: &str) -> Option<u64> {
         num_attempts += 1;
     }
 
-    println!("Number of attempts exceeded: File {} not found.", &path);
+    println!("Number of attempts exceeded: File {:?} not found.", &path);
     None
 }
 
-fn content_length_from_path(path: &str) -> Option<u64> {
+fn content_length_from_path(path: &Path) -> Option<u64> {
     let key = OsString::from("user.content_length");
     let value = xattr::get(&path, &key);
     match value {
