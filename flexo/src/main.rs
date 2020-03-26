@@ -40,7 +40,7 @@ const MAX_SENDFILE_COUNT: usize = 128;
 fn main() {
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context()));
 
-    let listener = TcpListener::bind("localhost:7878").unwrap();
+    let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
     for stream in listener.incoming() {
         let stream: TcpStream = stream.unwrap();
         println!("Established connection with client.");
