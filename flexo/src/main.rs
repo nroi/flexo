@@ -17,7 +17,7 @@ mod mirror_cache;
 mod mirror_flexo;
 
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::thread;
+use crossbeam::thread;
 use std::time::Duration;
 use std::path::Path;
 use std::fs::File;
@@ -38,7 +38,8 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 
 fn main() {
-    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context()));
+    let properties = mirror_config::load_config();
+    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context(properties.clone())));
     let port = job_context.lock().unwrap().properties.port;
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).unwrap();
@@ -46,16 +47,17 @@ fn main() {
         let stream: TcpStream = stream.unwrap();
         println!("Established connection with client.");
         stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
-
         let job_context = job_context.clone();
 
-        let _t = thread::spawn(move || {
-            serve_file(job_context, stream);
-        });
+        thread::scope(|s| {
+            let _handle = s.spawn(|_| {
+                serve_file(job_context, stream, &properties)
+            });
+        }).unwrap();
     }
 }
 
-fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream) {
+fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: &MirrorConfig) {
     match read_client_header(&mut stream) {
         Ok(get_request) => {
             println!("Got header, GET request is: {:?}", get_request);
@@ -69,7 +71,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                 ScheduleOutcome::AlreadyInProgress => {
                     println!("Job is already in progress");
                     // TODO this hasn't been tested yet.
-                    let path = Path::new(DIRECTORY).join(&order.filepath);
+                    let path = Path::new(&properties.cache_directory).join(&order.filepath);
                     let content_length: u64 = try_content_length_from_path(&path).unwrap();
                     let file: File = File::open(&path).unwrap();
                     serve_from_growing_file(file, content_length, &mut stream);
@@ -80,7 +82,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                     match receive_content_length(rx_progress) {
                         Ok(content_length) => {
                             println!("Received content length via channel: {}", content_length);
-                            let path = Path::new(DIRECTORY).join(&order.filepath);
+                            let path = Path::new(&properties.cache_directory).join(&order.filepath);
                             let file: File = File::open(&path).unwrap();
                             serve_from_growing_file(file, content_length, &mut stream);
                         },
@@ -95,7 +97,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                 },
                 ScheduleOutcome::Cached => {
                     println!("Serve file from cache.");
-                    let path = Path::new(DIRECTORY).join(&order.filepath);
+                    let path = Path::new(&properties.cache_directory).join(&order.filepath);
                     let file: File = File::open(path).unwrap();
                     serve_from_complete_file(file, &mut stream);
                 },
@@ -112,19 +114,18 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
     };
 }
 
-fn initialize_job_context() -> JobContext<DownloadJob> {
-    let mirror_config = mirror_config::load_config();
-    let providers: Vec<DownloadProvider> = fetch_providers(mirror_config.clone());
+fn initialize_job_context(properties: MirrorConfig) -> JobContext<DownloadJob> {
+    let providers: Vec<DownloadProvider> = fetch_providers(&properties);
     println!("{:#?}", providers);
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&urls);
 
     // Change the implementation so that mirror_config is accepted.
     // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
-    JobContext::new(providers, mirror_config.clone())
+    JobContext::new(providers, properties.clone())
 }
 
-fn fetch_providers(mirror_config: MirrorConfig) -> Vec<DownloadProvider> {
+fn fetch_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
         match mirror_fetch::fetch_providers_from_json_endpoint() {
             Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
@@ -143,7 +144,8 @@ fn fetch_providers(mirror_config: MirrorConfig) -> Vec<DownloadProvider> {
         }
     } else {
         let default_mirror_result: MirrorResults = Default::default();
-        mirror_config.mirrors_predefined.into_iter().map(|uri| {
+        let mirrors_predefined = mirror_config.mirrors_predefined.clone();
+        mirrors_predefined.into_iter().map(|uri| {
             DownloadProvider {
                 uri: uri.parse::<Uri>().unwrap(),
                 mirror_results: default_mirror_result,

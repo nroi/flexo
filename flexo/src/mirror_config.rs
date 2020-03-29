@@ -38,6 +38,7 @@ impl Properties for MirrorConfig {}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct MirrorConfig {
+    pub cache_directory: String,
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,

@@ -41,8 +41,6 @@ const TEST_CHUNK_SIZE: usize = 128;
 #[cfg(test)]
 const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
 
-pub static DIRECTORY: &str = "/var/cache/flexo";
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamReadError {
     BufferSizeExceeded,
@@ -80,11 +78,13 @@ pub struct DownloadProvider {
 impl Provider for DownloadProvider {
     type J = DownloadJob;
 
-    fn new_job(&self, order: DownloadOrder) -> DownloadJob {
+    fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
         let uri_string = format!("{}{}", self.uri, order.filepath);
         let uri = uri_string.parse::<Uri>().unwrap();
         let provider = self.clone();
+        let properties = properties.clone();
         DownloadJob {
+            properties,
             provider,
             uri,
             order,
@@ -129,6 +129,7 @@ pub struct DownloadJob {
     provider: DownloadProvider,
     uri: Uri,
     order: DownloadOrder,
+    properties: MirrorConfig,
 }
 
 impl Job for DownloadJob {
@@ -149,10 +150,14 @@ impl Job for DownloadJob {
         self.order.clone()
     }
 
-    fn initialize_cache() -> HashMap<DownloadOrder, OrderState, RandomState> {
+    fn properties(&self) -> Self::PR {
+        self.properties.clone()
+    }
+
+    fn initialize_cache(properties: Self::PR) -> HashMap<DownloadOrder, OrderState, RandomState> {
         let mut hashmap: HashMap<Self::O, OrderState> = HashMap::new();
         let mut sum_size = 0;
-        for entry in WalkDir::new(DIRECTORY) {
+        for entry in WalkDir::new(&properties.cache_directory) {
             let entry = entry.expect("Error while reading directory entry");
             let key = OsString::from("user.content_length");
             if entry.file_type().is_file() {
@@ -175,7 +180,7 @@ impl Job for DownloadJob {
                         file_size
                     },
                 };
-                let sub_path = entry.path().strip_prefix(DIRECTORY).unwrap();
+                let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
                 let order = DownloadOrder {
                     filepath: sub_path.to_str().unwrap().to_owned()
                 };
@@ -271,9 +276,9 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, tx: Sender<FlexoProgress>, last_chance: bool) -> DownloadChannel {
+    fn new_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> DownloadChannel {
         DownloadChannel {
-            handle: Easy2::new(DownloadState::new(self, tx, last_chance).unwrap()),
+            handle: Easy2::new(DownloadState::new(self, properties, tx, last_chance).unwrap()),
         }
     }
 
@@ -317,12 +322,13 @@ struct DownloadState {
     // TODO maybe the following items belong to the job state.
     received_header: Vec<u8>,
     last_chance: bool,
+    properties: MirrorConfig,
     header_success: Option<HeaderOutcome>,
 }
 
 impl DownloadState {
-    pub fn new(order: DownloadOrder, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
-        let path = Path::new(DIRECTORY).join(&order.filepath);
+    pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
+        let path = Path::new(&properties.cache_directory).join(&order.filepath);
         println!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path)?;
         let size_written = f.metadata()?.len();
@@ -336,12 +342,12 @@ impl DownloadState {
             tx,
         };
         let received_header = Vec::new();
-        Ok(DownloadState { job_state, received_header, last_chance, header_success: None })
+        Ok(DownloadState { job_state, received_header, last_chance, properties, header_success: None })
     }
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<()> {
         if order != self.job_state.order {
-            let c = DownloadState::new(order.clone(), tx.clone(), self.last_chance)?;
+            let c = DownloadState::new(order.clone(), self.properties.clone(), tx.clone(), self.last_chance)?;
             self.job_state = c.job_state;
             self.header_success = None;
             self.received_header = Vec::new();
@@ -407,7 +413,7 @@ impl Handler for DownloadState {
                         }
                     ).unwrap();
                     self.header_success = Some(HeaderOutcome::Ok(content_length));
-                    let path = Path::new(DIRECTORY).join(&self.job_state.order.filepath);
+                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current implementation,

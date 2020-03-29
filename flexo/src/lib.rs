@@ -73,7 +73,7 @@ pub trait Provider where
     Self: std::marker::Sized + std::fmt::Debug + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::marker::Send + 'static,
 {
     type J: Job;
-    fn new_job(&self, order: <<Self as Provider>::J as Job>::O) -> Self::J;
+    fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: <<Self as Provider>::J as Job>::O) -> Self::J;
 
     /// returns an identifier that remains unchanged throughout the lifetime of the program.
     /// the intention is that while some properties of the provider change (i.e., its score),
@@ -105,7 +105,8 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
-    fn initialize_cache() -> HashMap<Self::O, OrderState>;
+    fn properties(&self)-> Self::PR;
+    fn initialize_cache(properties: Self::PR) -> HashMap<Self::O, OrderState>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
 
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> (Self::C, ChannelEstablishment) {
@@ -118,7 +119,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
             }
             None => {
                 println!("need to create new channel: {:?}", &self.provider());
-                let channel = self.order().new_channel(tx, last_chance);
+                let channel = self.order().new_channel(self.properties(), tx, last_chance);
                 (channel, ChannelEstablishment::NewChannel)
             }
         }
@@ -128,7 +129,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
-    fn new_channel(self, tx: Sender<FlexoProgress>, last_chance: bool) -> <<Self as Order>::J as Job>::C;
+    fn new_channel(self, properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, last_chance: bool) -> <<Self as Order>::J as Job>::C;
 
     /// Returns true if this order can be served from cache, false otherwise.
     fn is_cacheable(&self) -> bool;
@@ -171,7 +172,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             }
             println!("selected provider: {:?}", &provider);
             let self_cloned: Self = self.clone();
-            let job = provider.new_job(self_cloned);
+            let job = provider.new_job(&properties, self_cloned);
             let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
             let result = job.serve_from_provider(channel, properties.clone(), cached_size);
@@ -346,7 +347,7 @@ impl <J> JobContext<J> where J: Job {
     pub fn new(initial_providers: Vec<J::P>, properties: J::PR) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
-        let order_states: Arc<Mutex<HashMap<J::O, OrderState>>> = Arc::new(Mutex::new(J::initialize_cache()));
+        let order_states: Arc<Mutex<HashMap<J::O, OrderState>>> = Arc::new(Mutex::new(J::initialize_cache(properties.clone())));
         let providers_in_use: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let provider_records: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let thread_mutexes: Vec<Arc<Mutex<i32>>> = Vec::new();
@@ -422,7 +423,7 @@ impl <J> JobContext<J> where J: Job {
                 channels_cloned.clone(),
                 tx,
                 tx_progress,
-                properties.clone(),
+                properties,
                 cached_size,
             );
             order_states.lock().unwrap().remove(&order_cloned);

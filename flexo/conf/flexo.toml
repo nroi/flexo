@@ -2,7 +2,6 @@
 # /var/cache/cpcache during install. If you change this setting, copy the
 # contents to the new directory and make sure user cpcache has read- and
 # write-access.
-# TODO don't use the hardcoded value, use the value from the TOML file instead.
 cache_directory = "/var/cache/cpcache"
 
 # The port to listen on.

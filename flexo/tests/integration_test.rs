@@ -100,7 +100,7 @@ impl Job for DummyJob {
         self.order.clone()
     }
 
-    fn initialize_cache() -> HashMap<Self::O, OrderState, RandomState> {
+    fn initialize_cache(_properties: Self::PR) -> HashMap<Self::O, OrderState, RandomState> {
         HashMap::new()
     }
 
