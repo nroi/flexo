@@ -7,7 +7,7 @@ use serde::Deserialize;
 use flexo::Properties;
 
 #[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MirrorSelectionMethod {
     Auto,
     Predefined,
@@ -34,10 +34,11 @@ pub struct MirrorsAutoConfig {
     pub max_speed_limit: Option<u64>,
 }
 
-impl Properties for MirrorsAutoConfig {}
+impl Properties for MirrorConfig {}
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MirrorConfig {
+    pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
     pub mirrors_blacklist: Vec<String>,

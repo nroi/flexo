@@ -1,6 +1,6 @@
 extern crate flexo;
 
-use crate::mirror_config::{MirrorsAutoConfig, MirrorConfig};
+use crate::mirror_config::MirrorConfig;
 use crate::mirror_fetch;
 use crate::mirror_fetch::MirrorUrl;
 
@@ -139,7 +139,7 @@ impl Job for DownloadJob {
     type P = DownloadProvider;
     type E = DownloadJobError;
     type PI = Uri;
-    type PR = MirrorsAutoConfig;
+    type PR = MirrorConfig;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider
@@ -193,7 +193,7 @@ impl Job for DownloadJob {
         hashmap
     }
 
-    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorsAutoConfig, cached_size: u64) -> JobResult<DownloadJob> {
+    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, cached_size: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         println!("Fetch package from remote mirror: {}", &url);
         channel.handle.url(&url).unwrap();
@@ -201,15 +201,15 @@ impl Job for DownloadJob {
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
-        match properties.low_speed_limit {
+        match properties.mirrors_auto.low_speed_limit {
             None => {},
             Some(speed) => {
                 channel.handle.low_speed_limit(speed).unwrap();
-                let low_speed_time_secs = properties.low_speed_time_secs.unwrap_or(4);
+                let low_speed_time_secs = properties.mirrors_auto.low_speed_time_secs.unwrap_or(4);
                 channel.handle.low_speed_time(std::time::Duration::from_secs(low_speed_time_secs)).unwrap();
             },
         }
-        match properties.max_speed_limit {
+        match properties.mirrors_auto.max_speed_limit {
             None => {
                 println!("No speed limit was set.")
             },

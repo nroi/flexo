@@ -101,7 +101,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type P: Provider<J=Self>;
     type E: std::fmt::Debug;
     type PI: std::cmp::Eq;
-    type PR: Properties + std::marker::Copy + std::marker::Send + std::marker::Sync;
+    type PR: Properties + std::marker::Send + std::marker::Sync + std::clone::Clone;
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
@@ -174,7 +174,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let job = provider.new_job(self_cloned);
             let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-            let result = job.serve_from_provider(channel, properties, cached_size);
+            let result = job.serve_from_provider(channel, properties.clone(), cached_size);
             match &result {
                 JobResult::Complete(_) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
@@ -307,7 +307,7 @@ pub struct JobContext<J> where J: Job, {
     providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
-    properties: J::PR
+    pub properties: J::PR
 }
 
 pub struct ScheduledItem<J> where J: Job {
@@ -411,7 +411,7 @@ impl <J> JobContext<J> where J: Job {
         let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
         let order_states = Arc::clone(&self.order_states);
         let order_cloned = order.clone();
-        let properties = self.properties;
+        let properties = self.properties.clone();
         let t = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
             let order: <J as Job>::O = order_cloned.clone();
@@ -422,7 +422,7 @@ impl <J> JobContext<J> where J: Job {
                 channels_cloned.clone(),
                 tx,
                 tx_progress,
-                properties,
+                properties.clone(),
                 cached_size,
             );
             order_states.lock().unwrap().remove(&order_cloned);

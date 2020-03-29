@@ -16,7 +16,7 @@ mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
 
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::thread;
 use std::time::Duration;
 use std::path::Path;
@@ -39,8 +39,9 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 fn main() {
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context()));
-
-    let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
+    let port = job_context.lock().unwrap().properties.port;
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = TcpListener::bind(addr).unwrap();
     for stream in listener.incoming() {
         let stream: TcpStream = stream.unwrap();
         println!("Established connection with client.");
@@ -113,13 +114,14 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
 
 fn initialize_job_context() -> JobContext<DownloadJob> {
     let mirror_config = mirror_config::load_config();
-    let mirrors_auto = mirror_config.mirrors_auto;
-    let providers: Vec<DownloadProvider> = fetch_providers(mirror_config);
+    let providers: Vec<DownloadProvider> = fetch_providers(mirror_config.clone());
     println!("{:#?}", providers);
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&urls);
 
-    JobContext::new(providers, mirrors_auto)
+    // Change the implementation so that mirror_config is accepted.
+    // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
+    JobContext::new(providers, mirror_config.clone())
 }
 
 fn fetch_providers(mirror_config: MirrorConfig) -> Vec<DownloadProvider> {
