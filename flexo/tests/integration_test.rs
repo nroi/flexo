@@ -44,10 +44,11 @@ impl JobState for DummyState {
 impl Provider for DummyProvider {
     type J = DummyJob;
 
-    fn new_job(&self, order: DummyOrder) -> DummyJob {
+    fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DummyOrder) -> DummyJob {
         DummyJob {
             provider: self.clone(),
             order,
+            properties: properties.clone(),
         }
     }
 
@@ -76,9 +77,10 @@ struct DummyJobError {
 struct DummyJob {
     provider: DummyProvider,
     order: DummyOrder,
+    properties: DummyProperties,
 }
 
-#[derive(Copy, Clone)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 struct DummyProperties {}
 impl Properties for DummyProperties {}
 
@@ -98,6 +100,10 @@ impl Job for DummyJob {
 
     fn order(&self) -> DummyOrder {
         self.order.clone()
+    }
+
+    fn properties(&self) -> Self::PR {
+        self.properties
     }
 
     fn initialize_cache(_properties: Self::PR) -> HashMap<Self::O, OrderState, RandomState> {
@@ -139,7 +145,7 @@ enum DummyOrder {
 impl Order for DummyOrder {
     type J = DummyJob;
 
-    fn new_channel(self, tx: Sender<FlexoProgress>, _last_chance: bool) -> DummyChannel {
+    fn new_channel(self, _properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, _last_chance: bool) -> DummyChannel {
         DummyChannel {
             handle: 1,
             collector: JobStateItem {
