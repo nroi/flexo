@@ -110,18 +110,41 @@ impl MirrorUrl {
 }
 
 fn fetch_json() -> Result<String, curl::Error> {
-    let mut received = Vec::new();
-    let mut easy = Easy::new();
-    easy.url(JSON_URI)?;
-    {
-        let mut transfer = easy.transfer();
-        transfer.write_function(|data| {
-            received.extend_from_slice(data);
-            Ok(data.len())
-        })?;
-        transfer.perform()?
+    try_num_attempts(8, || {
+        let mut received = Vec::new();
+        let mut easy = Easy::new();
+        easy.url(JSON_URI)?;
+        {
+            let mut transfer = easy.transfer();
+            transfer.write_function(|data| {
+                received.extend_from_slice(data);
+                Ok(data.len())
+            })?;
+            transfer.perform()?
+        }
+        Ok(std::str::from_utf8(received.as_slice()).unwrap().to_owned())
+    })
+}
+
+fn try_num_attempts<T, F, E>(max_num_attempts: i32, action: F) -> Result<T, E>
+where F: Fn() -> Result<T, E>, E: std::fmt::Debug
+{
+    let mut result = action();
+    let mut num_attempts = 1;
+    loop {
+        match result {
+            Ok(_) => {
+                break result;
+            },
+            Err(reason) if num_attempts < max_num_attempts => {
+                println!("Failure: {:?}. No internet connectivity yet? Will try again in a few seconds.", reason);
+                std::thread::sleep(Duration::from_secs(3));
+                result = action();
+                num_attempts += 1;
+            },
+            Err(_) => break result
+        }
     }
-    Ok(std::str::from_utf8(received.as_slice()).unwrap().to_owned())
 }
 
 pub fn fetch_providers_from_json_endpoint() -> Result<Vec<MirrorUrl>, curl::Error> {
