@@ -1,0 +1,10 @@
+#!/bin/bash
+
+OUTPUT_FILE="/tmp/flexo_test_output"
+
+/root/flexo_test | tee $OUTPUT_FILE
+
+echo "================================="
+echo "Test summary:"
+grep flexo-test $OUTPUT_FILE
+

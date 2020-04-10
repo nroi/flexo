@@ -1,8 +1,70 @@
 #!/bin/bash
 
+cd /tmp || exit 1
+
 # Wait for the flexo server to start and finish the mirror selection process.
-sleep 5
+sleep 10
 
-PREFIX='flexo-install-openbsd'
+## ==============================================================================================================
+TEST_1='flexo-test-install-wget'
+## Install a single package via pacman. Using pacman (instead of just downloading the package via wget or curl)
+## ensures that the file served by flexo is identical to the file from the remote mirror. This is due to the fact
+## that pacman uses gpg signatures for verification.
+## ==============================================================================================================
 
-pacman -Sy --noconfirm openbsd-netcat && echo "$PREFIX: Success!" || echo "$PREFIX: Failure!"
+/usr/bin/pacman -Sy --noconfirm wget && echo "$TEST_1: Success!" || echo "$TEST_1: Failure!"
+
+VERIFIED_WGET_FILESIZE=$(/usr/bin/stat --format=%s /var/cache/pacman/pkg/*)
+
+# Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
+# but not by the client that connects to the flexo server.
+rm /var/cache/pacman/pkg/*
+
+## ==============================================================================================================
+TEST_2='flexo-test-install-cached'
+## Now that we have a package in flexo's cache, we install this package from the cache.
+## ==============================================================================================================
+
+# Reinstall wget, which has already been downloaded before and should therefore reside in cache.
+/usr/bin/pacman -Sy --noconfirm wget && echo "$TEST_2: Success!" || echo "$TEST_2: Failure!"
+
+rm /var/cache/pacman/pkg/*
+
+## ==============================================================================================================
+TEST_3='flexo-test-download-cached-concurrently'
+## Download the cached package multiple times, concurrently.
+## ==============================================================================================================
+
+DOWNLOAD_PATH=$(pacman -Sp wget)
+if [[ -n  $DOWNLOAD_PATH  ]]; then
+  for i in {0..9}; do
+    /usr/bin/wget -q "$DOWNLOAD_PATH" -O "wget-$i" &
+  done
+  sleep 2
+  for i in {0..9}; do
+    WGET_FILESIZE=$(/usr/bin/stat --format=%s "wget-$i")
+    if [ "$WGET_FILESIZE" != "$VERIFIED_WGET_FILESIZE" ]; then
+      echo "$TEST_3: Failure! file size does not match."
+      exit 1
+    fi
+  done
+else
+  echo "$TEST_3: Failure!"
+  exit 1
+fi
+
+echo "$TEST_3: Success!"
+
+## ==============================================================================================================
+TEST_4='flexo-test-download-cached-concurrently'
+## Download the cached package multiple times, concurrently.
+## ==============================================================================================================
+
+## TODO
+
+# DOWNLOAD_PATH=$(pacman -Sp firefox)
+# if [[ -n  $DOWNLOAD_PATH  ]]; then
+#   wget "$DOWNLOAD_PATH" && echo "$TEST_2: Success!" || echo "$TEST_2: Failure!"
+# else
+#   echo "TEST_2: Failure!"
+# fi
