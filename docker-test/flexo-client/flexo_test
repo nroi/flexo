@@ -2,23 +2,23 @@
 
 cd /tmp || exit 1
 
+mkdir /tmp/verified || exit 1
+
 # Wait for the flexo server to start and finish the mirror selection process.
-sleep 10
+sleep 5
 
 ## ==============================================================================================================
-TEST_1='flexo-test-install-wget'
-## Install a single package via pacman. Using pacman (instead of just downloading the package via wget or curl)
+TEST_1='flexo-test-install'
+## Install two packages via pacman. Using pacman (instead of just downloading the package via wget or curl)
 ## ensures that the file served by flexo is identical to the file from the remote mirror. This is due to the fact
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-/usr/bin/pacman -Sy --noconfirm wget && printf "%-40s %s\n" "$TEST_1" "[SUCCESS]" || printf "%-40s %s\n" "$TEST_1" "[FAILURE]"
-
-VERIFIED_WGET_FILESIZE=$(/usr/bin/stat --format=%s /var/cache/pacman/pkg/*)
+/usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed && printf "%-40s %s\n" "$TEST_1" "[SUCCESS]" || printf "%-40s %s\n" "$TEST_1" "[FAILURE]"
 
 # Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
 # but not by the client that connects to the flexo server.
-rm /var/cache/pacman/pkg/*
+mv /var/cache/pacman/pkg/* /tmp/verified
 
 ## ==============================================================================================================
 TEST_2='flexo-test-install-cached'
@@ -28,7 +28,7 @@ TEST_2='flexo-test-install-cached'
 # Reinstall wget, which has already been downloaded before and should therefore reside in cache.
 /usr/bin/pacman -Sy --noconfirm wget && printf "%-40s %s\n" "$TEST_2" "[SUCCESS]" || printf "%-40s %s\n" "$TEST_2" "[FAILURE]"
 
-rm /var/cache/pacman/pkg/*
+mv /var/cache/pacman/pkg/* /tmp/verified
 
 ## ==============================================================================================================
 TEST_3='flexo-test-download-cached-concurrently'
@@ -38,12 +38,18 @@ TEST_3='flexo-test-download-cached-concurrently'
 DOWNLOAD_PATH=$(pacman -Sp wget)
 if [[ -n  $DOWNLOAD_PATH  ]]; then
   for i in {0..9}; do
+    echo "Downloading $DOWNLOAD_PATH"
     /usr/bin/wget -q "$DOWNLOAD_PATH" -O "wget-$i" &
   done
-  sleep 2
+  sleep 5
+  VERIFIED_FILE=$(/usr/bin/find /tmp/verified -type f -name '*wget*')
+  echo "$VERIFIED_FILE"
   for i in {0..9}; do
-    WGET_FILESIZE=$(/usr/bin/stat --format=%s "wget-$i")
-    if [ "$WGET_FILESIZE" != "$VERIFIED_WGET_FILESIZE" ]; then
+    # Files in /var/cache/pacman/pkg have been installed by pacman, and pacman verifies the content all
+    # downloaded files. We can therefore assume that if a file downloaded by wget matches the file in
+    # /var/cache/pacman/pkg, it has correctly been downloaded.
+    if ! /usr/bin/cmp -s "wget-$i" "$VERIFIED_FILE"; then
+      echo "Files do not match: wget-$i and $VERIFIED_FILE"
       printf "%-40s %s\n" "$TEST_3" "[FAILURE]"
       exit 1
     fi
@@ -55,15 +61,33 @@ fi
 printf "%-40s %s\n" "$TEST_3" "[SUCCESS]"
 
 ## ==============================================================================================================
-TEST_4='flexo-test-download-cached-concurrently'
-## Download the cached package multiple times, concurrently.
+TEST_4='flexo-test-download-concurrently'
+## Download the same uncached packages multiple times, concurrently.
 ## ==============================================================================================================
 
-## TODO
+DOWNLOAD_PATH=$(/usr/bin/pacman -Sp curl)
+if [[ -n  $DOWNLOAD_PATH  ]]; then
+  for i in {0..9}; do
+    echo "Downloading $DOWNLOAD_PATH"
+    /usr/bin/wget -q "$DOWNLOAD_PATH" -O "curl-$i" &
+  done
+   # Wait for all downloads to finish.
+  sleep 5
+  # We now install curl because installing packages with pacman also verifies the payload.
+  # This allows us to then check if the previous 10 downloads match the verified payload.
+  /usr/bin/pacman -S --noconfirm --noprogressbar curl
+  VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name '*curl*')
+  for i in {0..9}; do
+    if ! /usr/bin/cmp -s "curl-$i" "$VERIFIED_FILE"; then
+      echo "Files do not match: curl-$i and $VERIFIED_FILE"
+      printf "%-40s %s\n" "$TEST_4" "[FAILURE]"
+      exit 1
+    fi
+  done
+  printf "%-40s %s\n" "$TEST_4" "[SUCCESS]"
+else
+  /usr/bin/pacman -Sp curl
+  printf "%-40s %s\n" "$TEST_4" "[FAILURE]"
+  exit 1
+fi
 
-# DOWNLOAD_PATH=$(pacman -Sp firefox)
-# if [[ -n  $DOWNLOAD_PATH  ]]; then
-#   wget "$DOWNLOAD_PATH" && echo "$TEST_2: Success!" || echo "$TEST_2: Failure!"
-# else
-#   echo "TEST_2: Failure!"
-# fi
