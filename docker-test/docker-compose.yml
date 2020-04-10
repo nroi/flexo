@@ -1,0 +1,8 @@
+version: '2.0'
+services:
+  flexo-server:
+    build: flexo-server
+    ports:
+    - "7878:7878"
+  flexo-client:
+    build: flexo-client

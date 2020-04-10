@@ -1,39 +1,9 @@
-# Note that cpcache relies on the directory structure that is created in
-# /var/cache/cpcache during install. If you change this setting, copy the
-# contents to the new directory and make sure user cpcache has read- and
-# write-access.
-cache_directory = "/var/cache/cpcache"
-
-# The port to listen on.
-# TODO Perhaps change it to some other port, like 7038. 7070 is already
-# reserved.
-port = 7070
-
-# The selection method to choose a mirror. Valid values are:
-#   "auto": In order to attempt to find suitable mirrors automatically.
-#           With this method, performance tests are run on the official mirrors
-#           to select only sufficiently fast mirrors.
-#   "predefined": To only choose the mirrors defined for the variable
-#                 mirrors_predefined (see below).
+cache_directory = "/var/cache/flexo"
+port = 7878
 mirror_selection_method = "auto"
-
-
-# In case no suitable mirror could be found automatically, cpcache will attempt
-# to download files from the following mirrors. This list can be empty if
-# mirror_selection_method has been set to "auto".
-mirrors_predefined = [
-    "https://mirror.yandex.ru/archlinux/"
-]
-
-# The method to choose suitable mirrors automatically may not always work
-# perfectly. If one of the automatically chosen mirrors turns out to be slow or
-# unstable, add it to this list.
+mirrors_predefined = [ ]
 mirrors_blacklist = [ ]
-
-localrepos = [
-    # If you use local repositories such as aurto, add them here.
-    "aurto",
-]
+localrepos = [ ]
 
 # Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]

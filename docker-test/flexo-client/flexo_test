@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Wait for the flexo server to start and finish the mirror selection process.
+sleep 5
+
+PREFIX='flexo-install-openbsd'
+
+pacman -Sy --noconfirm openbsd-netcat && echo "$PREFIX: Success!" || echo "$PREFIX: Failure!"
