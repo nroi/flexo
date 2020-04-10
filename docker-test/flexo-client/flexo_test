@@ -12,7 +12,7 @@ TEST_1='flexo-test-install-wget'
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-/usr/bin/pacman -Sy --noconfirm wget && echo "$TEST_1: Success!" || echo "$TEST_1: Failure!"
+/usr/bin/pacman -Sy --noconfirm wget && printf "%-40s %s\n" "$TEST_1" "[SUCCESS]" || printf "%-40s %s\n" "$TEST_1" "[FAILURE]"
 
 VERIFIED_WGET_FILESIZE=$(/usr/bin/stat --format=%s /var/cache/pacman/pkg/*)
 
@@ -26,7 +26,7 @@ TEST_2='flexo-test-install-cached'
 ## ==============================================================================================================
 
 # Reinstall wget, which has already been downloaded before and should therefore reside in cache.
-/usr/bin/pacman -Sy --noconfirm wget && echo "$TEST_2: Success!" || echo "$TEST_2: Failure!"
+/usr/bin/pacman -Sy --noconfirm wget && printf "%-40s %s\n" "$TEST_2" "[SUCCESS]" || printf "%-40s %s\n" "$TEST_2" "[FAILURE]"
 
 rm /var/cache/pacman/pkg/*
 
@@ -44,16 +44,15 @@ if [[ -n  $DOWNLOAD_PATH  ]]; then
   for i in {0..9}; do
     WGET_FILESIZE=$(/usr/bin/stat --format=%s "wget-$i")
     if [ "$WGET_FILESIZE" != "$VERIFIED_WGET_FILESIZE" ]; then
-      echo "$TEST_3: Failure! file size does not match."
+      printf "%-40s %s\n" "$TEST_3" "[FAILURE]"
       exit 1
     fi
   done
 else
-  echo "$TEST_3: Failure!"
+  printf "%-40s %s\n" "$TEST_3" "[FAILURE]"
   exit 1
 fi
-
-echo "$TEST_3: Success!"
+printf "%-40s %s\n" "$TEST_3" "[SUCCESS]"
 
 ## ==============================================================================================================
 TEST_4='flexo-test-download-cached-concurrently'
