@@ -8,21 +8,23 @@ RUN apk add --no-cache openssl ca-certificates
 
 RUN ln -s /lib/ld-musl-x86_64.so.1  /lib/ld64.so.1
 
-RUN mkdir -p /var/cache/flexo && \
+RUN mkdir -p /var/cache/flexo/pkg && \
+    mkdir /var/cache/flexo/state && \
     mkdir /etc/flexo && \
-    mkdir -p /var/cache/flexo/community/os/x86_64 && \
-    mkdir -p /var/cache/flexo/community-staging/os/x86_64 && \
-    mkdir -p /var/cache/flexo/community-testing/os/x86_64 && \
-    mkdir -p /var/cache/flexo/core/os/x86_64 && \
-    mkdir -p /var/cache/flexo/extra/os/x86_64 && \
-    mkdir -p /var/cache/flexo/gnome-unstable/os/x86_64 && \
-    mkdir -p /var/cache/flexo/kde-unstable/os/x86_64 && \
-    mkdir -p /var/cache/flexo/multilib/os/x86_64 && \
-    mkdir -p /var/cache/flexo/multilib-testing/os/x86_64 && \
-    mkdir -p /var/cache/flexo/staging/os/x86_64 && \
-    mkdir -p /var/cache/flexo/testing/os/x86_64
+    mkdir -p /var/cache/flexo/pkg/community/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/community-staging/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/community-testing/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/core/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/extra/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/gnome-unstable/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/kde-unstable/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/multilib/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/multilib-testing/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/staging/os/x86_64 && \
+    mkdir -p /var/cache/flexo/pkg/testing/os/x86_64
 
-ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo" \
+ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
+    FLEXO_MIRRORLIST_FALLBACK_FILE="/var/cache/flexo/state/mirrorlist.json" \
     FLEXO_PORT=7878 \
     FLEXO_MIRROR_SELECTION_METHOD="auto" \
     FLEXO_MIRRORS_PREDEFINED=[] \

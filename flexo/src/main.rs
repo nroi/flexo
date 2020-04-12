@@ -118,7 +118,7 @@ fn initialize_job_context(properties: MirrorConfig) -> JobContext<DownloadJob> {
     let providers: Vec<DownloadProvider> = fetch_providers(&properties);
     println!("{:#?}", providers);
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
-    mirror_cache::store(&urls);
+    mirror_cache::store(&properties, &urls);
 
     // Change the implementation so that mirror_config is accepted.
     // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
@@ -132,7 +132,7 @@ fn fetch_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
             Err(e) => {
                 println!("Unable to fetch mirrors remotely: {:?}", e);
                 println!("Will try to fetch them from cache.");
-                let mirrors = mirror_cache::fetch().unwrap();
+                let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
                 mirrors.iter().map(|url| {
                     DownloadProvider {
                         uri: url.parse::<Uri>().unwrap(),

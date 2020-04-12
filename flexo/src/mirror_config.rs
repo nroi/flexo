@@ -76,6 +76,7 @@ impl Properties for MirrorConfig {}
 #[derive(Deserialize, Debug, Clone)]
 pub struct MirrorConfig {
     pub cache_directory: String,
+    pub mirrorlist_fallback_file: String,
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
@@ -135,12 +136,14 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
 fn mirror_config_from_env() -> MirrorConfig {
     let mirrors_auto = mirrors_auto_config_from_env();
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
+    let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
     let mirrors_blacklist = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_BLACKLIST").unwrap();
     MirrorConfig {
         cache_directory,
+        mirrorlist_fallback_file,
         port,
         mirror_selection_method,
         mirrors_predefined,
