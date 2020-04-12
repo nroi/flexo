@@ -68,8 +68,3 @@ localrepos = [
     # Mirros which exceed the timeout will not be considered further, regardless
     # of their score.
     timeout = 350
-    # If mirrors are chosen automatically, this setting allows to define how
-    # often the selection process should be repeated. Valid values are positive
-    # numbers (for instance, 24 to rerun the selection process every 24 hours),
-    # and -1 to never re-run the selection process.
-    test_interval = 24

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+docker-compose down
+
+cd ../flexo || exit 1
+/usr/bin/cargo build || exit 1
+cd "$OLDPWD" || exit 1
+cp ../flexo/target/debug/flexo ./flexo-server || exit 1
+/usr/bin/docker-compose build || exit 1
+/usr/bin/docker-compose up
