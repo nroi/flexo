@@ -2,8 +2,6 @@ FROM curlimages/curl
 
 USER root
 
-EXPOSE 7878
-
 RUN apk add --no-cache openssl ca-certificates
 
 RUN ln -s /lib/ld-musl-x86_64.so.1  /lib/ld64.so.1
