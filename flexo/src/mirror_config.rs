@@ -13,6 +13,43 @@ pub enum MirrorSelectionMethod {
     Predefined,
 }
 
+fn quote_str(s: String) -> String {
+    format!("\"{}\"", s)
+}
+
+trait TomlValue {
+    // the default implementation is fine for most cases. However, since TOML requires Strings to be quoted,
+    // we need to provide an implementation in case the type of the TOML value is a String. Our own enums are also
+    // represented by TOML strings, so we need an implementation for those types as well.
+    fn toml_value_from_str(s: String) -> String {
+        s
+    }
+}
+
+impl TomlValue for bool { }
+impl TomlValue for usize { }
+impl TomlValue for f64 { }
+impl TomlValue for u64 { }
+impl TomlValue for u32 { }
+impl TomlValue for u16 { }
+impl TomlValue for Vec<String> { }
+impl TomlValue for String {
+    fn toml_value_from_str(s: String) -> String {
+        quote_str(s)
+    }
+}
+
+impl TomlValue for MirrorsRandomOrSort {
+    fn toml_value_from_str(s: String) -> String {
+        quote_str(s)
+    }
+}
+impl TomlValue for MirrorSelectionMethod {
+    fn toml_value_from_str(s: String) -> String {
+        quote_str(s)
+    }
+}
+
 #[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MirrorsRandomOrSort {
@@ -58,13 +95,13 @@ struct DValue <T> {
 }
 
 fn parse_env_toml<T>(s: &str) -> Option<T> where
-          T: serde::de::DeserializeOwned,
+          T: serde::de::DeserializeOwned + TomlValue + 'static,
 {
     let env_var = std::env::var(s).ok()?;
+    let toml_document = format!("value = {}", T::toml_value_from_str(env_var));
     // Our actual intent is to parse the environment variable as a TOML value, but the parser accepts only complete
     // TOML documents with key-value pairs. So we construct a TOML document with a single key-value pair, and
     // then extract the value.
-    let toml_document: String = "value = ".to_owned() + &env_var;
     let deserialized = toml::from_str::<DValue<T>>(&toml_document).unwrap();
     Some(deserialized.value)
 }
