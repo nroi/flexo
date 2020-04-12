@@ -9,7 +9,6 @@ cache_directory = "/var/cache/flexo/pkg"
 # case the remote endpoint cannot be reached.
 mirrorlist_fallback_file = "/var/cache/flexo/state/mirrorlist.json"
 
-
 # The port to listen on.
 port = 7878
 
