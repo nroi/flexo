@@ -104,7 +104,6 @@ if [[ -n $DOWNLOAD_PATH ]]; then
   done
   print_success
 else
-  /usr/bin/pacman -Sp curl
   fail_and_exit
 fi
 
@@ -138,7 +137,7 @@ DOWNLOAD_URL=$(/usr/bin/pacman -Sp file)
 if [[ -n $DOWNLOAD_URL ]]; then
   echo "Downloading $DOWNLOAD_URL"
   curl "$DOWNLOAD_URL" -L -H "Range: bytes=1024-" >/tmp/file-partial-downloaded || fail_and_exit
-  /usr/bin/pacman -S --noconfirm --noprogressbar file || fail_and_exit
+  /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly file || fail_and_exit
   VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name 'file-*.zst')
   if [[ -n $VERIFIED_FILE ]]; then
     if ! /usr/bin/cmp -s --ignore-initial=1024:0 "$VERIFIED_FILE" /tmp/file-partial-downloaded; then
@@ -158,5 +157,14 @@ fi
 TESTCASE='flexo-test-resume-after-abort'
 ## Start a download, then abort it, then restart the download.
 ## ==============================================================================================================
-fail_and_exit
-# TODO write the test case.
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly archlinux-wallpaper &
+PACMAN_PID=$!
+sleep 0.75
+kill "$PACMAN_PID"
+sleep 0.75 # Wait a bit for flexo to detect that the socket has been closed.
+rm /var/lib/pacman/db.lck
+if /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly archlinux-wallpaper; then
+  print_success
+else
+  fail_and_exit
+fi
