@@ -74,8 +74,12 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                     // TODO this hasn't been tested yet.
                     let path = Path::new(&properties.cache_directory).join(&order.filepath);
                     let content_length: u64 = try_content_length_from_path(&path).unwrap();
+                    // TODO this is slightly confusing. the "content length" returned by "try_content_length_from_path"
+                    // is the complete file size, but we actually need the content length as in "the amount of bytes
+                    // we are going to send to the client". Choose better names to reflect this.
+                    let content_length = content_length - get_request.resume_from.unwrap_or(0);
                     let file: File = File::open(&path).unwrap();
-                    serve_from_growing_file(file, content_length, &mut stream);
+                    serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
                 }
                 ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
                     // TODO this branch is also executed when the server returns 404.
@@ -85,7 +89,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                             println!("Received content length via channel: {}", content_length);
                             let path = Path::new(&properties.cache_directory).join(&order.filepath);
                             let file: File = File::open(&path).unwrap();
-                            serve_from_growing_file(file, content_length, &mut stream);
+                            serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
                         },
                         Err(ContentLengthError::Unavailable) => {
                             println!("Will send 404 reply to client.");
@@ -219,22 +223,27 @@ fn content_length_from_path(path: &Path) -> Option<u64> {
     }
 }
 
-fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut TcpStream) {
-    let header = reply_header_success(content_length);
+fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Option<u64>, stream: &mut TcpStream) {
+    let header = match resume_from {
+        None => reply_header_success(content_length),
+        Some(r) => reply_header_partial(content_length, r)
+    };
     stream.write(header.as_bytes()).unwrap();
-    let mut bytes_sent = 0;
-    while bytes_sent < content_length {
+    let resume_from = resume_from.unwrap_or(0);
+    let mut client_received = resume_from;
+    let complete_filesize = content_length + resume_from;
+    while client_received < complete_filesize {
         let filesize = file.metadata().unwrap().len();
-        if filesize > bytes_sent {
+        if filesize > client_received {
             // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
-            let result = send_payload(&mut file, filesize, bytes_sent as i64, stream);
+            let result = send_payload(&mut file, filesize, client_received as i64, stream);
             match result {
                 Ok(_) => {
-                    bytes_sent = result.unwrap() as u64;
+                    client_received = result.unwrap() as u64;
                 },
                 Err(e) => {
-                    if e.kind() == ErrorKind::BrokenPipe {
-                        println!("Broken pipe. Connection closed by client?");
+                    if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
+                        println!("Connection closed by client?");
                         return;
                     } else {
                         panic!("Unexpected error: {:?}", e);
@@ -242,7 +251,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut Tcp
                 },
             }
         }
-        if bytes_sent < content_length {
+        if client_received < content_length {
             std::thread::sleep(std::time::Duration::from_micros(500));
         }
     }
@@ -256,21 +265,31 @@ fn serve_404_header(stream: &mut TcpStream) {
 }
 
 fn reply_header_success(content_length: u64) -> String {
-    reply_header("200 OK", content_length)
+    reply_header("200 OK", content_length, None)
+}
+
+fn reply_header_partial(content_length: u64, resume_from: u64) -> String {
+    reply_header("206 Partial Content", content_length, Some(resume_from))
 }
 
 fn reply_header_not_found() -> String {
-    reply_header("404 Not Found", 0)
+    reply_header("404 Not Found", 0, None)
 }
 
-fn reply_header(status_line: &str, content_length: u64) -> String {
+fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>) -> String {
     let now = time::now_utc();
     let timestamp = now.rfc822();
+    let content_range_header = resume_from.map(|r| {
+        let complete_size = content_length + r;
+        let last_byte = complete_size - 1;
+        format!("Content-Range: bytes {}-{}/{}\r\n", r, last_byte, complete_size)
+    }).unwrap_or("".to_owned());
     let header = format!("\
         HTTP/1.1 {}\r\n\
         Server: flexo\r\n\
         Date: {}\r\n\
-        Content-Length: {}\r\n\r\n", status_line, timestamp, content_length);
+        {}\
+        Content-Length: {}\r\n\r\n", status_line, timestamp, content_range_header, content_length);
     println!("header: {:?}", header);
 
     return header.to_owned();
@@ -293,7 +312,10 @@ fn redirect_header(path: &str) -> String {
 fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &mut TcpStream) {
     let filesize = file.metadata().unwrap().len();
     let content_length = filesize - resume_from.unwrap_or(0);
-    let header = reply_header_success(content_length);
+    let header = match resume_from {
+        None => reply_header_success(content_length),
+        Some(r) => reply_header_partial(content_length, r)
+    };
     stream.write(header.as_bytes()).unwrap();
     let bytes_sent = resume_from.unwrap_or(0) as i64;
     send_payload(&mut file, filesize, bytes_sent, stream).unwrap();

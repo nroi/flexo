@@ -153,3 +153,10 @@ if [[ -n $DOWNLOAD_URL ]]; then
 else
   fail_and_exit
 fi
+
+## ==============================================================================================================
+TESTCASE='flexo-test-resume-after-abort'
+## Start a download, then abort it, then restart the download.
+## ==============================================================================================================
+fail_and_exit
+# TODO write the test case.
