@@ -16,7 +16,7 @@ mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
 
-use std::net::{TcpListener, TcpStream, SocketAddr};
+use std::net::{TcpListener, TcpStream, SocketAddr, Shutdown};
 use crossbeam::thread;
 use std::time::Duration;
 use std::path::Path;
@@ -60,13 +60,13 @@ fn main() {
 fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: &MirrorConfig) {
     match read_client_header(&mut stream) {
         Ok(get_request) => {
-            println!("Got header, GET request is: {:?}", get_request);
+            println!("{:?}", get_request);
             let path = Path::new(PATH_PREFIX).join(&get_request.path);
             let order = DownloadOrder {
                 filepath: path.to_str().unwrap().to_owned()
             };
             println!("Attempt to schedule new job");
-            let result = job_context.lock().unwrap().schedule(order.clone());
+            let result = job_context.lock().unwrap().schedule(order.clone(), get_request.resume_from);
             match result {
                 ScheduleOutcome::AlreadyInProgress => {
                     println!("Job is already in progress");
@@ -99,7 +99,7 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                     println!("Serve file from cache.");
                     let path = Path::new(&properties.cache_directory).join(&order.filepath);
                     let file: File = File::open(path).unwrap();
-                    serve_from_complete_file(file, &mut stream);
+                    serve_from_complete_file(file, get_request.resume_from, &mut stream);
                 },
                 ScheduleOutcome::Uncacheable(p) => {
                     println!("Serve file via redirect.");
@@ -270,17 +270,20 @@ fn redirect_header(path: &str) -> String {
         HTTP/1.1 301 Moved Permanently\r\n\
         Server: flexo\r\n\
         Date: {}\r\n\
+        Content-Length: 0\r\n\
         Location: {}\r\n\r\n", timestamp, path);
     println!("header: {:?}", header);
 
     return header.to_owned();
 }
 
-fn serve_from_complete_file(mut file: File, stream: &mut TcpStream) {
+fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &mut TcpStream) {
     let filesize = file.metadata().unwrap().len();
-    let header = reply_header_success(filesize);
+    let content_length = filesize - resume_from.unwrap_or(0);
+    let header = reply_header_success(content_length);
     stream.write(header.as_bytes()).unwrap();
-    send_payload(&mut file, filesize, 0, stream).unwrap();
+    let bytes_sent = resume_from.unwrap_or(0) as i64;
+    send_payload(&mut file, filesize, bytes_sent, stream).unwrap();
 }
 
 fn serve_via_redirect(uri: String, stream: &mut TcpStream) {

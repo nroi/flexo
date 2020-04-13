@@ -154,7 +154,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
-        cached_size: u64
+        cached_size: u64,
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -363,17 +363,27 @@ impl <J> JobContext<J> where J: Job {
     }
 
     //noinspection RsBorrowChecker
-    pub fn schedule(&mut self, order: J::O) -> ScheduleOutcome<J> {
-
+    pub fn schedule(&mut self, order: J::O, resume_from: Option<u64>) -> ScheduleOutcome<J> {
         if !order.is_cacheable() {
             let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
+            // TODO unclear why we need to store the first provider.
             return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
         }
-
+        let resume_from = resume_from.unwrap_or(0);
         let cached_size: u64 = {
             let mut order_states = self.order_states.lock().unwrap();
             let cached_size = match order_states.get(&order) {
+                None if resume_from > 0 => {
+                    // Cannot serve this order from cache: See issue #7
+                    let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
+                    return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
+                }
                 None => 0,
+                Some(OrderState::Cached(CachedItem { complete_size: _, cached_size } )) if cached_size < &resume_from => {
+                    // Cannot serve this order from cache: See issue #7
+                    let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
+                    return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
+                },
                 Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) if complete_size == cached_size => {
                     return ScheduleOutcome::Cached;
                 },

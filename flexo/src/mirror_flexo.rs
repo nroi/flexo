@@ -49,13 +49,27 @@ pub enum StreamReadError {
     Other(ErrorKind)
 }
 
+fn parse_range_header_value(s: &str) -> u64 {
+    let s = s.to_lowercase();
+    // We ignore everything after the - sign: We assume that pacman will never request only up to a certain size,
+    // pacman will only skip the beginning of a file if the file has already been partially downloaded.
+    let range_start: &str = s.split("-").next().unwrap();
+    let range_start = range_start.replace("bytes=", "");
+    range_start.parse::<u64>().unwrap()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct GetRequest {
+    pub resume_from: Option<u64>,
     pub path: PathBuf,
 }
 
 impl GetRequest {
     fn new(request: httparse::Request) -> Self {
+        let range_header = request.headers
+            .iter()
+            .find(|h| h.name.to_lowercase() == "range");
+        let resume_from = range_header.map(|h| parse_range_header_value(std::str::from_utf8(h.value).unwrap()));
         match request.method {
             Some("GET") => {},
             method => panic!("Unexpected method: #{:?}", method)
@@ -64,6 +78,7 @@ impl GetRequest {
         let path = Path::new(p).to_path_buf();
         Self {
             path,
+            resume_from,
         }
     }
 }
@@ -198,11 +213,11 @@ impl Job for DownloadJob {
         hashmap
     }
 
-    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, cached_size: u64) -> JobResult<DownloadJob> {
+    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, resume_from: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         println!("Fetch package from remote mirror: {}", &url);
         channel.handle.url(&url).unwrap();
-        channel.handle.resume_from(cached_size).unwrap();
+        channel.handle.resume_from(resume_from).unwrap();
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();

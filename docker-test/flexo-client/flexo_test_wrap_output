@@ -2,9 +2,20 @@
 
 OUTPUT_FILE="/tmp/flexo_test_output"
 
-/root/flexo_test | tee $OUTPUT_FILE
+function print_output() {
+  echo "================================="
+  echo "Test summary:"
+  grep flexo-test $OUTPUT_FILE
+}
 
-echo "================================="
-echo "Test summary:"
-grep flexo-test $OUTPUT_FILE
+if /root/flexo_test | tee $OUTPUT_FILE; then
+  print_output
+  # Using tail allows us to keep the container running: This can be helpful because it allows us to run an
+  # interactive shell on the container and troubleshoot the failing test case.
+  /usr/bin/tail -f /dev/null
+else
+  print_output
+fi
+
+
 
