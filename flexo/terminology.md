@@ -43,7 +43,7 @@ A job can succeed or fail. Failures can have two causes:
 2. The provider is unreliable and therefore not able to complete this order.
 
 The first case is considered a user error which flexo cannot fix. The second case, however, can
-be salvaged by trying another provider. It is flexos primary purpose to
+be salvaged by trying another provider. It is flexo's primary purpose to
 * Select reliable providers in order to reduce the likelihood of failing jobs, and
 * provide fast failover to another provider if one job fails.
 

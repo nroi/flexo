@@ -36,6 +36,12 @@ implications of doing so.
 sudo gpasswd -a <user> docker
 ```
 
+musl is required to compile the binary for alpine linux, which is used for our dockerized end-to-end tests:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+```
+
 
 Before submitting a PR, please make sure that all tests pass. We have two types
 of test cases:
