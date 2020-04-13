@@ -56,64 +56,71 @@ fn main() {
 }
 
 fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) {
-    match read_client_header(&mut stream) {
-        Ok(get_request) => {
-            println!("{:?}", get_request);
-            let path = Path::new(PATH_PREFIX).join(&get_request.path);
-            let order = DownloadOrder {
-                filepath: path.to_str().unwrap().to_owned()
-            };
-            println!("Attempt to schedule new job");
-            let result = job_context.lock().unwrap().schedule(order.clone(), get_request.resume_from);
-            match result {
-                ScheduleOutcome::AlreadyInProgress => {
-                    println!("Job is already in progress");
-                    // TODO this hasn't been tested yet.
-                    let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                    let content_length: u64 = try_content_length_from_path(&path).unwrap();
-                    // TODO this is slightly confusing. the "content length" returned by "try_content_length_from_path"
-                    // is the complete file size, but we actually need the content length as in "the amount of bytes
-                    // we are going to send to the client". Choose better names to reflect this.
-                    let content_length = content_length - get_request.resume_from.unwrap_or(0);
-                    let file: File = File::open(&path).unwrap();
-                    serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
-                }
-                ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
-                    // TODO this branch is also executed when the server returns 404.
-                    println!("Job was scheduled, will serve from growing file");
-                    match receive_content_length(rx_progress) {
-                        Ok(content_length) => {
-                            println!("Received content length via channel: {}", content_length);
-                            let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                            let file: File = File::open(&path).unwrap();
-                            serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
-                        },
-                        Err(ContentLengthError::Unavailable) => {
-                            println!("Will send 404 reply to client.");
-                            serve_404_header(&mut stream);
-                        }
-                        Err(e) => {
-                            panic!("Error: {:?}", e)
-                        },
+    loop {
+        match read_client_header(&mut stream) {
+            Ok(get_request) => {
+                println!("{:?}", get_request);
+                let path = Path::new(PATH_PREFIX).join(&get_request.path);
+                let order = DownloadOrder {
+                    filepath: path.to_str().unwrap().to_owned()
+                };
+                println!("Attempt to schedule new job");
+                let result = job_context.lock().unwrap().schedule(order.clone(), get_request.resume_from);
+                match result {
+                    ScheduleOutcome::AlreadyInProgress => {
+                        println!("Job is already in progress");
+                        // TODO this hasn't been tested yet.
+                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                        let content_length: u64 = try_content_length_from_path(&path).unwrap();
+                        // TODO this is slightly confusing. the "content length" returned by "try_content_length_from_path"
+                        // is the complete file size, but we actually need the content length as in "the amount of bytes
+                        // we are going to send to the client". Choose better names to reflect this.
+                        let content_length = content_length - get_request.resume_from.unwrap_or(0);
+                        let file: File = File::open(&path).unwrap();
+                        serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
                     }
-                },
-                ScheduleOutcome::Cached => {
-                    println!("Serve file from cache.");
-                    let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                    let file: File = File::open(path).unwrap();
-                    serve_from_complete_file(file, get_request.resume_from, &mut stream);
-                },
-                ScheduleOutcome::Uncacheable(p) => {
-                    println!("Serve file via redirect.");
-                    let uri_string = format!("{}{}", p.uri, order.filepath);
-                    serve_via_redirect(uri_string, &mut stream);
+                    ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
+                        // TODO this branch is also executed when the server returns 404.
+                        println!("Job was scheduled, will serve from growing file");
+                        match receive_content_length(rx_progress) {
+                            Ok(content_length) => {
+                                println!("Received content length via channel: {}", content_length);
+                                let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                                let file: File = File::open(&path).unwrap();
+                                serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
+                            },
+                            Err(ContentLengthError::Unavailable) => {
+                                println!("Will send 404 reply to client.");
+                                serve_404_header(&mut stream);
+                            }
+                            Err(e) => {
+                                panic!("Error: {:?}", e)
+                            },
+                        }
+                    },
+                    ScheduleOutcome::Cached => {
+                        println!("Serve file from cache.");
+                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                        let file: File = File::open(path).unwrap();
+                        serve_from_complete_file(file, get_request.resume_from, &mut stream);
+                    },
+                    ScheduleOutcome::Uncacheable(p) => {
+                        println!("Serve file via redirect.");
+                        let uri_string = format!("{}{}", p.uri, order.filepath);
+                        serve_via_redirect(uri_string, &mut stream);
+                    }
                 }
+            },
+            Err(StreamReadError::SocketClosed) => {
+                println!("Socket closed by client.");
+                return;
             }
-        },
-        Err(e) => {
-            println!("error: {:?}", e);
-        },
-    };
+            Err(e) => {
+                println!("error: {:?}", e);
+                return;
+            },
+        };
+    }
 }
 
 fn initialize_job_context(properties: MirrorConfig) -> JobContext<DownloadJob> {
