@@ -16,7 +16,7 @@ mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
 
-use std::net::{TcpListener, TcpStream, SocketAddr, Shutdown};
+use std::net::{TcpListener, TcpStream, SocketAddr};
 use crossbeam::thread;
 use std::time::Duration;
 use std::path::Path;
@@ -27,6 +27,7 @@ use std::ffi::OsString;
 
 #[cfg(test)]
 use tempfile::tempfile;
+use std::io::ErrorKind;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -227,7 +228,19 @@ fn serve_from_growing_file(mut file: File, content_length: u64, stream: &mut Tcp
         if filesize > bytes_sent {
             // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
             let result = send_payload(&mut file, filesize, bytes_sent as i64, stream);
-            bytes_sent = result.unwrap() as u64;
+            match result {
+                Ok(_) => {
+                    bytes_sent = result.unwrap() as u64;
+                },
+                Err(e) => {
+                    if e.kind() == ErrorKind::BrokenPipe {
+                        println!("Broken pipe. Connection closed by client?");
+                        return;
+                    } else {
+                        panic!("Unexpected error: {:?}", e);
+                    }
+                },
+            }
         }
         if bytes_sent < content_length {
             std::thread::sleep(std::time::Duration::from_micros(500));
@@ -297,15 +310,14 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
     let size = unsafe {
         let mut offset = bytes_sent;
         while (offset as u64) < filesize {
-            libc::sendfile(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
+            let size: isize = libc::sendfile(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
+            if size == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
         }
         offset
     };
-    if size == -1 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(size)
-    }
+    Ok(size)
 }
 
 #[test]
