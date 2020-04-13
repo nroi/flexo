@@ -17,7 +17,6 @@ mod mirror_cache;
 mod mirror_flexo;
 
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use crossbeam::thread;
 use std::time::Duration;
 use std::path::Path;
 use std::fs::File;
@@ -49,16 +48,14 @@ fn main() {
         println!("Established connection with client.");
         stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
         let job_context = job_context.clone();
-
-        thread::scope(|s| {
-            let _handle = s.spawn(|_| {
-                serve_file(job_context, stream, &properties)
-            });
-        }).unwrap();
+        let properties = properties.clone();
+        std::thread::spawn(move || {
+            serve_file(job_context, stream, properties);
+        });
     }
 }
 
-fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: &MirrorConfig) {
+fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) {
     match read_client_header(&mut stream) {
         Ok(get_request) => {
             println!("{:?}", get_request);
