@@ -46,7 +46,7 @@ fn main() {
     for stream in listener.incoming() {
         let stream: TcpStream = stream.unwrap();
         println!("Established connection with client.");
-        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let job_context = job_context.clone();
         let properties = properties.clone();
         std::thread::spawn(move || {
