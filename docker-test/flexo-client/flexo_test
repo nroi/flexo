@@ -1,12 +1,12 @@
 #!/bin/bash
 
 function fail_and_exit() {
-  printf "%-40s %s\n" "$TESTCASE" "[FAILURE]"
+  printf "%-50s %s\n" "$TESTCASE" "[FAILURE]"
   exit 1
 }
 
 function print_success() {
-  printf "%-40s %s\n" "$TESTCASE" "[SUCCESS]"
+  printf "%-50s %s\n" "$TESTCASE" "[SUCCESS]"
 }
 
 function clear_pacman_cache() {
@@ -22,12 +22,12 @@ sleep 5
 
 ## ==============================================================================================================
 TESTCASE='flexo-test-install'
-## Install two packages via pacman. Using pacman (instead of just downloading the package via wget or curl)
+## Install a few packages via pacman. Using pacman (instead of just downloading the package via wget or curl)
 ## ensures that the file served by flexo is identical to the file from the remote mirror. This is due to the fact
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed; then
+if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed coreutils; then
   print_success
 else
   fail_and_exit
@@ -56,7 +56,7 @@ TESTCASE='flexo-test-download-cached-concurrently'
 ## Download the cached package multiple times, concurrently.
 ## ==============================================================================================================
 
-DOWNLOAD_PATH=$(pacman -Sp wget)
+DOWNLOAD_PATH=$(pacman -Sp wget | grep wget)
 if [[ -n $DOWNLOAD_PATH ]]; then
   for i in {0..9}; do
     echo "Downloading $DOWNLOAD_PATH"
@@ -84,7 +84,7 @@ TESTCASE='flexo-test-download-concurrently'
 ## Download the same uncached packages multiple times, concurrently.
 ## ==============================================================================================================
 
-DOWNLOAD_PATH=$(/usr/bin/pacman -Sp curl)
+DOWNLOAD_PATH=$(/usr/bin/pacman -Sp curl | grep curl)
 if [[ -n $DOWNLOAD_PATH ]]; then
   for i in {0..9}; do
     echo "Downloading $DOWNLOAD_PATH"
@@ -113,7 +113,7 @@ TESTCASE='flexo-test-range-cached'
 ## ==============================================================================================================
 
 # No particular reason why we chose diffutils – just an arbitrary package that has already been downloaded.
-DOWNLOAD_PATH=$(/usr/bin/pacman -Sp diffutils)
+DOWNLOAD_PATH=$(/usr/bin/pacman -Sp diffutils | grep diffutils)
 if [[ -n $DOWNLOAD_PATH ]]; then
   echo "Downloading $DOWNLOAD_PATH"
   curl "$DOWNLOAD_PATH" -H "Range: bytes=1024-" >/tmp/diffutils-partial-downloaded || fail_and_exit
@@ -133,11 +133,11 @@ TESTCASE='flexo-test-range-non-cached'
 ## ==============================================================================================================
 
 # No particular reason why we chose the 'file' package – just an arbitrary package that has not been downloaded yet.
-DOWNLOAD_URL=$(/usr/bin/pacman -Sp file)
+DOWNLOAD_URL=$(/usr/bin/pacman -Sp file | grep file)
 if [[ -n $DOWNLOAD_URL ]]; then
   echo "Downloading $DOWNLOAD_URL"
   curl "$DOWNLOAD_URL" -L -H "Range: bytes=1024-" >/tmp/file-partial-downloaded || fail_and_exit
-  /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly file || fail_and_exit
+  /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps file || fail_and_exit
   VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name 'file-*.zst')
   if [[ -n $VERIFIED_FILE ]]; then
     if ! /usr/bin/cmp -s --ignore-initial=1024:0 "$VERIFIED_FILE" /tmp/file-partial-downloaded; then
@@ -157,13 +157,32 @@ fi
 TESTCASE='flexo-test-resume-after-abort'
 ## Start a download, then abort it, then restart the download.
 ## ==============================================================================================================
-/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly archlinux-wallpaper &
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps archlinux-wallpaper &
 PACMAN_PID=$!
 sleep 0.75
 kill "$PACMAN_PID"
 sleep 0.75 # Wait a bit for flexo to detect that the socket has been closed.
 rm /var/lib/pacman/db.lck
-if /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly archlinux-wallpaper; then
+if /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps archlinux-wallpaper; then
+  print_success
+else
+  fail_and_exit
+fi
+
+## ==============================================================================================================
+TESTCASE='flexo-test-concurrent-download-non-blocking'
+# Downloading a larger file does not stop another client from obtaining a small file quickly.
+## ==============================================================================================================
+# First, we start downloading a relatively large file:
+DOWNLOAD_PATH=$(pacman -Sp cppcheck | grep cppcheck)
+/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/cppcheck &
+WGET_PID=$!
+# Next, we download a smaller package:
+DOWNLOAD_PATH=$(pacman -Sp abook | grep abook)
+/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/abook || fail_and_exit
+# The download of the second package should have completed before the first download.
+if ps -p $WGET_PID > /dev/null
+then
   print_success
 else
   fail_and_exit
