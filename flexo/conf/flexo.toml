@@ -4,10 +4,11 @@
 # write-access.
 cache_directory = "/var/cache/flexo/pkg"
 
-# After the mirrorlist was fetched from a remote JSON endpoint, this JSON file
-# will be persisted on the local file system so that it can serve as a backup in
-# case the remote endpoint cannot be reached.
-mirrorlist_fallback_file = "/var/cache/flexo/state/mirrorlist.json"
+# After the mirrorlist was fetched from a remote JSON endpoint and the mirrors have
+# been tested and rated, the result (i.e., an ordered list of mirrors) will be persisted
+# on the local file system so that it can serve as a backup in case there is no internet
+# connectivity when flexo is started.
+mirrorlist_fallback_file = "/var/cache/flexo/state/mirrorlist"
 
 # The port to listen on.
 port = 7878
