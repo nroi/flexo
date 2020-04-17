@@ -33,10 +33,6 @@ struct DummyState {
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 struct DummyChannelState {}
 
-impl ChannelState for DummyChannelState {
-    type J = DummyJob;
-}
-
 impl JobState for DummyState {
     type J = DummyJob;
 }

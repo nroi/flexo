@@ -279,10 +279,6 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
     }
 }
 
-pub trait ChannelState where Self: std::marker::Send + 'static {
-    type J: Job;
-}
-
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub enum ChannelEstablishment {
     NewChannel,

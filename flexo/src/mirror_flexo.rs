@@ -330,17 +330,6 @@ impl Order for DownloadOrder {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
-// TODO what do we need this for?
-pub struct DownloadChannelState {
-}
-
-
-// TODO do we still need this?
-impl ChannelState for DownloadChannelState {
-    type J = DownloadJob;
-}
-
 #[derive(Debug)]
 pub struct FileState {
     buf_writer: BufWriter<File>,
