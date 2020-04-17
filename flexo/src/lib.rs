@@ -408,7 +408,7 @@ impl <J> JobContext<J> where J: Job {
                     return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
                 }
                 None => 0,
-                Some(OrderState::Cached(CachedItem { complete_size: _, cached_size } )) if cached_size < &resume_from => {
+                Some(OrderState::Cached(CachedItem { cached_size, .. } )) if cached_size < &resume_from => {
                     // Cannot serve this order from cache: See issue #7
                     let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
                     return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
@@ -416,7 +416,7 @@ impl <J> JobContext<J> where J: Job {
                 Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) if complete_size == cached_size => {
                     return ScheduleOutcome::Cached;
                 },
-                Some(OrderState::Cached(CachedItem { complete_size: _, cached_size } )) => *cached_size,
+                Some(OrderState::Cached(CachedItem { cached_size, .. } )) => *cached_size,
                 Some(OrderState::InProgress) => {
                     println!("order {:?} already in progress: nothing to do.", &order);
                     return ScheduleOutcome::AlreadyInProgress;
@@ -454,7 +454,7 @@ impl <J> JobContext<J> where J: Job {
         let properties = self.properties.clone();
         let t = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
-            let order: <J as Job>::O = order_cloned.clone();
+            let order: <J as Job>::O = order.clone();
             let result = order.try_until_success(
                 &mut providers_cloned,
                 &mut provider_failures_cloned,

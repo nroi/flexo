@@ -33,7 +33,7 @@ use std::io::ErrorKind;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
-const MAX_SENDFILE_COUNT: usize = 0x7ffff000;
+const MAX_SENDFILE_COUNT: usize = 0x7fff_f000;
 
 // Choose a smaller size in test, this makes it easier to have fast tests.
 #[cfg(test)]
@@ -104,7 +104,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         let file: File = File::open(&path).unwrap();
                         serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
                     }
-                    ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress, }) => {
+                    ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
                         // TODO this branch is also executed when the server returns 404.
                         println!("Job was scheduled, will serve from growing file");
                         match receive_content_length(rx_progress) {
@@ -176,7 +176,7 @@ fn initialize_job_context(properties: MirrorConfig) -> JobContext<DownloadJob> {
 
     // Change the implementation so that mirror_config is accepted.
     // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
-    JobContext::new(providers, properties.clone())
+    JobContext::new(providers, properties)
 }
 
 fn fetch_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
@@ -281,7 +281,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
         None => reply_header_success(content_length),
         Some(r) => reply_header_partial(content_length, r)
     };
-    stream.write(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
     let resume_from = resume_from.unwrap_or(0);
     let mut client_received = resume_from;
     let complete_filesize = content_length + resume_from;
@@ -313,26 +313,26 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
 
 fn serve_404_header(stream: &mut TcpStream) {
     let header = reply_header_not_found();
-    stream.write(header.as_bytes()).unwrap();
-    stream.write("\r\n".as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_400_header(stream: &mut TcpStream) {
     let header = reply_header_bad_request();
-    stream.write(header.as_bytes()).unwrap();
-    stream.write("\r\n".as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_500_header(stream: &mut TcpStream) {
     let header = reply_header_internal_server_error();
-    stream.write(header.as_bytes()).unwrap();
-    stream.write("\r\n".as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_403_header(stream: &mut TcpStream) {
     let header = reply_header_forbidden();
-    stream.write(header.as_bytes()).unwrap();
-    stream.write("\r\n".as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(b"\r\n").unwrap();
 }
 
 fn reply_header_success(content_length: u64) -> String {
@@ -366,7 +366,7 @@ fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>
         let complete_size = content_length + r;
         let last_byte = complete_size - 1;
         format!("Content-Range: bytes {}-{}/{}\r\n", r, last_byte, complete_size)
-    }).unwrap_or("".to_owned());
+    }).unwrap_or_else(|| "".to_owned());
     let header = format!("\
         HTTP/1.1 {}\r\n\
         Server: flexo\r\n\
@@ -375,7 +375,7 @@ fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>
         Content-Length: {}\r\n\r\n", status_line, timestamp, content_range_header, content_length);
     debug!("Sending header to client: {:?}", &header);
 
-    return header.to_owned();
+    header
 }
 
 fn redirect_header(path: &str) -> String {
@@ -389,7 +389,7 @@ fn redirect_header(path: &str) -> String {
         Location: {}\r\n\r\n", timestamp, path);
     dbg!(&header);
 
-    return header.to_owned();
+    header
 }
 
 fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &mut TcpStream) {
@@ -399,14 +399,14 @@ fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &m
         None => reply_header_success(content_length),
         Some(r) => reply_header_partial(content_length, r)
     };
-    stream.write(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
     let bytes_sent = resume_from.unwrap_or(0) as i64;
     send_payload(&mut file, filesize, bytes_sent, stream).unwrap();
 }
 
 fn serve_via_redirect(uri: String, stream: &mut TcpStream) {
     let header = redirect_header(&uri);
-    stream.write(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes()).unwrap();
 }
 
 fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut T) -> Result<i64, std::io::Error> where T: AsRawFd {

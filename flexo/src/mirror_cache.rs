@@ -4,7 +4,7 @@
 
 use crate::mirror_config::MirrorConfig;
 
-pub fn store(properties: &MirrorConfig, mirrors: &Vec<String>) {
+pub fn store(properties: &MirrorConfig, mirrors: &[String]) {
     let data = mirrors.join("\n");
     std::fs::write(&properties.mirrorlist_fallback_file, data)
         .unwrap_or_else(|_| panic!("Unable to write file: {}", properties.mirrorlist_fallback_file));
@@ -12,5 +12,5 @@ pub fn store(properties: &MirrorConfig, mirrors: &Vec<String>) {
 
 pub fn fetch(properties: &MirrorConfig) -> Result<Vec<String>, std::io::Error> {
     let contents = std::fs::read_to_string(&properties.mirrorlist_fallback_file)?;
-    Ok(contents.split("\n").map(|s| s.to_owned()).collect())
+    Ok(contents.split('\n').map(|s| s.to_owned()).collect())
 }

@@ -53,7 +53,7 @@ fn parse_range_header_value(s: &str) -> u64 {
     let s = s.to_lowercase();
     // We ignore everything after the - sign: We assume that pacman will never request only up to a certain size,
     // pacman will only skip the beginning of a file if the file has already been partially downloaded.
-    let range_start: &str = s.split("-").next().unwrap();
+    let range_start: &str = s.split('-').next().unwrap();
     let range_start = range_start.replace("bytes=", "");
     range_start.parse::<u64>().unwrap()
 }
@@ -188,7 +188,7 @@ impl Job for DownloadJob {
             let entry = entry.expect("Error while reading directory entry");
             let key = OsString::from("user.content_length");
             if entry.file_type().is_file() {
-                let file = File::open(entry.path()).expect(&format!("Unable to open file {:?}", entry.path()));
+                let file = File::open(entry.path()).unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
                 let file_size = file.metadata().expect("Unable to fetch file metadata").len();
                 sum_size += file_size;
                 let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
@@ -394,7 +394,7 @@ impl DownloadState {
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
         if order != self.job_state.order {
-            let c = DownloadState::new(order.clone(), self.properties.clone(), tx.clone(), self.last_chance)?;
+            let c = DownloadState::new(order, self.properties.clone(), tx, self.last_chance)?;
             self.job_state = c.job_state;
             self.header_success = None;
             self.received_header = Vec::new();
@@ -521,7 +521,7 @@ impl Channel for DownloadChannel {
     }
 
     fn reset_order(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
-        return self.handle.get_mut().reset(order, tx)
+        self.handle.get_mut().reset(order, tx)
     }
 
     fn job_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
