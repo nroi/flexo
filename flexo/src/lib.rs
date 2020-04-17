@@ -368,6 +368,7 @@ pub enum FlexoProgress {
     OrderError,
 }
 
+
 impl <J> JobContext<J> where J: Job {
     pub fn new(initial_providers: Vec<J::P>, properties: J::PR) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
@@ -387,12 +388,16 @@ impl <J> JobContext<J> where J: Job {
         }
     }
 
+    fn best_provider(&self) -> J::P {
+        // Providers are assumed to be sorted in ascending order from best to worst.
+        let providers: Vec<J::P> = self.providers.lock().unwrap().to_vec();
+        providers[0].clone()
+    }
+
     //noinspection RsBorrowChecker
     pub fn schedule(&mut self, order: J::O, resume_from: Option<u64>) -> ScheduleOutcome<J> {
         if !order.is_cacheable() {
-            let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
-            // TODO unclear why we need to store the first provider.
-            return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
+            return ScheduleOutcome::Uncacheable(self.best_provider());
         }
         let resume_from = resume_from.unwrap_or(0);
         let cached_size: u64 = {
@@ -400,14 +405,12 @@ impl <J> JobContext<J> where J: Job {
             let cached_size = match order_states.get(&order) {
                 None if resume_from > 0 => {
                     // Cannot serve this order from cache: See issue #7
-                    let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
-                    return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
+                    return ScheduleOutcome::Uncacheable(self.best_provider());
                 }
                 None => 0,
                 Some(OrderState::Cached(CachedItem { cached_size, .. } )) if cached_size < &resume_from => {
                     // Cannot serve this order from cache: See issue #7
-                    let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
-                    return ScheduleOutcome::Uncacheable(providers_cloned[0].clone());
+                    return ScheduleOutcome::Uncacheable(self.best_provider());
                 },
                 Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) if complete_size == cached_size => {
                     return ScheduleOutcome::Cached;
