@@ -2,6 +2,26 @@ TODO flexo was originally intended to *extend* (rather than replace) cpcache. Th
 yet reflect this change.
 
 ## Terminology
+
+### General terms
+
+#### client-to-server
+The connection route between the client that runs pacman, and the "server" that runs flexo. The
+server that runs flexo is just a server in the sense that it serves files over HTTP, so we
+use this term regardless of whether flexo is running on a "real" server in some remote data center,
+or some other kind of hardware like a laptop or a Raspberry Pi.
+
+#### server-to-server
+The connection route between flexo and the remote mirror.
+
+#### remote mirror
+An official ArchLinux mirror listed in the JSON document: https://www.archlinux.org/mirrors/status/json/
+
+We use the term "remote mirror" (rather than just "mirror") to distinguish official mirrors from flexo,
+because flexo is also a kind of mirror.
+
+
+### flexo library terms
 Flexo is not meant to be a reusable library, it is only used by this particular program, called
 flexo, which is only meant to be used by another program, called
 [cpcache](https://github.com/nroi/cpcache).
@@ -21,13 +41,13 @@ of each entity:
 Descriptions about the second role will be formatted as quotes:
 > like this.
 
-### Provider
+#### Provider
 A provider is required to complete an [order](#order).
 > A provider an official Arch Linux mirror. Flexo represents a mirror by its URI,
 > For instance, 
 > https://mirror.yandex.ru/archlinux/
 
-### Order
+#### Order
 The order is the missing information that we require to actually execute a [job](#job).
 
 > A job is the missing path that we mentioned above. For example, 
@@ -36,7 +56,7 @@ The order is the missing information that we require to actually execute a [job]
 > https://mirror.yandex.ru/archlinux/community/os/x86_64/rustup-1.20.2-1-x86_64.pkg.tar.xz,
 > which we can then download.
 
-### Job
+#### Job
 A job is the result of combining an order with a provider.
 A job can succeed or fail. Failures can have two causes:
 1. The order is invalid and therefore impossible to complete successfully, regardless of the provider.
@@ -56,7 +76,7 @@ have attempted to complete the order.
 > (e.g., due to the server crashing, the server being too slow or just a plain 404 error),
 > another mirror is tried.
 
-### Channel
+#### Channel
 The channel is the connection to the [provider](#provider). In order to complete an order,
 we must first establish a channel to the provider. Creating a new channel requires time
 and resources, so we aim to reuse existing channels.

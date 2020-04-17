@@ -1,3 +1,5 @@
+#[macro_use] extern crate log;
+
 extern crate http;
 extern crate rand;
 extern crate flexo;
@@ -18,6 +20,7 @@ mod mirror_flexo;
 
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::time::Duration;
+use std::path;
 use std::path::Path;
 use std::fs::File;
 use crossbeam::crossbeam_channel::RecvTimeoutError;
@@ -38,6 +41,7 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 
 fn main() {
+    env_logger::init();
     let properties = mirror_config::load_config();
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context(properties.clone())));
     let port = job_context.lock().unwrap().properties.port;
@@ -50,16 +54,37 @@ fn main() {
         let job_context = job_context.clone();
         let properties = properties.clone();
         std::thread::spawn(move || {
-            serve_file(job_context, stream, properties);
+            serve_client(job_context, stream, properties)
         });
     }
 }
 
-fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) {
+fn valid_path(path: &Path) -> bool {
+    path.components().all(|c| {
+        match c {
+            path::Component::Normal(_) => true,
+            path::Component::RootDir => true,
+            _ => false,
+        }
+    })
+}
+
+fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) -> Result<(), StreamReadError> {
+    // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
-        match read_client_header(&mut stream) {
+        debug!("Read header from client.");
+        let result = read_client_header(&mut stream);
+        match result {
+            Ok(get_request) if !valid_path(&get_request.path) => {
+                println!("Invalid path: Serve 403");
+                serve_403_header(&mut stream);
+            }
             Ok(get_request) => {
-                println!("{:?}", get_request);
+                dbg!(&get_request);
+                let components = get_request.path.components();
+                dbg!(&components);
+                let absolute = get_request.path.is_absolute();
+                dbg!(absolute);
                 let path = Path::new(PATH_PREFIX).join(&get_request.path);
                 let order = DownloadOrder {
                     filepath: path.to_str().unwrap().to_owned()
@@ -93,6 +118,14 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                                 println!("Will send 404 reply to client.");
                                 serve_404_header(&mut stream);
                             }
+                            Err(ContentLengthError::OrderError) => {
+                                println!("Will send 400 reply to client.");
+                                serve_400_header(&mut stream);
+                            }
+                            Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
+                                eprintln!("Remote server has disconnected unexpectedly.");
+                                serve_500_header(&mut stream);
+                            }
                             Err(e) => {
                                 panic!("Error: {:?}", e)
                             },
@@ -111,14 +144,26 @@ fn serve_file(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpS
                     }
                 }
             },
-            Err(StreamReadError::SocketClosed) => {
-                println!("Socket closed by client.");
-                return;
-            }
             Err(e) => {
-                println!("error: {:?}", e);
-                return;
-            },
+                dbg!(&e);
+                match e {
+                    StreamReadError::SocketClosed => {
+                        debug!("Socket closed by client.");
+                    }
+                    StreamReadError::Other(kind) if kind == ErrorKind::ConnectionReset => {
+                        debug!("Socket closed by client.");
+                    }
+                    StreamReadError::TimedOut => {
+                        debug!("Connection client-to-server has timed out. New connection required \
+                        for subsequent requests from the client.");
+                    }
+                    _ => {
+                        eprintln!("error: {:?}", e);
+                    }
+                }
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+                return Err(e);
+            }
         };
     }
 }
@@ -168,6 +213,7 @@ fn fetch_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
 enum ContentLengthError {
     TransmissionError(RecvTimeoutError),
     Unavailable,
+    OrderError,
 }
 
 fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<u64, ContentLengthError> {
@@ -178,6 +224,9 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<u64, ContentLen
             }
             Ok(FlexoProgress::Unavailable) => {
                 break Err(ContentLengthError::Unavailable);
+            }
+            Ok(FlexoProgress::OrderError) => {
+                break Err(ContentLengthError::OrderError);
             }
             Err(e) => break Err(ContentLengthError::TransmissionError(e)),
             Ok(_) => {
@@ -268,6 +317,24 @@ fn serve_404_header(stream: &mut TcpStream) {
     stream.write("\r\n".as_bytes()).unwrap();
 }
 
+fn serve_400_header(stream: &mut TcpStream) {
+    let header = reply_header_bad_request();
+    stream.write(header.as_bytes()).unwrap();
+    stream.write("\r\n".as_bytes()).unwrap();
+}
+
+fn serve_500_header(stream: &mut TcpStream) {
+    let header = reply_header_internal_server_error();
+    stream.write(header.as_bytes()).unwrap();
+    stream.write("\r\n".as_bytes()).unwrap();
+}
+
+fn serve_403_header(stream: &mut TcpStream) {
+    let header = reply_header_forbidden();
+    stream.write(header.as_bytes()).unwrap();
+    stream.write("\r\n".as_bytes()).unwrap();
+}
+
 fn reply_header_success(content_length: u64) -> String {
     reply_header("200 OK", content_length, None)
 }
@@ -278,6 +345,18 @@ fn reply_header_partial(content_length: u64, resume_from: u64) -> String {
 
 fn reply_header_not_found() -> String {
     reply_header("404 Not Found", 0, None)
+}
+
+fn reply_header_bad_request() -> String {
+    reply_header("400 Bad Request", 0, None)
+}
+
+fn reply_header_internal_server_error() -> String {
+    reply_header("500 Internal Server Error", 0, None)
+}
+
+fn reply_header_forbidden() -> String {
+    reply_header("403 Forbidden", 0, None)
 }
 
 fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>) -> String {
@@ -294,7 +373,7 @@ fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>
         Date: {}\r\n\
         {}\
         Content-Length: {}\r\n\r\n", status_line, timestamp, content_range_header, content_length);
-    println!("header: {:?}", header);
+    debug!("Sending header to client: {:?}", &header);
 
     return header.to_owned();
 }
@@ -308,7 +387,7 @@ fn redirect_header(path: &str) -> String {
         Date: {}\r\n\
         Content-Length: 0\r\n\
         Location: {}\r\n\r\n", timestamp, path);
-    println!("header: {:?}", header);
+    dbg!(&header);
 
     return header.to_owned();
 }

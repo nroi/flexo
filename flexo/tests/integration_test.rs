@@ -84,6 +84,9 @@ struct DummyJob {
 struct DummyProperties {}
 impl Properties for DummyProperties {}
 
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+struct DummyOrderError {}
+
 impl Job for DummyJob {
     type S = i32;
     type JS = DummyState;
@@ -93,6 +96,7 @@ impl Job for DummyJob {
     type E = DummyJobError;
     type PI = i32;
     type PR = DummyProperties;
+    type OE = DummyOrderError;
 
     fn provider(&self) -> &DummyProvider {
         &self.provider
@@ -128,6 +132,10 @@ impl Job for DummyJob {
             _ => JobResult::Error(JobTerminated { channel, error: DummyJobError {} }),
         }
     }
+
+    fn handle_error(self, _error: DummyOrderError) -> JobResult<Self> {
+        unimplemented!()
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
@@ -145,8 +153,8 @@ enum DummyOrder {
 impl Order for DummyOrder {
     type J = DummyJob;
 
-    fn new_channel(self, _properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, _last_chance: bool) -> DummyChannel {
-        DummyChannel {
+    fn new_channel(self, _properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, _last_chance: bool) -> Result<DummyChannel, DummyOrderError> {
+        Ok(DummyChannel {
             handle: 1,
             collector: JobStateItem {
                 order: self,
@@ -154,7 +162,7 @@ impl Order for DummyOrder {
                 tx,
             },
             state: DummyChannelState {}
-        }
+        })
     }
 
     fn is_cacheable(&self) -> bool {
@@ -176,7 +184,9 @@ impl Channel for DummyChannel {
         Some(0)
     }
 
-    fn reset_order(&mut self, _order: DummyOrder, _tx: Sender<FlexoProgress>) {}
+    fn reset_order(&mut self, _order: DummyOrder, _tx: Sender<FlexoProgress>) -> Result<(), DummyOrderError> {
+        Ok(())
+    }
 
     fn job_state_item(&mut self) -> &mut JobStateItem<DummyJob> {
         &mut self.collector
@@ -423,7 +433,7 @@ fn job_continued_after_partial_completion() {
         ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx, rx_progress: _ }) => {
             let provider_first_scheduled = match rx.recv().unwrap() {
                 FlexoMessage::ProviderSelected(p) => p,
-                FlexoMessage::ChannelEstablished(_) => panic!("Did not expect this message")
+                _ => panic!("Did not expect this message")
             };
             let provider_finally_scheduled = match join_handle.join().unwrap() {
                 JobOutcome::Success(p) => p,
@@ -502,8 +512,8 @@ fn no_new_channel_established() {
         ScheduleOutcome::Scheduled(p) => {
             wait_until_message_received(p.rx, |msg| {
                 match msg {
-                    FlexoMessage::ProviderSelected(_) => None,
                     FlexoMessage::ChannelEstablished(c) => Some(*c),
+                    _ => None,
                 }
             })
         },
@@ -526,6 +536,7 @@ fn new_channel_established_because_channel_in_use() {
             wait_until_message_received(p.rx, |msg| {
                 match msg {
                     FlexoMessage::ProviderSelected(_) => None,
+                    FlexoMessage::OrderError => None,
                     FlexoMessage::ChannelEstablished(c) => Some(*c),
                 }
             })

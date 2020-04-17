@@ -147,6 +147,17 @@ pub struct DownloadJob {
     properties: MirrorConfig,
 }
 
+#[derive(Debug)]
+pub enum OrderError {
+    IoError(std::io::Error),
+}
+
+impl From<std::io::Error> for OrderError {
+    fn from(error: std::io::Error) -> Self {
+        OrderError::IoError(error)
+    }
+}
+
 impl Job for DownloadJob {
     type S = MirrorResults;
     type JS = FileState;
@@ -156,6 +167,7 @@ impl Job for DownloadJob {
     type E = DownloadJobError;
     type PI = Uri;
     type PR = MirrorConfig;
+    type OE = OrderError;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider
@@ -280,6 +292,21 @@ impl Job for DownloadJob {
             }
         }
     }
+
+    fn handle_error(self, error: OrderError) -> JobResult<Self> {
+        dbg!(&error);
+        match error {
+            OrderError::IoError(e) if e.kind() == ErrorKind::NotFound => {
+                // The client has specified a path that does not exist on the local file system. This can happen
+                // if the required directory structure has not been created on the device running flexo, or if
+                // the client has submitted an invalid request.
+                JobResult::ClientError
+            }
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -291,10 +318,11 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> DownloadChannel {
-        DownloadChannel {
-            handle: Easy2::new(DownloadState::new(self, properties, tx, last_chance).unwrap()),
-        }
+    fn new_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+        let download_state = DownloadState::new(self, properties, tx, last_chance)?;
+        Ok(DownloadChannel {
+            handle: Easy2::new(download_state)
+        })
     }
 
     fn is_cacheable(&self) -> bool {
@@ -345,7 +373,11 @@ impl DownloadState {
     pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
         println!("Attempt to create file: {:?}", path);
-        let f = OpenOptions::new().create(true).append(true).open(path)?;
+        let f = OpenOptions::new().create(true).append(true).open(path);
+        if f.is_err() {
+            debug!("Unable to create file: {:?}", f);
+        }
+        let f = f?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
         let job_state = JobStateItem {
@@ -360,7 +392,7 @@ impl DownloadState {
         Ok(DownloadState { job_state, received_header, last_chance, properties, header_success: None })
     }
 
-    pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> std::io::Result<()> {
+    pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
         if order != self.job_state.order {
             let c = DownloadState::new(order.clone(), self.properties.clone(), tx.clone(), self.last_chance)?;
             self.job_state = c.job_state;
@@ -407,17 +439,18 @@ impl Handler for DownloadState {
 
     fn header(&mut self, data: &[u8]) -> bool {
         self.received_header.extend(data);
+        dbg!(std::str::from_utf8(data).unwrap());
 
-        let mut headers: [Header; 64] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
+        let mut headers: [Header; MAX_HEADER_COUNT] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
         let mut req: httparse::Response = httparse::Response::new(&mut headers);
         let result: std::result::Result<httparse::Status<usize>, httparse::Error> =
             req.parse(self.received_header.as_slice());
 
         match result {
             Ok(Status::Complete(_header_size)) => {
-                println!("Received complete header from server");
+                debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
-                println!("code is {}", code);
+                debug!("code is {}", code);
                 if code >= 200 && code < 300 {
                     let content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
@@ -487,8 +520,8 @@ impl Channel for DownloadChannel {
         }
     }
 
-    fn reset_order(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) {
-        self.handle.get_mut().reset(order, tx).unwrap();
+    fn reset_order(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
+        return self.handle.get_mut().reset(order, tx)
     }
 
     fn job_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
@@ -559,7 +592,7 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadErr
 
         match res {
             Ok(Status::Complete(_result)) => {
-                println!("Received header");
+                debug!("Received header from client");
                 break(Ok(GetRequest::new(req)))
             }
             Ok(Status::Partial) => {

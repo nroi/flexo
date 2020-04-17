@@ -1,0 +1,4 @@
+#!/bin/bash
+
+cp ../flexo/target/debug/flexo ./ || exit 1
+exec docker build .

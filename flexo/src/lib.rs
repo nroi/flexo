@@ -1,3 +1,5 @@
+#[macro_use] extern crate log;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
@@ -52,6 +54,7 @@ pub enum JobResult<J> where J: Job {
     Error(JobTerminated<J>),
     /// No provider was able to fulfil the order since the order was unavailable at all providers.
     Unavailable(J::C),
+    ClientError,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -102,25 +105,31 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type E: std::fmt::Debug;
     type PI: std::cmp::Eq;
     type PR: Properties + std::marker::Send + std::marker::Sync + std::clone::Clone;
+    type OE: std::fmt::Debug;
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
     fn properties(&self)-> Self::PR;
     fn initialize_cache(properties: Self::PR) -> HashMap<Self::O, OrderState>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
+    fn handle_error(self, error: Self::OE) -> JobResult<Self>;
 
-    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> (Self::C, ChannelEstablishment) {
+    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<(Self::C, ChannelEstablishment), Self::OE> {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(mut channel) => {
                 println!("Reusing previous channel: {:?}", &self.provider());
-                channel.reset_order(self.order(), tx);
-                (channel, ChannelEstablishment::ExistingChannel)
+                let result = channel.reset_order(self.order(), tx);
+                result.map(|_| {
+                    (channel, ChannelEstablishment::ExistingChannel)
+                })
             }
             None => {
                 println!("need to create new channel: {:?}", &self.provider());
                 let channel = self.order().new_channel(self.properties(), tx, last_chance);
-                (channel, ChannelEstablishment::NewChannel)
+                channel.map(|c| {
+                    (c, ChannelEstablishment::NewChannel)
+                })
             }
         }
     }
@@ -129,7 +138,11 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
-    fn new_channel(self, properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, last_chance: bool) -> <<Self as Order>::J as Job>::C;
+    fn new_channel(self,
+                   properties: <<Self as Order>::J as Job>::PR,
+                   tx: Sender<FlexoProgress>,
+                   last_chance: bool
+    ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
     /// Returns true if this order can be served from cache, false otherwise.
     fn is_cacheable(&self) -> bool;
@@ -170,12 +183,23 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 let value = provider_current_usages.entry(provider.clone()).or_insert(0);
                 *value += 1;
             }
-            println!("selected provider: {:?}", &provider);
+            debug!("selected provider: {:?}", &provider);
             let self_cloned: Self = self.clone();
             let job = provider.new_job(&properties, self_cloned);
-            let (channel, channel_establishment) = job.get_channel(&channels, tx_progress.clone(), last_chance);
-            let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-            let result = job.serve_from_provider(channel, properties.clone(), cached_size);
+            debug!("Attempt to obtain new channel");
+            let channel_result = job.get_channel(&channels, tx_progress.clone(), last_chance);
+            let result = match channel_result {
+                Ok((c, ce)) => {
+                    let _ = tx.send(FlexoMessage::ChannelEstablished(ce));
+                    job.serve_from_provider(c, properties.clone(), cached_size)
+                }
+                Err(e) => {
+                    dbg!(&e);
+                    let _ = tx.send(FlexoMessage::OrderError);
+                    let _ = tx_progress.send(FlexoProgress::OrderError);
+                    job.handle_error(e)
+                }
+            };
             match &result {
                 JobResult::Complete(_) => {
                     provider.clone().reward(provider_failures.lock().unwrap());
@@ -192,7 +216,10 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 },
                 JobResult::Unavailable(_) => {
                     println!("Order is not available, let's try again with a different provider.")
-                }
+                },
+                JobResult::ClientError => {
+                    break result;
+                },
             };
             if result.is_success() || providers.is_empty() || last_chance {
                 break result;
@@ -243,7 +270,7 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
     type J: Job;
 
     fn progress_indicator(&self) -> Option<u64>;
-    fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>);
+    fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>) -> Result<(), <<Self as Channel>::J as Job>::OE>;
     fn job_state_item(&mut self) -> &mut JobStateItem<Self::J>;
 
     /// After a job has completed, all stateful information associated with this particular job should be dropped.
@@ -332,6 +359,7 @@ pub enum ScheduleOutcome<J> where J: Job {
 pub enum FlexoMessage <P> {
     ProviderSelected(P),
     ChannelEstablished(ChannelEstablishment),
+    OrderError,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -341,6 +369,7 @@ pub enum FlexoProgress {
     JobSize(u64),
     Progress(u64),
     Completed,
+    OrderError,
 }
 
 impl <J> JobContext<J> where J: Job {
@@ -463,6 +492,12 @@ impl <J> JobContext<J> where J: Job {
                 JobResult::Unavailable(mut channel) => {
                     println!("The given order was unavailable for all providers.");
                     channel.reset_job_state();
+                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    JobOutcome::Error(provider_failures)
+                }
+                JobResult::ClientError => {
+                    // TODO unclear what to do here. We're calling "reset_job_state" in all other branches,
+                    // is something similar required here, too?
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }

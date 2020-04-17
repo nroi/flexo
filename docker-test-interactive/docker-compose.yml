@@ -1,0 +1,7 @@
+version: '3.3'
+services:
+  flexo-server:
+    build: flexo-server
+  flexo-client:
+    build: flexo-client
+    container_name: flexo-client
