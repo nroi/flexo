@@ -54,7 +54,10 @@ pub enum JobResult<J> where J: Job {
     Error(JobTerminated<J>),
     /// No provider was able to fulfil the order since the order was unavailable at all providers.
     Unavailable(J::C),
+    /// The client has specified an invalid order that cannot be served.
     ClientError,
+    /// An unexpected internal error has occurred while attempting to process the client's order.
+    UnexpectedInternalError,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -218,6 +221,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     println!("Order is not available, let's try again with a different provider.")
                 },
                 JobResult::ClientError => {
+                    break result;
+                },
+                JobResult::UnexpectedInternalError => {
                     break result;
                 },
             };
@@ -427,11 +433,8 @@ impl <J> JobContext<J> where J: Job {
         self.schedule(order, cached_size)
     }
 
-    //noinspection RsBorrowChecker
-    /// Attempt to schedule the job so that the order will be fetched from the provider.
-    /// TODO unclear terminology: We call this function "schedule", but in some cases, we return immediately
-    /// without having any job in the background.
-    pub fn schedule(&mut self, order: J::O, cached_size: u64) -> ScheduleOutcome<J> {
+    /// Schedules the job so that the order will be fetched from the provider.
+    fn schedule(&mut self, order: J::O, cached_size: u64) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
@@ -502,6 +505,12 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::ClientError => {
+                    // TODO unclear what to do here. We're calling "reset_job_state" in all other branches,
+                    // is something similar required here, too?
+                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    JobOutcome::Error(provider_failures)
+                }
+                JobResult::UnexpectedInternalError => {
                     // TODO unclear what to do here. We're calling "reset_job_state" in all other branches,
                     // is something similar required here, too?
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();

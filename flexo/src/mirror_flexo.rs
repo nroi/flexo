@@ -302,8 +302,9 @@ impl Job for DownloadJob {
                 // the client has submitted an invalid request.
                 JobResult::ClientError
             }
-            _ => {
-                unimplemented!()
+            e => {
+                error!("Unexpected error: {:?}", e);
+                JobResult::UnexpectedInternalError
             }
         }
     }
