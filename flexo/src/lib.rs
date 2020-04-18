@@ -277,12 +277,7 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
 
     fn progress_indicator(&self) -> Option<u64>;
     fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>) -> Result<(), <<Self as Channel>::J as Job>::OE>;
-    fn job_state_item(&mut self) -> &mut JobStateItem<Self::J>;
-
-    /// After a job has completed, all stateful information associated with this particular job should be dropped.
-    fn reset_job_state(&mut self) {
-        self.job_state_item().release_job_resources();
-    }
+    fn job_state(&mut self) -> &mut JobState<Self::J>;
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
@@ -295,7 +290,7 @@ pub enum ChannelEstablishment {
 pub trait Properties {}
 
 #[derive(Debug)]
-pub struct JobStateItem<J> where J: Job {
+pub struct JobState<J> where J: Job {
     pub order: J::O,
     /// Used to manage the resources acquired for a job. It is set to Some(_) if there is an active job associated
     /// with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
@@ -305,7 +300,8 @@ pub struct JobStateItem<J> where J: Job {
     pub tx: Sender<FlexoProgress>,
 }
 
-impl <J> JobStateItem<J> where J: Job {
+impl <J> JobState<J> where J: Job {
+    /// Release all resources (e.g. opened files) that were required for this particular job.
     fn release_job_resources(&mut self) {
         self.job_resources = None
     }
@@ -472,7 +468,7 @@ impl <J> JobContext<J> where J: Job {
             order_states.lock().unwrap().remove(&order_cloned);
             match result {
                 JobResult::Complete(mut complete_job) => {
-                    complete_job.channel.reset_job_state();
+                    complete_job.channel.job_state().release_job_resources();
                     let mut channels_cloned = channels_cloned.lock().unwrap();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
                     let cached_item = CachedItem {
@@ -484,18 +480,18 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Success(complete_job.provider.clone())
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
-                    channel.reset_job_state();
+                    channel.job_state().release_job_resources();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Error(JobTerminated { mut channel, .. } ) => {
-                    channel.reset_job_state();
+                    channel.job_state().release_job_resources();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
                     println!("The given order was unavailable for all providers.");
-                    channel.reset_job_state();
+                    channel.job_state().release_job_resources();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }

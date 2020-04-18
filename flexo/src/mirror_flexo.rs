@@ -347,7 +347,7 @@ enum HeaderOutcome {
 
 #[derive(Debug)]
 struct DownloadState {
-    job_state_item: JobStateItem<DownloadJob>,
+    job_state_item: JobState<DownloadJob>,
     // TODO maybe the following items belong to the job state.
     received_header: Vec<u8>,
     last_chance: bool,
@@ -366,7 +366,7 @@ impl DownloadState {
         let f = f?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
-        let job_state_item = JobStateItem {
+        let job_state_item = JobState {
             order,
             job_resources: Some(FileState {
                 buf_writer,
@@ -511,7 +511,7 @@ impl Channel for DownloadChannel {
         self.handle.get_mut().reset(order, tx)
     }
 
-    fn job_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
+    fn job_state(&mut self) -> &mut JobState<DownloadJob> {
         &mut self.handle.get_mut().job_state_item
     }
 }

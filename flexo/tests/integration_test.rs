@@ -148,7 +148,7 @@ impl Order for DummyOrder {
     fn new_channel(self, _properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, _last_chance: bool) -> Result<DummyChannel, DummyOrderError> {
         Ok(DummyChannel {
             handle: 1,
-            collector: JobStateItem {
+            collector: JobState {
                 order: self,
                 job_resources: None,
                 tx,
@@ -165,7 +165,7 @@ impl Order for DummyOrder {
 #[derive(Debug)]
 struct DummyChannel {
     handle: i32,
-    collector: JobStateItem<DummyJob>,
+    collector: JobState<DummyJob>,
     state: DummyChannelState,
 }
 
@@ -180,7 +180,7 @@ impl Channel for DummyChannel {
         Ok(())
     }
 
-    fn job_state_item(&mut self) -> &mut JobStateItem<DummyJob> {
+    fn job_state(&mut self) -> &mut JobState<DummyJob> {
         &mut self.collector
     }
 }
