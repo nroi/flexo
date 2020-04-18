@@ -101,7 +101,7 @@ pub trait Provider where
 
 pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
     type S: std::cmp::Ord;
-    type JS: JobState<J=Self>;
+    type JS;
     type C: Channel<J=Self>;
     type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash;
     type P: Provider<J=Self>;
@@ -281,7 +281,7 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
 
     /// After a job has completed, all stateful information associated with this particular job should be dropped.
     fn reset_job_state(&mut self) {
-        self.job_state_item().reset();
+        self.job_state_item().release_job_resources();
     }
 }
 
@@ -289,11 +289,6 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
 pub enum ChannelEstablishment {
     NewChannel,
     ExistingChannel,
-}
-
-/// Marker trait.
-pub trait JobState {
-    type J: Job;
 }
 
 /// Marker trait.
@@ -306,13 +301,13 @@ pub struct JobStateItem<J> where J: Job {
     /// with the Channel, or None if the channel is just kept open for requests that may arrive in the future. The
     /// reason for using Optional (rather than just JS) is that this way, drop() will called on the JS as soon as we
     /// reset the state to None, so that acquired resources are released as soon as possible.
-    pub job_state: Option<J::JS>,
+    pub job_resources: Option<J::JS>,
     pub tx: Sender<FlexoProgress>,
 }
 
 impl <J> JobStateItem<J> where J: Job {
-    fn reset(&mut self) {
-        self.job_state = None
+    fn release_job_resources(&mut self) {
+        self.job_resources = None
     }
 }
 

@@ -337,10 +337,6 @@ pub struct FileState {
     size_written: u64,
 }
 
-impl JobState for FileState {
-    type J = DownloadJob;
-}
-
 #[derive(Debug)]
 enum HeaderOutcome {
     /// Header was read successfully and we're ready to write the payload to the local file system.
@@ -372,7 +368,7 @@ impl DownloadState {
         let buf_writer = BufWriter::new(f);
         let job_state_item = JobStateItem {
             order,
-            job_state: Some(FileState {
+            job_resources: Some(FileState {
                 buf_writer,
                 size_written,
             }),
@@ -409,7 +405,7 @@ impl Handler for DownloadState {
                 unreachable!("The header should have been parsed before this function is called");
             }
         }
-        match self.job_state_item.job_state.iter_mut().next() {
+        match self.job_state_item.job_resources.iter_mut().next() {
             None => panic!("Expected the state to be initialized."),
             Some(file_state) => {
                 file_state.size_written += data.len() as u64;
@@ -457,7 +453,7 @@ impl Handler for DownloadState {
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current implementation,
                     // we assume that the header method is always called before anything is written to the file.
-                    let size_written = self.job_state_item.job_state.as_ref().unwrap().size_written;
+                    let size_written = self.job_state_item.job_resources.as_ref().unwrap().size_written;
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
                     // provider_content_length = the content length we send to the provider.
@@ -502,7 +498,7 @@ impl Channel for DownloadChannel {
     type J = DownloadJob;
 
     fn progress_indicator(&self) -> Option<u64> {
-        let file_state = self.handle.get_ref().job_state_item.job_state.as_ref().unwrap();
+        let file_state = self.handle.get_ref().job_state_item.job_resources.as_ref().unwrap();
         let size_written = file_state.size_written;
         if size_written > 0 {
             Some(size_written)

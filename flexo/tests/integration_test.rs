@@ -33,10 +33,6 @@ struct DummyState {
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 struct DummyChannelState {}
 
-impl JobState for DummyState {
-    type J = DummyJob;
-}
-
 impl Provider for DummyProvider {
     type J = DummyJob;
 
@@ -154,7 +150,7 @@ impl Order for DummyOrder {
             handle: 1,
             collector: JobStateItem {
                 order: self,
-                job_state: None,
+                job_resources: None,
                 tx,
             },
             state: DummyChannelState {}
