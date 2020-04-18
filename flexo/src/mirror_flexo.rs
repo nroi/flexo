@@ -386,13 +386,11 @@ impl DownloadState {
     }
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
-        if order != self.job_state.order {
-            // TODO this is confusing. We call this function "reset", and then we use it to initialize stuff?
-            let c = DownloadState::new(order, self.properties.clone(), tx, self.last_chance)?;
-            self.job_state = c.job_state;
-            self.header_success = None;
-            self.received_header = Vec::new();
-        }
+        // TODO this is confusing. We call this function "reset", and then we use it to initialize stuff?
+        let c = DownloadState::new(order, self.properties.clone(), tx, self.last_chance)?;
+        self.job_state = c.job_state;
+        self.header_success = None;
+        self.received_header = Vec::new();
         Ok(())
     }
 }
