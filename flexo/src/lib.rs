@@ -116,6 +116,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn initialize_cache(properties: Self::PR) -> HashMap<Self::O, OrderState>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
+    fn acquire_resources(order: &Self::O, properties: &Self::PR) -> std::io::Result<Self::JS>;
 
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<(Self::C, ChannelEstablishment), Self::OE> {
         let mut channels = channels.lock().unwrap();

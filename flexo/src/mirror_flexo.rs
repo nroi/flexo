@@ -308,6 +308,22 @@ impl Job for DownloadJob {
             }
         }
     }
+
+    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig) -> std::io::Result<FileState> {
+        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+        println!("Attempt to create file: {:?}", path);
+        let f = OpenOptions::new().create(true).append(true).open(path);
+        if f.is_err() {
+            debug!("Unable to create file: {:?}", f);
+        }
+        let f = f?;
+        let size_written = f.metadata()?.len();
+        let buf_writer = BufWriter::new(f);
+        Ok(FileState {
+            buf_writer,
+            size_written,
+        })
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -356,24 +372,15 @@ struct DownloadState {
 }
 
 impl DownloadState {
+
     pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
-        let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        println!("Attempt to create file: {:?}", path);
-        let f = OpenOptions::new().create(true).append(true).open(path);
-        if f.is_err() {
-            debug!("Unable to create file: {:?}", f);
-        }
-        let f = f?;
-        let size_written = f.metadata()?.len();
-        let buf_writer = BufWriter::new(f);
+        let file_state = DownloadJob::acquire_resources(&order, &properties)?;
         let job_state = JobState {
             order,
-            job_resources: Some(FileState {
-                buf_writer,
-                size_written,
-            }),
+            job_resources: Some(file_state),
             tx,
         };
+        // TODO make sure that this header is also always cleared when the job is done.
         let received_header = Vec::new();
         Ok(DownloadState { job_state, received_header, last_chance, properties, header_success: None })
     }

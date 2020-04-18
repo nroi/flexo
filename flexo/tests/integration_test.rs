@@ -128,6 +128,10 @@ impl Job for DummyJob {
     fn handle_error(self, _error: DummyOrderError) -> JobResult<Self> {
         unimplemented!()
     }
+
+    fn acquire_resources(_order: &DummyOrder, _properties: &DummyProperties) -> Result<DummyState, std::io::Error> {
+        unimplemented!()
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
