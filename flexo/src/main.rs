@@ -76,7 +76,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
         let result = read_client_header(&mut stream);
         match result {
             Ok(get_request) if !valid_path(&get_request.path) => {
-                println!("Invalid path: Serve 403");
+                info!("Invalid path: Serve 403");
                 serve_403_header(&mut stream);
             }
             Ok(get_request) => {
@@ -90,7 +90,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                     filepath: path.to_str().unwrap().to_owned()
                 };
                 println!("Attempt to schedule new job");
-                let result = job_context.lock().unwrap().schedule(order.clone(), get_request.resume_from);
+                let result = job_context.lock().unwrap().try_schedule(order.clone(), get_request.resume_from);
                 match result {
                     ScheduleOutcome::AlreadyInProgress => {
                         println!("Job is already in progress");

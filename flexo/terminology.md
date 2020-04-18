@@ -91,3 +91,11 @@ is still being used by a previous job.
 > If the connection has been closed, it will reconnect to the server. If it hasn't
 > been closed, it will use the existing connection.
 
+
+### process
+
+Need to figure out when files are opened and what sequence of events we have when
+serving two subsequent requests regarding files opened/closed.
+
+1. GET request arrives.
+2. `schedule()` is called

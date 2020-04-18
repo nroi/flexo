@@ -350,7 +350,7 @@ enum HeaderOutcome {
 
 #[derive(Debug)]
 struct DownloadState {
-    job_state: JobStateItem<DownloadJob>,
+    job_state_item: JobStateItem<DownloadJob>,
     // TODO maybe the following items belong to the job state.
     received_header: Vec<u8>,
     last_chance: bool,
@@ -369,7 +369,7 @@ impl DownloadState {
         let f = f?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
-        let job_state = JobStateItem {
+        let job_state_item = JobStateItem {
             order,
             job_state: Some(FileState {
                 buf_writer,
@@ -378,13 +378,14 @@ impl DownloadState {
             tx,
         };
         let received_header = Vec::new();
-        Ok(DownloadState { job_state, received_header, last_chance, properties, header_success: None })
+        Ok(DownloadState { job_state_item, received_header, last_chance, properties, header_success: None })
     }
 
     pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
-        if order != self.job_state.order {
+        if order != self.job_state_item.order {
+            // TODO this is confusing. We call this function "reset", and then we use it to initialize stuff?
             let c = DownloadState::new(order, self.properties.clone(), tx, self.last_chance)?;
-            self.job_state = c.job_state;
+            self.job_state_item = c.job_state_item;
             self.header_success = None;
             self.received_header = Vec::new();
         }
@@ -407,14 +408,14 @@ impl Handler for DownloadState {
                 unreachable!("The header should have been parsed before this function is called");
             }
         }
-        match self.job_state.job_state.iter_mut().next() {
+        match self.job_state_item.job_state.iter_mut().next() {
             None => panic!("Expected the state to be initialized."),
             Some(file_state) => {
                 file_state.size_written += data.len() as u64;
                 match file_state.buf_writer.write(data) {
                     Ok(size) => {
                         let len = file_state.buf_writer.get_ref().metadata().unwrap().len();
-                        let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
+                        let _result = self.job_state_item.tx.send(FlexoProgress::Progress(len));
                         Ok(size)
                     },
                     Err(e) => {
@@ -450,12 +451,12 @@ impl Handler for DownloadState {
                         }
                     ).unwrap();
                     self.header_success = Some(HeaderOutcome::Ok(content_length));
-                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
+                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state_item.order.filepath);
                     let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current implementation,
                     // we assume that the header method is always called before anything is written to the file.
-                    let size_written = self.job_state.job_state.as_ref().unwrap().size_written;
+                    let size_written = self.job_state_item.job_state.as_ref().unwrap().size_written;
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
                     // provider_content_length = the content length we send to the provider.
@@ -465,7 +466,7 @@ impl Handler for DownloadState {
                         .expect("Unable to set extended file attributes");
                     println!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state_item.tx.send(message);
                 } else if code == 404 && !self.last_chance {
                     self.header_success = Some(HeaderOutcome::Unavailable);
                     println!("Hoping that another provider can fulfil this request…");
@@ -473,7 +474,7 @@ impl Handler for DownloadState {
                     self.header_success = Some(HeaderOutcome::Unavailable);
                     println!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state_item.tx.send(message);
                 } else {
                     // TODO handle status codes like 500 etc.
                     unimplemented!("TODO don't know what to do with this status code.")
@@ -500,7 +501,7 @@ impl Channel for DownloadChannel {
     type J = DownloadJob;
 
     fn progress_indicator(&self) -> Option<u64> {
-        let file_state = self.handle.get_ref().job_state.job_state.as_ref().unwrap();
+        let file_state = self.handle.get_ref().job_state_item.job_state.as_ref().unwrap();
         let size_written = file_state.size_written;
         if size_written > 0 {
             Some(size_written)
@@ -514,7 +515,7 @@ impl Channel for DownloadChannel {
     }
 
     fn job_state_item(&mut self) -> &mut JobStateItem<DownloadJob> {
-        &mut self.handle.get_mut().job_state
+        &mut self.handle.get_mut().job_state_item
     }
 }
 

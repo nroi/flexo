@@ -394,8 +394,8 @@ impl <J> JobContext<J> where J: Job {
         providers[0].clone()
     }
 
-    //noinspection RsBorrowChecker
-    pub fn schedule(&mut self, order: J::O, resume_from: Option<u64>) -> ScheduleOutcome<J> {
+    /// Schedule the order, or return info on why scheduling this order is not possible or not necessary.
+    pub fn try_schedule(&mut self, order: J::O, resume_from: Option<u64>) -> ScheduleOutcome<J> {
         if !order.is_cacheable() {
             return ScheduleOutcome::Uncacheable(self.best_provider());
         }
@@ -424,7 +424,14 @@ impl <J> JobContext<J> where J: Job {
             order_states.insert(order.clone(), OrderState::InProgress);
             cached_size
         };
+        self.schedule(order, cached_size)
+    }
 
+    //noinspection RsBorrowChecker
+    /// Attempt to schedule the job so that the order will be fetched from the provider.
+    /// TODO unclear terminology: We call this function "schedule", but in some cases, we return immediately
+    /// without having any job in the background.
+    pub fn schedule(&mut self, order: J::O, cached_size: u64) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
