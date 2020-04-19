@@ -309,7 +309,7 @@ impl Job for DownloadJob {
         }
     }
 
-    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig) -> std::io::Result<FileState> {
+    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<FileState> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
         println!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
@@ -319,10 +319,14 @@ impl Job for DownloadJob {
         let f = f?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
-        Ok(FileState {
+        let file_state = FileState {
             buf_writer,
             size_written,
-        })
+            received_header: vec![],
+            last_chance,
+            header_success: None
+        };
+        Ok(file_state)
     }
 }
 
@@ -342,6 +346,15 @@ impl Order for DownloadOrder {
         })
     }
 
+    fn reuse_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool, previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+        let download_state = DownloadState::new(self, properties, tx, last_chance)?;
+        let mut handle = previous_channel.handle;
+        handle.get_mut().replace(download_state);
+        Ok(DownloadChannel {
+            handle
+        })
+    }
+
     fn is_cacheable(&self) -> bool {
         !(self.filepath.ends_with(".db") || self.filepath.ends_with(".sig"))
     }
@@ -351,6 +364,11 @@ impl Order for DownloadOrder {
 pub struct FileState {
     buf_writer: BufWriter<File>,
     size_written: u64,
+
+    // TODO maybe the following items belong to a separate struct, maybe HeaderState, RemoteState or so.
+    received_header: Vec<u8>,
+    header_success: Option<HeaderOutcome>,
+    last_chance: bool,
 }
 
 #[derive(Debug)]
@@ -364,40 +382,30 @@ enum HeaderOutcome {
 #[derive(Debug)]
 struct DownloadState {
     job_state: JobState<DownloadJob>,
-    // TODO maybe the following items belong to the job state.
-    received_header: Vec<u8>,
-    last_chance: bool,
     properties: MirrorConfig,
-    header_success: Option<HeaderOutcome>,
 }
 
 impl DownloadState {
 
     pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
-        let file_state = DownloadJob::acquire_resources(&order, &properties)?;
+        let file_state = DownloadJob::acquire_resources(&order, &properties, last_chance)?;
         let job_state = JobState {
             order,
             job_resources: Some(file_state),
             tx,
         };
-        // TODO make sure that this header is also always cleared when the job is done.
-        let received_header = Vec::new();
-        Ok(DownloadState { job_state, received_header, last_chance, properties, header_success: None })
+        Ok(DownloadState { job_state, properties })
     }
 
-    pub fn reset(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
-        // TODO this is confusing. We call this function "reset", and then we use it to initialize stuff?
-        let c = DownloadState::new(order, self.properties.clone(), tx, self.last_chance)?;
-        self.job_state = c.job_state;
-        self.header_success = None;
-        self.received_header = Vec::new();
-        Ok(())
+    pub fn replace(&mut self, new_state: Self) {
+        *self = new_state;
     }
 }
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
-        match self.header_success {
+        let mut job_resources = self.job_state.job_resources.as_mut().unwrap();
+        match job_resources.header_success {
             Some(HeaderOutcome::Ok(_content_length)) => {},
             Some(HeaderOutcome::Unavailable) => {
                 // If the header says the file is not available, we return early without writing anything to
@@ -410,33 +418,29 @@ impl Handler for DownloadState {
                 unreachable!("The header should have been parsed before this function is called");
             }
         }
-        match self.job_state.job_resources.iter_mut().next() {
-            None => panic!("Expected the state to be initialized."),
-            Some(file_state) => {
-                file_state.size_written += data.len() as u64;
-                match file_state.buf_writer.write(data) {
-                    Ok(size) => {
-                        let len = file_state.buf_writer.get_ref().metadata().unwrap().len();
-                        let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
-                        Ok(size)
-                    },
-                    Err(e) => {
-                        println!("Error while writing data: {:?}", e);
-                        Err(WriteError::Pause)
-                    }
-                }
+        job_resources.size_written += data.len() as u64;
+        match job_resources.buf_writer.write(data) {
+            Ok(size) => {
+                let len = job_resources.buf_writer.get_ref().metadata().unwrap().len();
+                let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
+                Ok(size)
+            },
+            Err(e) => {
+                println!("Error while writing data: {:?}", e);
+                Err(WriteError::Pause)
             }
         }
     }
 
     fn header(&mut self, data: &[u8]) -> bool {
-        self.received_header.extend(data);
+        let job_resources = self.job_state.job_resources.as_mut().unwrap();
+        job_resources.received_header.extend(data);
         dbg!(std::str::from_utf8(data).unwrap());
 
         let mut headers: [Header; MAX_HEADER_COUNT] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
         let mut req: httparse::Response = httparse::Response::new(&mut headers);
         let result: std::result::Result<httparse::Status<usize>, httparse::Error> =
-            req.parse(self.received_header.as_slice());
+            req.parse(job_resources.received_header.as_slice());
 
         match result {
             Ok(Status::Complete(_header_size)) => {
@@ -452,7 +456,7 @@ impl Handler for DownloadState {
                             None
                         }
                     ).unwrap();
-                    self.header_success = Some(HeaderOutcome::Ok(content_length));
+                    job_resources.header_success = Some(HeaderOutcome::Ok(content_length));
                     let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
@@ -469,11 +473,11 @@ impl Handler for DownloadState {
                     println!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);
-                } else if code == 404 && !self.last_chance {
-                    self.header_success = Some(HeaderOutcome::Unavailable);
+                } else if code == 404 && !job_resources.last_chance {
+                    job_resources.header_success = Some(HeaderOutcome::Unavailable);
                     println!("Hoping that another provider can fulfil this request…");
-                } else if code == 404 && self.last_chance {
-                    self.header_success = Some(HeaderOutcome::Unavailable);
+                } else if code == 404 && job_resources.last_chance {
+                    job_resources.header_success = Some(HeaderOutcome::Unavailable);
                     println!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
                     let _ = self.job_state.tx.send(message);
@@ -510,10 +514,6 @@ impl Channel for DownloadChannel {
         } else {
             None
         }
-    }
-
-    fn reset_order(&mut self, order: DownloadOrder, tx: Sender<FlexoProgress>) -> Result<(), OrderError> {
-        self.handle.get_mut().reset(order, tx)
     }
 
     fn job_state(&mut self) -> &mut JobState<DownloadJob> {

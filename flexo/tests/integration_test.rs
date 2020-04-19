@@ -129,7 +129,7 @@ impl Job for DummyJob {
         unimplemented!()
     }
 
-    fn acquire_resources(_order: &DummyOrder, _properties: &DummyProperties) -> Result<DummyState, std::io::Error> {
+    fn acquire_resources(_order: &DummyOrder, _properties: &DummyProperties, _last_chance: bool) -> Result<DummyState, std::io::Error> {
         unimplemented!()
     }
 }
@@ -161,6 +161,10 @@ impl Order for DummyOrder {
         })
     }
 
+    fn reuse_channel(self, properties: <<Self as Order>::J as Job>::PR, tx: Sender<FlexoProgress>, last_chance: bool, _channel: DummyChannel) -> Result<DummyChannel, DummyOrderError> {
+        self.new_channel(properties, tx, last_chance)
+    }
+
     fn is_cacheable(&self) -> bool {
         true
     }
@@ -178,10 +182,6 @@ impl Channel for DummyChannel {
 
     fn progress_indicator(&self) -> Option<u64> {
         Some(0)
-    }
-
-    fn reset_order(&mut self, _order: DummyOrder, _tx: Sender<FlexoProgress>) -> Result<(), DummyOrderError> {
-        Ok(())
     }
 
     fn job_state(&mut self) -> &mut JobState<DummyJob> {

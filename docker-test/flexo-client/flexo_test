@@ -27,7 +27,7 @@ TESTCASE='flexo-test-install'
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed coreutils; then
+if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed coreutils tcpdump; then
   print_success
 else
   fail_and_exit
@@ -36,6 +36,53 @@ fi
 # Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
 # but not by the client that connects to the flexo server.
 clean_pacman_cache
+
+## ==============================================================================================================
+TESTCASE='flexo-test-persistent-connections-c2s'
+# Connections made from client-to-server (i.e., from pacman to flexo) should be persistent.
+## ==============================================================================================================
+/usr/bin/tcpdump -i lo 'tcp[tcpflags] & tcp-syn != 0' 2> /tmp/tcpdump-syn &
+TCPDUMP_PID=$!
+clear_pacman_cache
+
+sleep .1
+
+# There's no particular reason why we chose those packages, we just selected a few arbitrary packages that are small
+# and have no dependencies.
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly dosfstools hdparm gzip || fail_and_exit
+
+kill $TCPDUMP_PID || fail_and_exit
+
+if grep -q '2 packets captured' /tmp/tcpdump-syn; then
+  # Expect only a single connection to be established, so we should have 2 SYN packets: One from pacman to flexo,
+  # and a second one from flexo to pacman.
+  print_success
+else
+  fail_and_exit
+fi
+
+## ==============================================================================================================
+TESTCASE='flexo-test-persistent-connections-s2s'
+# Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
+## ==============================================================================================================
+
+/usr/bin/tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0' 2> /tmp/tcpdump-syn &
+TCPDUMP_PID=$!
+clear_pacman_cache
+
+# There's no particular reason why we chose those packages, we just selected a few arbitrary packages that are small
+# and have no dependencies.
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly libmnl npth bridge-utils which || fail_and_exit
+
+kill $TCPDUMP_PID || fail_and_exit
+
+if grep -q '0 packets captured' /tmp/tcpdump-syn; then
+  # We assume that since we have already established a connection to the remote mirror, no new connection
+  # will we established and therefore, no new SYN packets are sent or received.
+  print_success
+else
+  fail_and_exit
+fi
 
 ## ==============================================================================================================
 TESTCASE='flexo-test-install-cached'
@@ -187,3 +234,4 @@ then
 else
   fail_and_exit
 fi
+

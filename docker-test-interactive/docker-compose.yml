@@ -1,7 +1,13 @@
-version: '3.3'
+version: '2'
 services:
   flexo-server:
     build: flexo-server
+    container_name: flexo-server
   flexo-client:
     build: flexo-client
     container_name: flexo-client
+    depends_on:
+      - "flexo-server"
+    # We want both containers to share the same network device: This way, we can use tcpdump on the client to check
+    # if the server uses persistent connections.
+    network_mode: "service:flexo-server"

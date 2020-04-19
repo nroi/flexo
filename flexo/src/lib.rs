@@ -116,16 +116,16 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn initialize_cache(properties: Self::PR) -> HashMap<Self::O, OrderState>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
-    fn acquire_resources(order: &Self::O, properties: &Self::PR) -> std::io::Result<Self::JS>;
+    fn acquire_resources(order: &Self::O, properties: &Self::PR, last_chance: bool) -> std::io::Result<Self::JS>;
 
     fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<(Self::C, ChannelEstablishment), Self::OE> {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
-            Some(mut channel) => {
+            Some(channel) => {
                 println!("Reusing previous channel: {:?}", &self.provider());
-                let result = channel.reset_order(self.order(), tx);
-                result.map(|_| {
-                    (channel, ChannelEstablishment::ExistingChannel)
+                let result = self.order().reuse_channel(self.properties(), tx, last_chance, channel);
+                result.map(|new_channel| {
+                    (new_channel, ChannelEstablishment::ExistingChannel)
                 })
             }
             None => {
@@ -146,6 +146,13 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                    properties: <<Self as Order>::J as Job>::PR,
                    tx: Sender<FlexoProgress>,
                    last_chance: bool
+    ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
+
+    fn reuse_channel(self,
+                   properties: <<Self as Order>::J as Job>::PR,
+                   tx: Sender<FlexoProgress>,
+                   last_chance: bool,
+                   channel: <<Self as Order>::J as Job>::C,
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
     /// Returns true if this order can be served from cache, false otherwise.
@@ -277,7 +284,6 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
     type J: Job;
 
     fn progress_indicator(&self) -> Option<u64>;
-    fn reset_order(&mut self, order: <<Self as Channel>::J as Job>::O, tx: Sender<FlexoProgress>) -> Result<(), <<Self as Channel>::J as Job>::OE>;
     fn job_state(&mut self) -> &mut JobState<Self::J>;
 }
 
