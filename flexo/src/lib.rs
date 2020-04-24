@@ -492,14 +492,10 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::ClientError => {
-                    // TODO unclear what to do here. We're calling "reset_job_state" in all other branches,
-                    // is something similar required here, too?
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::UnexpectedInternalError => {
-                    // TODO unclear what to do here. We're calling "reset_job_state" in all other branches,
-                    // is something similar required here, too?
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
