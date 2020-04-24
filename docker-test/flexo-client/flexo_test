@@ -27,7 +27,7 @@ TESTCASE='flexo-test-install'
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed coreutils tcpdump; then
+if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed coreutils tcpdump parallel; then
   print_success
 else
   fail_and_exit
@@ -105,11 +105,7 @@ TESTCASE='flexo-test-download-cached-concurrently'
 
 DOWNLOAD_PATH=$(pacman -Sp wget | grep wget)
 if [[ -n $DOWNLOAD_PATH ]]; then
-  for i in {0..9}; do
-    echo "Downloading $DOWNLOAD_PATH"
-    /usr/bin/wget -q "$DOWNLOAD_PATH" -O "wget-$i" &
-  done
-  sleep 5
+  seq 0 9 | parallel /usr/bin/wget -q "$DOWNLOAD_PATH" -O wget-{}
   VERIFIED_FILE=$(/usr/bin/find /tmp/verified -type f -name '*wget*')
   echo "$VERIFIED_FILE"
   for i in {0..9}; do
@@ -133,12 +129,7 @@ TESTCASE='flexo-test-download-concurrently'
 
 DOWNLOAD_PATH=$(/usr/bin/pacman -Sp curl | grep curl)
 if [[ -n $DOWNLOAD_PATH ]]; then
-  for i in {0..9}; do
-    echo "Downloading $DOWNLOAD_PATH"
-    /usr/bin/wget -q "$DOWNLOAD_PATH" -O "curl-$i" &
-  done
-  # Wait for all downloads to finish.
-  sleep 5
+  seq 0 9 | parallel /usr/bin/wget -q "$DOWNLOAD_PATH" -O curl-{}
   # We now install curl because installing packages with pacman also verifies the payload.
   # This allows us to then check if the previous 10 downloads match the verified payload.
   /usr/bin/pacman -S --noconfirm --noprogressbar curl || fail_and_exit
