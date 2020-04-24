@@ -158,17 +158,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     /// Returns true if this order can be served from cache, false otherwise.
     fn is_cacheable(&self) -> bool;
 
-    fn is_cached(&self, cached: MutexGuard<HashMap<Self, OrderState>>) -> bool {
-        match &cached.get(self) {
-            Some(OrderState::Cached(_size)) => {
-                // TODO We also need to ensure that the size of the cached file is equal to the content length
-                // of the file to retrieve.
-                true
-            },
-            _ => false,
-        }
-    }
-
     fn try_until_success(
         self,
         mut providers: &mut Vec<<<Self as Order>::J as Job>::P>,
