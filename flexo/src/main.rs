@@ -94,13 +94,9 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                 match result {
                     ScheduleOutcome::AlreadyInProgress => {
                         println!("Job is already in progress");
-                        // TODO this hasn't been tested yet.
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                        let content_length: u64 = try_content_length_from_path(&path).unwrap();
-                        // TODO this is slightly confusing. the "content length" returned by "try_content_length_from_path"
-                        // is the complete file size, but we actually need the content length as in "the amount of bytes
-                        // we are going to send to the client". Choose better names to reflect this.
-                        let content_length = content_length - get_request.resume_from.unwrap_or(0);
+                        let complete_filesize: u64 = try_complete_filesize_from_path(&path).unwrap();
+                        let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
                         let file: File = File::open(&path).unwrap();
                         serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
                     }
@@ -229,17 +225,15 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<u64, ContentLen
                 break Err(ContentLengthError::OrderError);
             }
             Err(e) => break Err(ContentLengthError::TransmissionError(e)),
-            Ok(_) => {
-                // TODO we're just ignoring whatever is being send on this channel. This is kind of dangerous and
-                // not clean: If there is a message on this channel that is not intended for us, than ignoring
-                // it will cause problems. If no such messages are sent on the channel, then we wouldn't need
-                // this branch.
+            Ok(msg) => {
+                panic!("Unexpected message: {:?}", msg);
             },
         }
     }
 }
 
-fn try_content_length_from_path(path: &Path) -> Option<u64> {
+/// Returns the size of the complete file. This size may be larger than the size we have stored locally.
+fn try_complete_filesize_from_path(path: &Path) -> Option<u64> {
     let mut num_attempts = 0;
     // Timeout after 2 seconds.
     while num_attempts < 2_000 * 2 {
