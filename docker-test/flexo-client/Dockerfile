@@ -1,6 +1,6 @@
 FROM archlinux
 
-RUN pacman -Sy --noprogress --noconfirm coreutils tcpdump wget parallel
+RUN pacman -Sy --noprogress --noconfirm coreutils tcpdump wget parallel diffutils
 RUN echo 'Server = http://flexo-server:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
 
 COPY ./flexo_test_wrap_output /root/flexo_test_wrap_output

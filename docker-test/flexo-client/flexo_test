@@ -32,7 +32,7 @@ sleep .1
 
 # There's no particular reason why we chose those packages, we just selected a few arbitrary packages that are small
 # and have no dependencies.
-/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly dosfstools hdparm gzip || fail_and_exit
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly rxvt-unicode-terminfo lostfiles  perl-file-path-expand || fail_and_exit
 
 kill $TCPDUMP_PID || fail_and_exit
 
@@ -51,7 +51,7 @@ TESTCASE='flexo-test-install'
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-if /usr/bin/pacman -Sy --noconfirm --noprogressbar diffutils sed; then
+if /usr/bin/pacman -Sy --noconfirm --noprogressbar mozilla-common java-environment-common fuse-common; then
   print_success
 else
   fail_and_exit
@@ -72,7 +72,7 @@ clear_pacman_cache
 
 # There's no particular reason why we chose those packages, we just selected a few arbitrary packages that are small
 # and have no dependencies.
-/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly libmnl npth bridge-utils which || fail_and_exit
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly pambase dnssec-anchors hyphen-it realtime-privileges || fail_and_exit
 
 kill $TCPDUMP_PID || fail_and_exit
 
@@ -150,13 +150,13 @@ TESTCASE='flexo-test-range-cached'
 ## Use HTTP range requests to skip the first few bytes of a file. The file is already cached by flexo.
 ## ==============================================================================================================
 
-# No particular reason why we chose diffutils – just an arbitrary package that has already been downloaded.
-DOWNLOAD_PATH=$(/usr/bin/pacman -Sp diffutils | grep diffutils)
+# No particular reason why we chose lostfiles – just an arbitrary package that has already been downloaded.
+DOWNLOAD_PATH=$(/usr/bin/pacman -Sp lostfiles | grep lostfiles)
 if [[ -n $DOWNLOAD_PATH ]]; then
   echo "Downloading $DOWNLOAD_PATH"
-  curl "$DOWNLOAD_PATH" -H "Range: bytes=1024-" >/tmp/diffutils-partial-downloaded || fail_and_exit
-  if ! /usr/bin/cmp -s --ignore-initial=1024:0 /tmp/verified/diffutils* /tmp/diffutils-partial-downloaded; then
-    echo "Files do not match: /tmp/diffutils-partial and /tmp/diffutils-partial-downloaded"
+  curl "$DOWNLOAD_PATH" -H "Range: bytes=1024-" >/tmp/lostfiles-partial-downloaded || fail_and_exit
+  if ! /usr/bin/cmp -s --ignore-initial=1024:0 /tmp/verified/lostfiles* /tmp/lostfiles-partial-downloaded; then
+    echo "Files do not match: /tmp/lostfiles-partial and /tmp/lostfiles-partial-downloaded"
     fail_and_exit
   else
     print_success
