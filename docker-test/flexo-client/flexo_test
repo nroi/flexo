@@ -21,27 +21,10 @@ mkdir /tmp/verified || exit 1
 sleep 5
 
 ## ==============================================================================================================
-TESTCASE='flexo-test-install'
-## Install a few packages via pacman. Using pacman (instead of just downloading the package via wget or curl)
-## ensures that the file served by flexo is identical to the file from the remote mirror. This is due to the fact
-## that pacman uses gpg signatures for verification.
-## ==============================================================================================================
-
-if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed tcpdump parallel; then
-  print_success
-else
-  fail_and_exit
-fi
-
-# Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
-# but not by the client that connects to the flexo server.
-clean_pacman_cache
-
-## ==============================================================================================================
 TESTCASE='flexo-test-persistent-connections-c2s'
 # Connections made from client-to-server (i.e., from pacman to flexo) should be persistent.
 ## ==============================================================================================================
-/usr/bin/tcpdump -i lo 'tcp[tcpflags] & tcp-syn != 0' 2> /tmp/tcpdump-syn &
+/usr/bin/tcpdump -i lo 'tcp[tcpflags] & tcp-syn != 0' 2>/tmp/tcpdump-syn &
 TCPDUMP_PID=$!
 clear_pacman_cache
 
@@ -61,12 +44,29 @@ else
   fail_and_exit
 fi
 
+# ===============================================================================================================
+TESTCASE='flexo-test-install'
+## Install a few packages via pacman. Using pacman (instead of just downloading the package via wget or curl)
+## ensures that the file served by flexo is identical to the file from the remote mirror. This is due to the fact
+## that pacman uses gpg signatures for verification.
+## ==============================================================================================================
+
+if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed parallel; then
+  print_success
+else
+  fail_and_exit
+fi
+
+# Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
+# but not by the client that connects to the flexo server.
+clean_pacman_cache
+
 ## ==============================================================================================================
 TESTCASE='flexo-test-persistent-connections-s2s'
 # Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
 ## ==============================================================================================================
 
-/usr/bin/tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0' 2> /tmp/tcpdump-syn &
+/usr/bin/tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0' 2>/tmp/tcpdump-syn &
 TCPDUMP_PID=$!
 clear_pacman_cache
 
@@ -219,10 +219,8 @@ WGET_PID=$!
 DOWNLOAD_PATH=$(pacman -Sp abook | grep abook)
 /usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/abook || fail_and_exit
 # The download of the second package should have completed before the first download.
-if ps -p $WGET_PID > /dev/null
-then
+if ps -p $WGET_PID >/dev/null; then
   print_success
 else
   fail_and_exit
 fi
-
