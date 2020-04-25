@@ -27,7 +27,7 @@ TESTCASE='flexo-test-install'
 ## that pacman uses gpg signatures for verification.
 ## ==============================================================================================================
 
-if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed coreutils tcpdump parallel; then
+if /usr/bin/pacman -Sy --noconfirm --noprogressbar wget diffutils sed tcpdump parallel; then
   print_success
 else
   fail_and_exit
