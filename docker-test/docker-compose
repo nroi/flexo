@@ -7,4 +7,4 @@ PKG_CONFIG_ALLOW_CROSS=1 /usr/bin/cargo build --release --target=x86_64-unknown-
 cd "$OLDPWD" || exit 1
 cp ../flexo/target/x86_64-unknown-linux-musl/release/flexo ./flexo-server || exit 1
 /usr/bin/docker-compose build || exit 1
-/usr/bin/docker-compose up
+/usr/bin/docker-compose up --exit-code-from flexo-client
