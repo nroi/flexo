@@ -34,6 +34,8 @@ sleep .1
 # and have no dependencies.
 /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly rxvt-unicode-terminfo lostfiles  perl-file-path-expand || fail_and_exit
 
+sleep .1
+
 kill $TCPDUMP_PID || fail_and_exit
 
 if grep -q '2 packets captured' /tmp/tcpdump-syn; then
@@ -98,7 +100,6 @@ fi
 
 clear_pacman_cache
 
-# TODO this test case is flaky
 ## ==============================================================================================================
 TESTCASE='flexo-test-download-cached-concurrently'
 ## Download the cached package multiple times, concurrently.
