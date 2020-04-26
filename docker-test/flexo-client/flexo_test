@@ -89,8 +89,8 @@ TESTCASE='flexo-test-install-cached'
 ## Now that we have a package in flexo's cache, we install this package from the cache.
 ## ==============================================================================================================
 
-# Reinstall wget, which has already been downloaded before and should therefore reside in cache.
-if /usr/bin/pacman -Sy --noconfirm wget; then
+# Reinstall pambase, which has already been downloaded before and should therefore reside in cache.
+if /usr/bin/pacman -Sy --noconfirm pambase; then
   print_success
 else
   fail_and_exit
@@ -98,22 +98,24 @@ fi
 
 clear_pacman_cache
 
+# TODO this test case is flaky
 ## ==============================================================================================================
 TESTCASE='flexo-test-download-cached-concurrently'
 ## Download the cached package multiple times, concurrently.
 ## ==============================================================================================================
 
-DOWNLOAD_PATH=$(pacman -Sp wget | grep wget)
+PACKAGE='pambase'
+DOWNLOAD_PATH=$(pacman -Sp $PACKAGE)
 if [[ -n $DOWNLOAD_PATH ]]; then
-  seq 0 9 | parallel /usr/bin/wget -q "$DOWNLOAD_PATH" -O wget-{}
-  VERIFIED_FILE=$(/usr/bin/find /tmp/verified -type f -name '*wget*')
+  seq 0 9 | parallel /usr/bin/wget -q "$DOWNLOAD_PATH" -O $PACKAGE-{}
+  VERIFIED_FILE=$(/usr/bin/find /tmp/verified -type f -name '*pambase*')
   echo "$VERIFIED_FILE"
   for i in {0..9}; do
     # Files in /var/cache/pacman/pkg have been installed by pacman, and pacman verifies the content all
     # downloaded files. We can therefore assume that if a file downloaded by wget matches the file in
     # /var/cache/pacman/pkg, it has correctly been downloaded.
-    if ! /usr/bin/cmp -s "wget-$i" "$VERIFIED_FILE"; then
-      echo "Files do not match: wget-$i and $VERIFIED_FILE"
+    if ! /usr/bin/cmp -s "$PACKAGE-$i" "$VERIFIED_FILE"; then
+      echo "Files do not match: PACKAGE-$i and $VERIFIED_FILE"
       fail_and_exit
     fi
   done
@@ -127,16 +129,17 @@ TESTCASE='flexo-test-download-concurrently'
 ## Download the same uncached packages multiple times, concurrently.
 ## ==============================================================================================================
 
-DOWNLOAD_PATH=$(/usr/bin/pacman -Sp curl | grep curl)
+PACKAGE='libco'
+DOWNLOAD_PATH=$(/usr/bin/pacman -Sp $PACKAGE)
 if [[ -n $DOWNLOAD_PATH ]]; then
-  seq 0 9 | parallel /usr/bin/wget -q "$DOWNLOAD_PATH" -O curl-{}
-  # We now install curl because installing packages with pacman also verifies the payload.
+  seq 0 3 | parallel /usr/bin/wget -q "$DOWNLOAD_PATH" -O $PACKAGE-{}
+  # We now download the package because installing packages with pacman also verifies the payload.
   # This allows us to then check if the previous 10 downloads match the verified payload.
-  /usr/bin/pacman -S --noconfirm --noprogressbar curl || fail_and_exit
-  VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name '*curl*')
-  for i in {0..9}; do
-    if ! /usr/bin/cmp -s "curl-$i" "$VERIFIED_FILE"; then
-      echo "Files do not match: curl-$i and $VERIFIED_FILE"
+  /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly $PACKAGE || fail_and_exit
+  VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name '*libco*')
+  for i in {0..3}; do
+    if ! /usr/bin/cmp -s "$PACKAGE-$i" "$VERIFIED_FILE"; then
+      echo "Files do not match: $PACKAGE-$i and $VERIFIED_FILE"
       fail_and_exit
     fi
   done
@@ -170,15 +173,16 @@ TESTCASE='flexo-test-range-non-cached'
 ## Use HTTP range requests to skip the first few bytes of a file. The file is not cached by flexo.
 ## ==============================================================================================================
 
-# No particular reason why we chose the 'file' package – just an arbitrary package that has not been downloaded yet.
-DOWNLOAD_URL=$(/usr/bin/pacman -Sp file | grep file)
+# No particular reason why we chose the 'corkscrew' package – just an arbitrary package that has not been downloaded yet.
+PACKAGE='corkscrew'
+DOWNLOAD_URL=$(/usr/bin/pacman -Sp $PACKAGE)
 if [[ -n $DOWNLOAD_URL ]]; then
   echo "Downloading $DOWNLOAD_URL"
-  curl "$DOWNLOAD_URL" -L -H "Range: bytes=1024-" >/tmp/file-partial-downloaded || fail_and_exit
-  /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps file || fail_and_exit
-  VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name 'file-*.zst')
+  curl "$DOWNLOAD_URL" -L -H "Range: bytes=1024-" >/tmp/$PACKAGE-partial-downloaded || fail_and_exit
+  /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps $PACKAGE || fail_and_exit
+  VERIFIED_FILE=$(/usr/bin/find /var/cache/pacman/pkg -type f -name 'corkscrew-*.zst')
   if [[ -n $VERIFIED_FILE ]]; then
-    if ! /usr/bin/cmp -s --ignore-initial=1024:0 "$VERIFIED_FILE" /tmp/file-partial-downloaded; then
+    if ! /usr/bin/cmp -s --ignore-initial=1024:0 "$VERIFIED_FILE" /tmp/$PACKAGE-partial-downloaded; then
       echo "Files do not match: $VERIFIED_FILE and /tmp/file-partial-downloaded"
       fail_and_exit
     else
@@ -195,13 +199,14 @@ fi
 TESTCASE='flexo-test-resume-after-abort'
 ## Start a download, then abort it, then restart the download.
 ## ==============================================================================================================
-/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps archlinux-wallpaper &
+PACKAGE='icmake'
+/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps $PACKAGE &
 PACMAN_PID=$!
 sleep 0.75
 kill "$PACMAN_PID"
 sleep 0.75 # Wait a bit for flexo to detect that the socket has been closed.
 rm /var/lib/pacman/db.lck
-if /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps archlinux-wallpaper; then
+if /usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly --nodeps $PACKAGE; then
   print_success
 else
   fail_and_exit
