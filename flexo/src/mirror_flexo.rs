@@ -72,7 +72,8 @@ impl GetRequest {
         let resume_from = range_header.map(|h| parse_range_header_value(std::str::from_utf8(h.value).unwrap()));
         match request.method {
             Some("GET") => {},
-            method => panic!("Unexpected method: #{:?}", method)
+            Some(method) => panic!("Unexpected method: #{:?}", method),
+            None => panic!("Expected the request method to be set."),
         }
         let p = &request.path.unwrap()[1..]; // Skip the leading "/"
         let path = Path::new(p).to_path_buf();
