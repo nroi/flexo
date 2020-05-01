@@ -41,6 +41,14 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 fn main() {
     env_logger::init();
+
+    // Exit the entire process when a single thread panics:
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        hook(panic_info);
+        std::process::exit(1);
+    }));
+
     let properties = mirror_config::load_config();
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context(properties.clone())));
     let port = job_context.lock().unwrap().properties.port;
