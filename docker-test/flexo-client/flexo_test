@@ -220,14 +220,31 @@ TESTCASE='flexo-test-concurrent-download-non-blocking'
 # First, we start downloading a relatively large file:
 LARGE_PACKAGE='hyperfine'
 DOWNLOAD_PATH=$(pacman -Sp $LARGE_PACKAGE)
-/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/$LARGE_PACKAGE &
+/usr/bin/wget -q "$DOWNLOAD_PATH" -O /dev/null &
 WGET_PID=$!
 # Next, we download a smaller package:
 SMALL_PACKAGE='libguess'
 DOWNLOAD_PATH=$(pacman -Sp $SMALL_PACKAGE)
-/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/$SMALL_PACKAGE || fail_and_exit
+/usr/bin/wget -q "$DOWNLOAD_PATH" -O /dev/null || fail_and_exit
 # The download of the second package should have completed before the first download.
 if ps -p $WGET_PID >/dev/null; then
+  print_success
+else
+  fail_and_exit
+fi
+
+## ==============================================================================================================
+TESTCASE='flexo-test-download-after-404'
+# Attempting to download a file that does not exist does not crash flexo.
+## ==============================================================================================================
+HTTP_STATUS=$(/usr/bin/curl -o /dev/null --silent --write-out '%{http_code}\n' http://flexo-server:7878/non_existing_file)
+if [ "$HTTP_STATUS" != '404' ]; then
+  fail_and_exit
+fi
+PACKAGE='cpuburn'
+DOWNLOAD_PATH=$(pacman -Sp $PACKAGE)
+# Successfully downloading a file after having obtained a 404 is taken as proof that flexo has not crashed.
+if /usr/bin/wget -q "$DOWNLOAD_PATH" -O /dev/null; then
   print_success
 else
   fail_and_exit
