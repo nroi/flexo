@@ -447,11 +447,10 @@ impl Handler for DownloadState {
                 debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
                 debug!("code is {}", code);
-                if code >= 200 && code < 300 {
+                if code == 200 || code == 206 {
                     let content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
                             Some(std::str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
-                            // Some(header.value.parse::<u64>().unwrap())
                         } else {
                             None
                         }
@@ -473,17 +472,14 @@ impl Handler for DownloadState {
                     println!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);
-                } else if code == 404 && !job_resources.last_chance {
+                } else if !job_resources.last_chance {
                     job_resources.header_success = Some(HeaderOutcome::Unavailable);
                     println!("Hoping that another provider can fulfil this request…");
-                } else if code == 404 && job_resources.last_chance {
+                } else if job_resources.last_chance {
                     job_resources.header_success = Some(HeaderOutcome::Unavailable);
                     println!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
                     let _ = self.job_state.tx.send(message);
-                } else {
-                    // TODO handle status codes like 500 etc.
-                    unimplemented!("TODO don't know what to do with this status code.")
                 }
             }
             Ok(Status::Partial) => {
