@@ -2,7 +2,8 @@ FROM curlimages/curl
 
 USER root
 
-ENV RUST_BACKTRACE=full
+ENV RUST_BACKTRACE="full" \
+    RUST_LOG="debug"
 
 RUN apk add --no-cache openssl ca-certificates
 

@@ -39,7 +39,6 @@ const MAX_SENDFILE_COUNT: usize = 0x7fff_f000;
 #[cfg(test)]
 const MAX_SENDFILE_COUNT: usize = 128;
 
-
 fn main() {
     env_logger::init();
     let properties = mirror_config::load_config();
@@ -139,6 +138,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         serve_via_redirect(uri_string, &mut stream);
                     }
                 }
+                debug!("Finished serving {:?}", &get_request.path);
             },
             Err(e) => {
                 dbg!(&e);
