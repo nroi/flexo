@@ -218,12 +218,14 @@ TESTCASE='flexo-test-concurrent-download-non-blocking'
 # Downloading a larger file does not stop another client from obtaining a small file quickly.
 ## ==============================================================================================================
 # First, we start downloading a relatively large file:
-DOWNLOAD_PATH=$(pacman -Sp cppcheck | grep cppcheck)
-/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/cppcheck &
+LARGE_PACKAGE='hyperfine'
+DOWNLOAD_PATH=$(pacman -Sp $LARGE_PACKAGE)
+/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/$LARGE_PACKAGE &
 WGET_PID=$!
 # Next, we download a smaller package:
-DOWNLOAD_PATH=$(pacman -Sp abook | grep abook)
-/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/abook || fail_and_exit
+SMALL_PACKAGE='libguess'
+DOWNLOAD_PATH=$(pacman -Sp $SMALL_PACKAGE)
+/usr/bin/wget -q "$DOWNLOAD_PATH" -O /tmp/$SMALL_PACKAGE || fail_and_exit
 # The download of the second package should have completed before the first download.
 if ps -p $WGET_PID >/dev/null; then
   print_success
