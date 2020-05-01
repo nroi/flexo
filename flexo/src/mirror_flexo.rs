@@ -210,7 +210,7 @@ impl Job for DownloadJob {
                         // We assume that this mostly happens when the user copies files into the directory used
                         // by flexo, and we further assume that users will do this only if this file is complete.
                         // Therefore, we can set the content length attribute of this file to the file size.
-                        println!("Set content length for file: #{:?}", entry.path());
+                        debug!("Set content length for file: #{:?}", entry.path());
                         let value = file_size.to_string();
                         xattr::set(entry.path(), &key, &value.as_bytes())
                             .expect("Unable to set extended file attributes");
@@ -230,14 +230,14 @@ impl Job for DownloadJob {
             }
         }
         let size_formatted = size_to_human_readable(sum_size);
-        println!("Retrieved {} files with a total size of {} from local file system.", hashmap.len(), size_formatted);
+        info!("Retrieved {} files with a total size of {} from local file system.", hashmap.len(), size_formatted);
 
         hashmap
     }
 
     fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, resume_from: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
-        println!("Fetch package from remote mirror: {}", &url);
+        debug!("Fetch package from remote mirror: {}", &url);
         channel.handle.url(&url).unwrap();
         channel.handle.resume_from(resume_from).unwrap();
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
@@ -253,10 +253,10 @@ impl Job for DownloadJob {
         }
         match properties.mirrors_auto.max_speed_limit {
             None => {
-                println!("No speed limit was set.")
+                debug!("No speed limit was set.")
             },
             Some(speed) => {
-                println!("Apply speed limit of {}/s", size_to_human_readable(speed));
+                info!("Apply speed limit of {}/s", size_to_human_readable(speed));
                 channel.handle.max_recv_speed(speed).unwrap();
             },
         }
@@ -272,7 +272,7 @@ impl Job for DownloadJob {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
                 if response_code >= 200 && response_code < 300 {
-                    println!("Received header from provider, status OK");
+                    debug!("Received header from provider, status OK");
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
                 } else if response_code == 404 {
@@ -286,7 +286,7 @@ impl Job for DownloadJob {
                 }
             },
             Err(e) => {
-                println!("Error occurred during download from provider: {:?}", e);
+                warn!("Error occurred during download from provider: {:?}", e);
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
                         JobResult::Partial(JobPartiallyCompleted::new(channel, size))
@@ -304,7 +304,6 @@ impl Job for DownloadJob {
     }
 
     fn handle_error(self, error: OrderError) -> JobResult<Self> {
-        dbg!(&error);
         match error {
             OrderError::IoError(e) if e.kind() == ErrorKind::NotFound => {
                 // The client has specified a path that does not exist on the local file system. This can happen
@@ -321,7 +320,7 @@ impl Job for DownloadJob {
 
     fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<FileState> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        println!("Attempt to create file: {:?}", path);
+        info!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
         if f.is_err() {
             debug!("Unable to create file: {:?}", f);
@@ -421,7 +420,7 @@ impl Handler for DownloadState {
                 // If the header says the file is not available, we return early without writing anything to
                 // the file on disk. The content returned is just the HTML code saying the file is not available,
                 // so there is no reason to write this data to disk.
-                println!("File unavailable - return content length without writing anything.");
+                info!("File unavailable - return content length without writing anything.");
                 return Ok(data.len());
             },
             None => {
@@ -436,7 +435,7 @@ impl Handler for DownloadState {
                 Ok(size)
             },
             Err(e) => {
-                println!("Error while writing data: {:?}", e);
+                error!("Error while writing data: {:?}", e);
                 Err(WriteError::Pause)
             }
         }
@@ -445,7 +444,6 @@ impl Handler for DownloadState {
     fn header(&mut self, data: &[u8]) -> bool {
         let job_resources = self.job_state.job_resources.as_mut().unwrap();
         job_resources.received_header.extend(data);
-        dbg!(std::str::from_utf8(data).unwrap());
 
         let mut headers: [Header; MAX_HEADER_COUNT] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
         let mut req: httparse::Response = httparse::Response::new(&mut headers);
@@ -479,15 +477,15 @@ impl Handler for DownloadState {
                     let value = format!("{}", client_content_length);
                     xattr::set(path, &key, &value.as_bytes())
                         .expect("Unable to set extended file attributes");
-                    println!("Sending content length: {}", client_content_length);
+                    debug!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);
                 } else if !job_resources.last_chance {
                     job_resources.header_success = Some(HeaderOutcome::Unavailable);
-                    println!("Hoping that another provider can fulfil this request…");
+                    info!("Hoping that another provider can fulfil this request…");
                 } else if job_resources.last_chance {
                     job_resources.header_success = Some(HeaderOutcome::Unavailable);
-                    println!("All providers have been unable to fulfil this request.");
+                    error!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
                     let _ = self.job_state.tx.send(message);
                 }

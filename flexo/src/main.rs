@@ -56,7 +56,7 @@ fn main() {
     let listener = TcpListener::bind(addr).unwrap();
     for stream in listener.incoming() {
         let stream: TcpStream = stream.unwrap();
-        println!("Established connection with client.");
+        debug!("Established connection with client.");
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let job_context = job_context.clone();
         let properties = properties.clone();
@@ -87,20 +87,15 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                 serve_403_header(&mut stream);
             }
             Ok(get_request) => {
-                dbg!(&get_request);
-                let components = get_request.path.components();
-                dbg!(&components);
-                let absolute = get_request.path.is_absolute();
-                dbg!(absolute);
                 let path = Path::new(PATH_PREFIX).join(&get_request.path);
                 let order = DownloadOrder {
                     filepath: path.to_str().unwrap().to_owned()
                 };
-                println!("Attempt to schedule new job");
+                debug!("Attempt to schedule new job");
                 let result = job_context.lock().unwrap().try_schedule(order.clone(), get_request.resume_from);
                 match result {
                     ScheduleOutcome::AlreadyInProgress => {
-                        println!("Job is already in progress");
+                        debug!("Job is already in progress");
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let complete_filesize: u64 = try_complete_filesize_from_path(&path).unwrap();
                         let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
@@ -109,20 +104,20 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                     }
                     ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
                         // TODO this branch is also executed when the server returns 404.
-                        println!("Job was scheduled, will serve from growing file");
+                        debug!("Job was scheduled, will serve from growing file");
                         match receive_content_length(rx_progress) {
                             Ok(content_length) => {
-                                println!("Received content length via channel: {}", content_length);
+                                debug!("Received content length via channel: {}", content_length);
                                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
                                 let file: File = File::open(&path).unwrap();
                                 serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
                             },
                             Err(ContentLengthError::Unavailable) => {
-                                println!("Will send 404 reply to client.");
+                                debug!("Will send 404 reply to client.");
                                 serve_404_header(&mut stream);
                             },
                             Err(ContentLengthError::OrderError) => {
-                                println!("Will send 400 reply to client.");
+                                debug!("Will send 400 reply to client.");
                                 serve_400_header(&mut stream);
                             },
                             Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
@@ -135,13 +130,13 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         }
                     },
                     ScheduleOutcome::Cached => {
-                        println!("Serve file from cache.");
+                        debug!("Serve file from cache.");
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(path).unwrap();
                         serve_from_complete_file(file, get_request.resume_from, &mut stream);
                     },
                     ScheduleOutcome::Uncacheable(p) => {
-                        println!("Serve file via redirect.");
+                        debug!("Serve file via redirect.");
                         let uri_string = format!("{}{}", p.uri, order.filepath);
                         serve_via_redirect(uri_string, &mut stream);
                     }
@@ -149,7 +144,6 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                 debug!("Finished serving {:?}", &get_request.path);
             },
             Err(e) => {
-                dbg!(&e);
                 match e {
                     ClientError::SocketClosed => {
                         debug!("Socket closed by client.");
@@ -180,7 +174,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
 
 fn initialize_job_context(properties: MirrorConfig) -> JobContext<DownloadJob> {
     let providers: Vec<DownloadProvider> = fetch_providers(&properties);
-    println!("{:#?}", providers);
+    debug!("{:#?}", providers);
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&properties, &urls);
 
@@ -194,8 +188,8 @@ fn fetch_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         match mirror_fetch::fetch_providers_from_json_endpoint() {
             Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
             Err(e) => {
-                println!("Unable to fetch mirrors remotely: {:?}", e);
-                println!("Will try to fetch them from cache.");
+                info!("Unable to fetch mirrors remotely: {:?}", e);
+                info!("Will try to fetch them from cache.");
                 let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
                 mirrors.iter().map(|url| {
                     DownloadProvider {
@@ -260,7 +254,7 @@ fn try_complete_filesize_from_path(path: &Path) -> Option<u64> {
         num_attempts += 1;
     }
 
-    println!("Number of attempts exceeded: File {:?} not found.", &path);
+    info!("Number of attempts exceeded: File {:?} not found.", &path);
     None
 }
 
@@ -270,15 +264,14 @@ fn content_length_from_path(path: &Path) -> Option<u64> {
     match value {
         Ok(Some(value)) => {
             let content_length = String::from_utf8(value).unwrap().parse::<u64>().unwrap();
-            println!("Found file! content length is {}", content_length);
+            debug!("Found file! content length is {}", content_length);
             Some(content_length)
         },
         Ok(None) => {
-            println!("file exists, but no content length is set.");
+            info!("file exists, but no content length is set.");
             None
         }
         Err(_) => {
-            // println!("file does not exist yet.");
             None
         }
     }
@@ -304,7 +297,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
                 },
                 Err(e) => {
                     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
-                        println!("Connection closed by client?");
+                        debug!("Connection closed by client?");
                         return;
                     } else {
                         panic!("Unexpected error: {:?}", e);
@@ -316,7 +309,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
             std::thread::sleep(std::time::Duration::from_micros(500));
         }
     }
-    println!("File completely served from growing file.");
+    debug!("File completely served from growing file.");
 }
 
 fn serve_404_header(stream: &mut TcpStream) {
@@ -395,7 +388,6 @@ fn redirect_header(path: &str) -> String {
         Date: {}\r\n\
         Content-Length: 0\r\n\
         Location: {}\r\n\r\n", timestamp, path);
-    dbg!(&header);
 
     header
 }

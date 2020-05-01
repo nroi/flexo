@@ -122,14 +122,14 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(channel) => {
-                println!("Reusing previous channel: {:?}", &self.provider());
+                debug!("Reusing previous channel: {:?}", &self.provider());
                 let result = self.order().reuse_channel(self.properties(), tx, last_chance, channel);
                 result.map(|new_channel| {
                     (new_channel, ChannelEstablishment::ExistingChannel)
                 })
             }
             None => {
-                println!("need to create new channel: {:?}", &self.provider());
+                debug!("need to create new channel: {:?}", &self.provider());
                 let channel = self.order().new_channel(self.properties(), tx, last_chance);
                 channel.map(|c| {
                     (c, ChannelEstablishment::NewChannel)
@@ -194,7 +194,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     job.serve_from_provider(c, properties.clone(), cached_size)
                 }
                 Err(e) => {
-                    dbg!(&e);
                     let _ = tx.send(FlexoMessage::OrderError);
                     let _ = tx_progress.send(FlexoProgress::OrderError);
                     job.handle_error(e)
@@ -207,15 +206,15 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 JobResult::Partial(partial_job) => {
                     provider.clone().punish(provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
-                    println!("Job only partially finished until size {:?}", partial_job.continue_at);
+                    debug!("Job only partially finished until size {:?}", partial_job.continue_at);
                 },
                 JobResult::Error(e) => {
                     provider.clone().punish(provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
-                    println!("Error: {:?}, try again", e)
+                    info!("Error: {:?}, try again", e)
                 },
                 JobResult::Unavailable(_) => {
-                    println!("Order is not available, let's try again with a different provider.")
+                    info!("Order is not available, let's try again with a different provider.")
                 },
                 JobResult::ClientError => {
                     break result;
@@ -410,7 +409,7 @@ impl <J> JobContext<J> where J: Job {
                 },
                 Some(OrderState::Cached(CachedItem { cached_size, .. } )) => *cached_size,
                 Some(OrderState::InProgress) => {
-                    println!("order {:?} already in progress: nothing to do.", &order);
+                    debug!("order {:?} already in progress: nothing to do.", &order);
                     return ScheduleOutcome::AlreadyInProgress;
                 }
             };
@@ -486,7 +485,7 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
-                    println!("The given order was unavailable for all providers.");
+                    info!("The given order was unavailable for all providers.");
                     channel.job_state().release_job_resources();
                     let provider_failures = provider_failures_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)

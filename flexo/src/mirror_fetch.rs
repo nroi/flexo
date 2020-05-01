@@ -137,7 +137,7 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
                 break result;
             },
             Err(reason) if num_attempts < max_num_attempts => {
-                println!("Failure: {:?}. No internet connectivity yet? Will try again in a few seconds.", reason);
+                info!("Failure: {:?}. No internet connectivity yet? Will try again in a few seconds.", reason);
                 std::thread::sleep(Duration::from_secs(3));
                 result = action();
                 num_attempts += 1;
