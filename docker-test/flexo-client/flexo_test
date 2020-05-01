@@ -249,3 +249,20 @@ if /usr/bin/wget -q "$DOWNLOAD_PATH" -O /dev/null; then
 else
   fail_and_exit
 fi
+
+## ==============================================================================================================
+TESTCASE='flexo-test-download-after-400'
+# Sending a HEAD request does not crash flexo.
+## ==============================================================================================================
+HTTP_STATUS=$(/usr/bin/curl -o /dev/null --silent --head --write-out '%{http_code}\n' http://flexo-server:7878/non_existing_file)
+if [ "$HTTP_STATUS" != '400' ]; then
+  fail_and_exit
+fi
+PACKAGE='ifenslave'
+DOWNLOAD_PATH=$(pacman -Sp $PACKAGE)
+# Successfully downloading a file after having obtained a 500 is taken as proof that flexo has not crashed.
+if /usr/bin/wget -q "$DOWNLOAD_PATH" -O /dev/null; then
+  print_success
+else
+  fail_and_exit
+fi

@@ -68,7 +68,7 @@ fn valid_path(path: &Path) -> bool {
     })
 }
 
-fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) -> Result<(), StreamReadError> {
+fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) -> Result<(), ClientError> {
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
         debug!("Read header from client.");
@@ -112,15 +112,15 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                             Err(ContentLengthError::Unavailable) => {
                                 println!("Will send 404 reply to client.");
                                 serve_404_header(&mut stream);
-                            }
+                            },
                             Err(ContentLengthError::OrderError) => {
                                 println!("Will send 400 reply to client.");
                                 serve_400_header(&mut stream);
-                            }
+                            },
                             Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
                                 eprintln!("Remote server has disconnected unexpectedly.");
                                 serve_500_header(&mut stream);
-                            }
+                            },
                             Err(e) => {
                                 panic!("Error: {:?}", e)
                             },
@@ -143,16 +143,22 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
             Err(e) => {
                 dbg!(&e);
                 match e {
-                    StreamReadError::SocketClosed => {
+                    ClientError::SocketClosed => {
                         debug!("Socket closed by client.");
                     }
-                    StreamReadError::Other(kind) if kind == ErrorKind::ConnectionReset => {
+                    ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
                         debug!("Socket closed by client.");
                     }
-                    StreamReadError::TimedOut => {
+                    ClientError::TimedOut => {
                         debug!("Connection client-to-server has timed out. New connection required \
                         for subsequent requests from the client.");
                     }
+                    ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
+                        eprintln!("The client has used an HTTP method that is not supported by flexo.");
+                        if !response_headers_sent {
+                            serve_400_header(&mut stream);
+                        }
+                    },
                     _ => {
                         eprintln!("error: {:?}", e);
                     }

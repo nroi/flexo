@@ -42,11 +42,17 @@ const TEST_CHUNK_SIZE: usize = 128;
 const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum StreamReadError {
+pub enum ClientError {
     BufferSizeExceeded,
     TimedOut,
     SocketClosed,
+    UnsupportedHttpMethod(ClientStatus),
     Other(ErrorKind)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClientStatus {
+    pub response_headers_sent: bool
 }
 
 fn parse_range_header_value(s: &str) -> u64 {
@@ -65,22 +71,25 @@ pub struct GetRequest {
 }
 
 impl GetRequest {
-    fn new(request: httparse::Request) -> Self {
+    fn new(request: httparse::Request) -> Result<Self, ClientError> {
         let range_header = request.headers
             .iter()
             .find(|h| h.name.to_lowercase() == "range");
         let resume_from = range_header.map(|h| parse_range_header_value(std::str::from_utf8(h.value).unwrap()));
         match request.method {
             Some("GET") => {},
-            Some(method) => panic!("Unexpected method: #{:?}", method),
+            Some(_method) => {
+                let client_status = ClientStatus { response_headers_sent: false };
+                return Err(ClientError::UnsupportedHttpMethod(client_status));
+            },
             None => panic!("Expected the request method to be set."),
         }
         let p = &request.path.unwrap()[1..]; // Skip the leading "/"
         let path = Path::new(p).to_path_buf();
-        Self {
+        Ok(Self {
             path,
             resume_from,
-        }
+        })
     }
 }
 
@@ -548,27 +557,27 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
     }).collect()
 }
 
-pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadError> where T: Read {
+pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
     let mut buf = [0; MAX_HEADER_SIZE + 1];
     let mut size_read_all = 0;
 
     loop {
         if size_read_all >= MAX_HEADER_SIZE {
-            return Err(StreamReadError::BufferSizeExceeded);
+            return Err(ClientError::BufferSizeExceeded);
         }
         let size = match stream.read(&mut buf[size_read_all..]) {
-            Ok(s) if s > MAX_HEADER_SIZE => return Err(StreamReadError::BufferSizeExceeded),
+            Ok(s) if s > MAX_HEADER_SIZE => return Err(ClientError::BufferSizeExceeded),
             Ok(s) if s > 0 => s,
             Ok(_) => {
                 // we need this branch in case the socket is closed: Otherwise, we would read a size of 0
                 // indefinitely.
-                return Err(StreamReadError::SocketClosed);
+                return Err(ClientError::SocketClosed);
             }
             Err(e) => {
                 let error = match e.kind() {
-                    ErrorKind::TimedOut => StreamReadError::TimedOut,
-                    ErrorKind::WouldBlock => StreamReadError::TimedOut,
-                    other => StreamReadError::Other(other),
+                    ErrorKind::TimedOut => ClientError::TimedOut,
+                    ErrorKind::WouldBlock => ClientError::TimedOut,
+                    other => ClientError::Other(other),
                 };
                 return Err(error);
             }
@@ -582,7 +591,7 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, StreamReadErr
         match res {
             Ok(Status::Complete(_result)) => {
                 debug!("Received header from client");
-                break(Ok(GetRequest::new(req)))
+                break(Ok(GetRequest::new(req)?))
             }
             Ok(Status::Partial) => {
                 unimplemented!()
@@ -662,7 +671,7 @@ mod tests {
     fn test_buffer_size_exceeded() {
         let mut stream = TooMuchDataReader {};
         let result = read_client_header(&mut stream);
-        assert_eq!(result, Err(StreamReadError::BufferSizeExceeded));
+        assert_eq!(result, Err(ClientError::BufferSizeExceeded));
     }
 
     #[test]
