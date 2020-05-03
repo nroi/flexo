@@ -50,7 +50,13 @@ fn main() {
     }));
 
     let properties = mirror_config::load_config();
-    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = Arc::new(Mutex::new(initialize_job_context(properties.clone())));
+    let job_context: Arc<Mutex<JobContext<DownloadJob>>> = match initialize_job_context(properties.clone()) {
+        Ok(jc) =>  Arc::new(Mutex::new(jc)),
+        Err(ProviderSelectionError::NoProviders) => {
+            error!("Unable to find remote mirrors that match the selected criteria.");
+            std::process::exit(1);
+        }
+    };
     let port = job_context.lock().unwrap().properties.port;
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).unwrap();
@@ -141,7 +147,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         serve_via_redirect(uri_string, &mut stream);
                     }
                 }
-                debug!("Finished serving {:?}", &get_request.path);
+                info!("Request served: {:?}", &get_request.path);
             },
             Err(e) => {
                 match e {
@@ -172,20 +178,27 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
     }
 }
 
-fn initialize_job_context(properties: MirrorConfig) -> JobContext<DownloadJob> {
-    let providers: Vec<DownloadProvider> = fetch_providers(&properties);
-    debug!("{:#?}", providers);
+pub enum ProviderSelectionError {
+    NoProviders,
+}
+
+fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<DownloadJob>, ProviderSelectionError> {
+    let providers: Vec<DownloadProvider> = rated_providers(&properties);
+    debug!("providers: {:#?}", providers);
+    if providers.is_empty() {
+        return Err(ProviderSelectionError::NoProviders)
+    }
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&properties, &urls);
 
     // Change the implementation so that mirror_config is accepted.
     // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
-    JobContext::new(providers, properties)
+    Ok(JobContext::new(providers, properties))
 }
 
-fn fetch_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        match mirror_fetch::fetch_providers_from_json_endpoint() {
+        match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
             Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
             Err(e) => {
                 info!("Unable to fetch mirrors remotely: {:?}", e);

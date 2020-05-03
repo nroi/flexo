@@ -6,6 +6,8 @@ use std::fs;
 use serde::Deserialize;
 use flexo::Properties;
 
+static DEFAULT_JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
+
 #[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MirrorSelectionMethod {
@@ -57,7 +59,7 @@ pub enum MirrorsRandomOrSort {
     Random,
 }
 
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MirrorsAutoConfig {
     pub https_required: bool,
     pub ipv4: bool,
@@ -69,6 +71,7 @@ pub struct MirrorsAutoConfig {
     pub low_speed_limit: Option<u32>,
     pub low_speed_time_secs: Option<u64>,
     pub max_speed_limit: Option<u64>,
+    pub mirrors_status_json_endpoint: String,
 }
 
 impl Properties for MirrorConfig {}
@@ -119,6 +122,8 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
     let low_speed_limit = parse_env_toml::<u32>("FLEXO_MIRRORS_AUTO_LOW_SPEED_LIMIT");
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_MAX_SPEED_LIMIT");
+    let mirrors_status_json_endpoint = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT")
+            .unwrap_or_else(|| DEFAULT_JSON_URI.to_owned());
     MirrorsAutoConfig {
         https_required,
         ipv4,
@@ -130,6 +135,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
         low_speed_limit,
         low_speed_time_secs,
         max_speed_limit,
+        mirrors_status_json_endpoint,
     }
 }
 

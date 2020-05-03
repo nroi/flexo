@@ -36,6 +36,8 @@ mirrors_blacklist = [ ]
 
 # Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]
+    # The URI of the JSON endpoint that delivers information about all official mirrors.
+    mirrors_status_json_endpoint = "https://www.archlinux.org/mirrors/status/json/"
     # Used for testing purposes.
     # max_speed_limit = 102400
     # only use mirrors with HTTPS support.

@@ -5,8 +5,6 @@ use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use crate::MirrorResults;
 
-static JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
-
 // integer values are easier to handle than float, since we don't have things like NaN. Hence, we just
 // scale the float values from the JSON file in order to obtain integer values.
 static SCORE_SCALE: u64 = 1_000_000_000_000_000;
@@ -109,11 +107,11 @@ impl MirrorUrl {
     }
 }
 
-fn fetch_json() -> Result<String, curl::Error> {
+fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
     try_num_attempts(8, || {
         let mut received = Vec::new();
         let mut easy = Easy::new();
-        easy.url(JSON_URI)?;
+        easy.url(&mirror_config.mirrors_auto.mirrors_status_json_endpoint)?;
         {
             let mut transfer = easy.transfer();
             transfer.write_function(|data| {
@@ -147,8 +145,8 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
     }
 }
 
-pub fn fetch_providers_from_json_endpoint() -> Result<Vec<MirrorUrl>, curl::Error> {
-    let json = fetch_json()?;
+pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, curl::Error> {
+    let json = fetch_json(mirror_config)?;
     let mirror_list_option: MirrorListOption = serde_json::from_str(&json).unwrap();
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
     Ok(mirror_list.urls)
