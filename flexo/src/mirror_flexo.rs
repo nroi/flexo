@@ -41,6 +41,8 @@ const TEST_CHUNK_SIZE: usize = 128;
 #[cfg(test)]
 const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
 
+const CURLE_OPERATION_TIMEDOUT: u32 = 28;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BufferSizeExceeded,
@@ -127,8 +129,11 @@ impl Provider for DownloadProvider {
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
 pub struct MirrorResults {
+    pub total_time: Duration,
     pub namelookup_duration: Duration,
     pub connect_duration: Duration,
+    pub pretransfer_time: Duration,
+    pub starttransfer_time: Duration,
 }
 
 impl Ord for MirrorResults {
@@ -286,7 +291,11 @@ impl Job for DownloadJob {
                 }
             },
             Err(e) => {
-                warn!("Error occurred during download from provider: {:?}", e);
+                warn!("Error occurred during download from remote mirror: {:?}", e);
+                if e.code() == CURLE_OPERATION_TIMEDOUT {
+                    warn!("Timeout reached: Try another remote mirror.");
+                    unimplemented!();
+                }
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
                         JobResult::Partial(JobPartiallyCompleted::new(channel, size))
@@ -543,7 +552,7 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
         }
     }
     mirrors_with_latencies.sort_unstable_by_key(|(_, latency)| {
-        *latency
+        latency.total_time
     });
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
