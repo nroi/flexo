@@ -43,6 +43,8 @@ const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\
 
 const CURLE_OPERATION_TIMEDOUT: u32 = 28;
 
+const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 4;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BufferSizeExceeded,
@@ -248,15 +250,15 @@ impl Job for DownloadJob {
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
-        match properties.mirrors_auto.low_speed_limit {
+        match properties.low_speed_limit {
             None => {},
             Some(speed) => {
                 channel.handle.low_speed_limit(speed).unwrap();
-                let low_speed_time_secs = properties.mirrors_auto.low_speed_time_secs.unwrap_or(4);
+                let low_speed_time_secs = properties.low_speed_time_secs.unwrap_or(DEFAULT_LOW_SPEED_TIME_SECS);
                 channel.handle.low_speed_time(std::time::Duration::from_secs(low_speed_time_secs)).unwrap();
             },
         }
-        match properties.mirrors_auto.max_speed_limit {
+        match properties.max_speed_limit {
             None => {
                 debug!("No speed limit was set.")
             },
@@ -294,7 +296,6 @@ impl Job for DownloadJob {
                 warn!("Error occurred during download from remote mirror: {:?}", e);
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
                     warn!("Timeout reached: Try another remote mirror.");
-                    unimplemented!();
                 }
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
@@ -535,14 +536,15 @@ impl Channel for DownloadChannel {
 }
 
 pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
         .into_iter()
         .filter(|x| x.filter_predicate(&mirror_config))
-        .take(mirror_config.mirrors_auto.num_mirrors)
+        .take(mirrors_auto.num_mirrors)
         .collect();
     let mut mirrors_with_latencies = Vec::new();
-    let timeout = Duration::from_millis(mirror_config.mirrors_auto.timeout);
+    let timeout = Duration::from_millis(mirrors_auto.timeout);
     for mirror in filtered_mirror_urls.into_iter() {
         match mirror_fetch::measure_latency(&mirror.url, timeout) {
             None => {},

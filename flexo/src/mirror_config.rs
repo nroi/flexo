@@ -68,9 +68,6 @@ pub struct MirrorsAutoConfig {
     pub num_mirrors: usize,
     pub mirrors_random_or_sort: MirrorsRandomOrSort,
     pub timeout: u64,
-    pub low_speed_limit: Option<u32>,
-    pub low_speed_time_secs: Option<u64>,
-    pub max_speed_limit: Option<u64>,
     pub mirrors_status_json_endpoint: String,
 }
 
@@ -84,7 +81,10 @@ pub struct MirrorConfig {
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
     pub mirrors_blacklist: Vec<String>,
-    pub mirrors_auto: MirrorsAutoConfig,
+    pub low_speed_limit: Option<u32>,
+    pub low_speed_time_secs: Option<u64>,
+    pub max_speed_limit: Option<u64>,
+    pub mirrors_auto: Option<MirrorsAutoConfig>,
 }
 
 fn load_toml_config() -> MirrorConfig {
@@ -119,9 +119,6 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
     let mirrors_random_or_sort = parse_env_toml::<MirrorsRandomOrSort>("FLEXO_MIRRORS_AUTO_MIRRORS_RANDOM_OR_SORT")
         .unwrap();
     let timeout = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_TIMEOUT").unwrap();
-    let low_speed_limit = parse_env_toml::<u32>("FLEXO_MIRRORS_AUTO_LOW_SPEED_LIMIT");
-    let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_LOW_SPEED_TIME_SECS");
-    let max_speed_limit = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_MAX_SPEED_LIMIT");
     let mirrors_status_json_endpoint = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT")
             .unwrap_or_else(|| DEFAULT_JSON_URI.to_owned());
     MirrorsAutoConfig {
@@ -132,21 +129,24 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
         num_mirrors,
         mirrors_random_or_sort,
         timeout,
-        low_speed_limit,
-        low_speed_time_secs,
-        max_speed_limit,
         mirrors_status_json_endpoint,
     }
 }
 
 fn mirror_config_from_env() -> MirrorConfig {
-    let mirrors_auto = mirrors_auto_config_from_env();
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
     let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
     let mirrors_blacklist = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_BLACKLIST").unwrap();
+    let low_speed_limit = parse_env_toml::<u32>("FLEXO_LOW_SPEED_LIMIT");
+    let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
+    let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
+    let mirrors_auto = match mirror_selection_method {
+        MirrorSelectionMethod::Auto => Some(mirrors_auto_config_from_env()),
+        MirrorSelectionMethod::Predefined => None,
+    };
     MirrorConfig {
         cache_directory,
         mirrorlist_fallback_file,
@@ -154,6 +154,9 @@ fn mirror_config_from_env() -> MirrorConfig {
         mirror_selection_method,
         mirrors_predefined,
         mirrors_blacklist,
+        low_speed_limit,
+        low_speed_time_secs,
+        max_speed_limit,
         mirrors_auto
     }
 }

@@ -3,6 +3,9 @@ services:
   mirror-slow-mock:
     build: mirror-slow-mock
     container_name: mirror-slow-mock
+  mirror-low-bandwidth-mock:
+    build: mirror-low-bandwidth-mock
+    container_name: mirror-low-bandwidth-mock
   mirror-fast-mock:
     build: mirror-fast-mock
     container_name: mirror-fast-mock
@@ -12,6 +15,12 @@ services:
     depends_on:
       - mirror-slow-mock
       - mirror-fast-mock
+  flexo-server-slow-primary:
+    build: flexo-server-slow-primary
+    container_name: flexo-server-slow-primary
+    depends_on:
+      - mirror-fast-mock
+      - mirror-low-bandwidth-mock
   flexo-client:
     build: flexo-client
     container_name: flexo-client

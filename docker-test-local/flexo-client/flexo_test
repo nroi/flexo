@@ -22,6 +22,8 @@ print_success
 TESTCASE="flexo-test-mirror-selection-slow-mirror"
 # If a remote mirror turns out to be very slow, flexo switches to another mirror.
 ## ==============================================================================================================
-# TODO work in progress
-fail_and_exit
-
+echo 'Server = http://flexo-server-slow-primary:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+TIMEOUT="2"
+timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly dnstracer || fail_and_exit
+# Being able to download this file within the timeout is taken as proof that the fast mirror has been selected.
+print_success

@@ -98,21 +98,23 @@ pub struct MirrorUrl {
 
 impl MirrorUrl {
     pub fn filter_predicate(&self, config: &MirrorConfig) -> bool {
+        let mirrors_auto = config.mirrors_auto.as_ref().unwrap();
         !(
-            (config.mirrors_auto.https_required && self.protocol != MirrorProtocol::Https) ||
-                (config.mirrors_auto.ipv4 && !self.ipv4) ||
-                (config.mirrors_auto.ipv6 && !self.ipv6) ||
-                (config.mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)) ||
+            (mirrors_auto.https_required && self.protocol != MirrorProtocol::Https) ||
+                (mirrors_auto.ipv4 && !self.ipv4) ||
+                (mirrors_auto.ipv6 && !self.ipv6) ||
+                (mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)) ||
                 (config.mirrors_blacklist.contains(&self.url)))
     }
 }
 
 fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
-    debug!("Fetch json from {:?}", &mirror_config.mirrors_auto.mirrors_status_json_endpoint);
+    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
+    debug!("Fetch json from {:?}", &mirrors_auto.mirrors_status_json_endpoint);
     try_num_attempts(8, || {
         let mut received = Vec::new();
         let mut easy = Easy::new();
-        easy.url(&mirror_config.mirrors_auto.mirrors_status_json_endpoint)?;
+        easy.url(&mirrors_auto.mirrors_status_json_endpoint)?;
         {
             let mut transfer = easy.transfer();
             transfer.write_function(|data| {
