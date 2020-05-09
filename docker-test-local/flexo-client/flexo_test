@@ -1,0 +1,27 @@
+#!/bin/bash
+
+function fail_and_exit() {
+  printf "%-50s %s\n" "$TESTCASE" "[FAILURE]"
+  exit 1
+}
+
+function print_success() {
+  printf "%-50s %s\n" "$TESTCASE" "[SUCCESS]"
+}
+
+## ==============================================================================================================
+TESTCASE="flexo-test-mirror-selection-slow-mirror-startup"
+# Having an extremely slow mirror does not cause flexo's startup time to increase significantly.
+## ==============================================================================================================
+TIMEOUT="0.1"
+timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly mozilla-common || fail_and_exit
+# Being able to download this file is taken as proof that flexo has started successfully within the TIMEOUT.
+print_success
+
+## ==============================================================================================================
+TESTCASE="flexo-test-mirror-selection-slow-mirror"
+# If a remote mirror turns out to be very slow, flexo switches to another mirror.
+## ==============================================================================================================
+# TODO work in progress
+fail_and_exit
+
