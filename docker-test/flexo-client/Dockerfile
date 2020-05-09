@@ -1,4 +1,4 @@
-FROM archlinux
+FROM archlinux:20200407
 
 RUN pacman -Sy --noprogress --noconfirm coreutils tcpdump wget parallel diffutils curl
 RUN echo 'Server = http://flexo-server:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist

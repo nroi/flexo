@@ -1,9 +1,6 @@
-FROM curlimages/curl
+FROM curlimages/curl:7.70.0
 
 USER root
-
-ENV RUST_BACKTRACE="full" \
-    RUST_LOG="debug"
 
 RUN apk add --no-cache openssl ca-certificates
 
@@ -38,6 +35,9 @@ ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
     FLEXO_MIRRORS_AUTO_MIRRORS_RANDOM_OR_SORT="sort" \
     FLEXO_MIRRORS_AUTO_TIMEOUT=350 \
     FLEXO_MIRRORS_AUTO_MAX_SPEED_LIMIT=102400
+
+ENV RUST_BACKTRACE="full" \
+    RUST_LOG="debug"
 
 COPY flexo /usr/bin/flexo
 
