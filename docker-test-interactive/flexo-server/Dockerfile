@@ -1,4 +1,4 @@
-FROM curlimages/curl
+FROM curlimages/curl:7.70.0
 
 USER root
 
