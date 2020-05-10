@@ -22,6 +22,8 @@ RUN mkdir -p /var/cache/flexo/pkg && \
     mkdir -p /var/cache/flexo/pkg/testing/os/x86_64
 
 ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
+    FLEXO_LOW_SPEED_LIMIT=128000 \
+    FLEXO_LOW_SPEED_TIME_SECS=3 \
     FLEXO_MIRRORLIST_FALLBACK_FILE="/var/cache/flexo/state/mirrorlist" \
     FLEXO_PORT=7878 \
     FLEXO_MIRROR_SELECTION_METHOD="auto" \
