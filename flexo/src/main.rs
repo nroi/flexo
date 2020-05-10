@@ -50,6 +50,12 @@ fn main() {
     }));
 
     let properties = mirror_config::load_config();
+    match properties.low_speed_limit {
+        None => {},
+        Some(limit) => {
+            info!("Will switch mirror if download speed falls below {}/s", size_to_human_readable(limit.into()));
+        },
+    }
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = match initialize_job_context(properties.clone()) {
         Ok(jc) =>  Arc::new(Mutex::new(jc)),
         Err(ProviderSelectionError::NoProviders) => {
@@ -184,10 +190,11 @@ pub enum ProviderSelectionError {
 
 fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<DownloadJob>, ProviderSelectionError> {
     let providers: Vec<DownloadProvider> = rated_providers(&properties);
-    debug!("providers: {:#?}", providers);
+    debug!("mirrors: {:#?}", providers);
     if providers.is_empty() {
         return Err(ProviderSelectionError::NoProviders)
     }
+    info!("Primary mirror: {:#?}", providers[0].uri);
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&properties, &urls);
 

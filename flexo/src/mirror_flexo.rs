@@ -612,7 +612,7 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
     }
 }
 
-fn size_to_human_readable(size_in_bytes: u64) -> String {
+pub fn size_to_human_readable(size_in_bytes: u64) -> String {
     let exponent = ((size_in_bytes as f64).log2() / 10.0) as u32;
     let (unit, too_large) = match exponent {
         0 => ("B", false),
