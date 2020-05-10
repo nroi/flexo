@@ -1,15 +1,66 @@
 # Flexo
 
-Successor of cpcache. Still a work in progress – Do not use unless you intend to waste your time.
+Flexo is a central cache for pacman, the package manager of Arch Linux.
 
-## Long Term Goal
-Provide the same functionality as cpcache, with the following advantages:
-* More lightweight
-* Easier to deploy
-* More robust
+## Why should I use it?
 
-The first two points are achieved by using Rust instead of Elixir. Robustness is achieved by using a
-battletested and well known library: curl.
+* If you're bothered by slow mirrors: Flexo runs a performance test during startup to make it
+less likely that you end up with a slow, outdated or unreliable mirror. It can also transparently
+switch from one mirror to another if a mirror turns out to be too slow.
+* If you have multiple machines running ArchLinux, and you don't want each machine to download
+and store the packages: You can just set flexo as your new ArchLinux mirror so that no file needs
+to be downloaded more than once.
+
+## Installation
+A package for Arch Linux is available on [AUR](https://aur.archlinux.org/packages/flexo-git/).
+Flexo needs to be installed on a single machine (the server) so that it can be accessed by
+multiple clients.
+Once you have installed flexo on the server, start and enable the systemd service:
+```
+systemctl start flexo.service
+systemctl enable flexo.service
+```
+Next, set the new mirror in `/etc/pacman.d/mirrorlist` on all clients.
+In most cases, the server that runs flexo will also be a client that uses flexo, so
+add the following entry to the top of your mirrorlist:
+```bash
+Server = http://localhost:7878/$repo/os/$arch
+```
+If you have additional ArchLinux clients in your LAN, then modify their mirrorlist as well.
+Instead of referring to localhost, use the appropriate IP address or hostname:
+```bash
+Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
+```
+
+## Configuration
+
+The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
+It includes many comments and should be self explanatory (open an issue in case you disagree).
+In most cases, you will want to leave all settings untouched, with one exception:
+
+The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
+to switch to a faster mirror if a download is extremely slow. To make use of this feature,
+uncomment the setting and enter an appropriate value.
+
+## Attributes & Design Goals
+* Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
+* Robust: Flexo includes certain functions to allow it to switch from one mirror to another if a
+mirror is too slow or causes other issues.
+* Simple: Users should not require more than a few minutes to set up flexo and understand what it does.
+
+## Switching from cpcache to flexo
+
+Notice the following changes between cpcache and flexo:
+* Flexo uses port `7878`, while cpcache uses `7070`. Make sure to change this port in `/etc/pacman.d/mirrorlist`.
+* The configuration file `/etc/flexo/flexo.toml` is mostly the same as `/etc/cpcache/cpcache.toml`,
+but they are not identical! So don't just copy the TOML file from cpcache to `/etc/flexo/flexo.toml`.
+Instead, you should start with the default file and manually transfer all settings from your cpcache
+config to the new TOML file.
+* Running flexo in ARM devices like the Raspberry PI has not been tested yet. You can just try to build
+the package from [AUR](https://aur.archlinux.org/packages/flexo-git/) and see if it works. Feel free
+to leave a comment on this [issue](https://github.com/nroi/flexo/issues/14) to describe if it works.
+
+
 
 ## Contribute
 If you know rust, feel free to dive into the code base and send a PR. Smaller improvements
