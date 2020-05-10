@@ -1,6 +1,6 @@
-# Note that cpcache relies on the directory structure that is created in
-# /var/cache/cpcache during install. If you change this setting, copy the
-# contents to the new directory and make sure user cpcache has read- and
+# Note that flexo relies on the directory structure that is created in
+# /var/cache/flexo during install. If you change this setting, copy the
+# contents to the new directory and make sure user flexo has read- and
 # write-access.
 cache_directory = "/var/cache/flexo/pkg"
 
@@ -14,7 +14,7 @@ mirrorlist_fallback_file = "/var/cache/flexo/state/mirrorlist"
 port = 7878
 
 # The selection method to choose a mirror. Valid values are:
-#   "auto": In order to attempt to find suitable mirrors automatically.
+#   "auto": Flexo will attempt to find suitable mirrors automatically.
 #           With this method, performance tests are run on the official mirrors
 #           to select only sufficiently fast mirrors.
 #   "predefined": To only choose the mirrors defined for the variable
@@ -22,29 +22,34 @@ port = 7878
 mirror_selection_method = "auto"
 
 
-# In case no suitable mirror could be found automatically, cpcache will attempt
-# to download files from the following mirrors. This list can be empty if
-# mirror_selection_method has been set to "auto".
-mirrors_predefined = [
-    "https://mirror.yandex.ru/archlinux/"
-]
-
-# The method to choose suitable mirrors automatically may not always work
-# perfectly. If one of the automatically chosen mirrors turns out to be slow or
-# unstable, add it to this list.
-mirrors_blacklist = [ ]
+# The meaning of this variable depends on the mirror_selection_method:
+#   if mirror_selection_method = "auto", this list will be used as a fallback in
+#   case flexo was not able to obtain a list of all official mirrors.
+#   if mirror_selection_method = "predefined", flexo will only use mirrors from
+#   this list.
+# This list must not be empty if mirror_selection_method has been set to "predefined".
+# Mirrors in this list should NOT include the $repo/os/$arch suffix, so you should add
+# something like "http://archlinux.mirror.org/" or "https://mirror.org/archlinux/".
+mirrors_predefined = []
 
 # Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]
     # The URI of the JSON endpoint that delivers information about all official mirrors.
     mirrors_status_json_endpoint = "https://www.archlinux.org/mirrors/status/json/"
-    # Used for testing purposes.
+    # The method to choose suitable mirrors automatically may not always work
+    # perfectly. If one of the automatically chosen mirrors turns out to be slow or
+    # unstable, add it to this list.
+    mirrors_blacklist = [ ]
+    # The maximum speed limit for all downloads. Leave it commented to allow
+    # flexo to utilize all available bandwidth.
     # max_speed_limit = 102400
     # only use mirrors with HTTPS support.
     https_required = true
     # mirrors must support IPv4.
     ipv4 = true
-    # mirrors must support IPv6.
+    # mirrors must support IPv6. Notice that this setting does not force
+    # connection establishment via IPv6, so having this setting enabled does not
+    # cause any issues on IPv4-only clients.
     ipv6 = true
     # The maximum score allowed from a mirror. See
     # https://www.archlinux.org/mirrors/status/ for an explanation of this

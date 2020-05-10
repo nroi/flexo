@@ -540,7 +540,7 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
         .into_iter()
-        .filter(|x| x.filter_predicate(&mirror_config))
+        .filter(|x| x.filter_predicate(&mirrors_auto))
         .take(mirrors_auto.num_mirrors)
         .collect();
     let mut mirrors_with_latencies = Vec::new();

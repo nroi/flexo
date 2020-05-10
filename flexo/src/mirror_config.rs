@@ -61,6 +61,8 @@ pub enum MirrorsRandomOrSort {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct MirrorsAutoConfig {
+    pub mirrors_status_json_endpoint: String,
+    pub mirrors_blacklist: Vec<String>,
     pub https_required: bool,
     pub ipv4: bool,
     pub ipv6: bool,
@@ -68,7 +70,6 @@ pub struct MirrorsAutoConfig {
     pub num_mirrors: usize,
     pub mirrors_random_or_sort: MirrorsRandomOrSort,
     pub timeout: u64,
-    pub mirrors_status_json_endpoint: String,
 }
 
 impl Properties for MirrorConfig {}
@@ -80,7 +81,6 @@ pub struct MirrorConfig {
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
-    pub mirrors_blacklist: Vec<String>,
     pub low_speed_limit: Option<u32>,
     pub low_speed_time_secs: Option<u64>,
     pub max_speed_limit: Option<u64>,
@@ -121,7 +121,10 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
     let timeout = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_TIMEOUT").unwrap();
     let mirrors_status_json_endpoint = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT")
             .unwrap_or_else(|| DEFAULT_JSON_URI.to_owned());
+    let mirrors_blacklist =
+        parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_AUTO_MIRRORS_BLACKLIST").unwrap_or_else(|| vec![]);
     MirrorsAutoConfig {
+        mirrors_status_json_endpoint,
         https_required,
         ipv4,
         ipv6,
@@ -129,7 +132,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
         num_mirrors,
         mirrors_random_or_sort,
         timeout,
-        mirrors_status_json_endpoint,
+        mirrors_blacklist,
     }
 }
 
@@ -139,7 +142,6 @@ fn mirror_config_from_env() -> MirrorConfig {
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
-    let mirrors_blacklist = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_BLACKLIST").unwrap();
     let low_speed_limit = parse_env_toml::<u32>("FLEXO_LOW_SPEED_LIMIT");
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
@@ -153,7 +155,6 @@ fn mirror_config_from_env() -> MirrorConfig {
         port,
         mirror_selection_method,
         mirrors_predefined,
-        mirrors_blacklist,
         low_speed_limit,
         low_speed_time_secs,
         max_speed_limit,

@@ -1,6 +1,6 @@
 extern crate serde;
 use serde::Deserialize;
-use crate::mirror_config::MirrorConfig;
+use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use crate::MirrorResults;
@@ -97,14 +97,13 @@ pub struct MirrorUrl {
 }
 
 impl MirrorUrl {
-    pub fn filter_predicate(&self, config: &MirrorConfig) -> bool {
-        let mirrors_auto = config.mirrors_auto.as_ref().unwrap();
+    pub fn filter_predicate(&self, mirrors_auto: &MirrorsAutoConfig) -> bool {
         !(
             (mirrors_auto.https_required && self.protocol != MirrorProtocol::Https) ||
                 (mirrors_auto.ipv4 && !self.ipv4) ||
                 (mirrors_auto.ipv6 && !self.ipv6) ||
                 (mirrors_auto.max_score < (self.score as f64) / (SCORE_SCALE as f64)) ||
-                (config.mirrors_blacklist.contains(&self.url)))
+                (mirrors_auto.mirrors_blacklist.contains(&self.url)))
     }
 }
 

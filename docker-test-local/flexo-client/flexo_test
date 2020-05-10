@@ -13,7 +13,7 @@ function print_success() {
 TESTCASE="flexo-test-mirror-selection-slow-mirror-startup"
 # Having an extremely slow mirror does not cause flexo's startup time to increase significantly.
 ## ==============================================================================================================
-TIMEOUT="0.1"
+TIMEOUT="0.2"
 timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly mozilla-common || fail_and_exit
 # Being able to download this file is taken as proof that flexo has started successfully within the TIMEOUT.
 print_success
