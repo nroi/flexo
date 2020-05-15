@@ -16,7 +16,6 @@ use std::io::BufWriter;
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use walkdir::WalkDir;
-use xattr;
 use std::ffi::OsString;
 use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
