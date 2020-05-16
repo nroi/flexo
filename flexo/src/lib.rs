@@ -139,6 +139,12 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     }
 }
 
+pub struct ProvidersWithStats<J> where J: Job {
+    pub provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
+    pub provider_current_usages: Arc<Mutex<HashMap<J::P, i32>>>,
+    pub providers: Vec<J::P>,
+}
+
 
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
@@ -160,9 +166,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
     fn try_until_success(
         self,
-        mut providers: &mut Vec<<<Self as Order>::J as Job>::P>,
-        provider_failures: &mut Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P , i32>>>,
-        provider_current_usages: &mut Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, i32>>>,
+        provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
@@ -174,12 +178,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let result = loop {
             num_attempt += 1;
             let (provider, is_last_provider) =
-                self.select_provider(&mut providers, provider_current_usages.lock().unwrap(), provider_failures.lock().unwrap());
+                self.select_provider(provider_stats);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
-                let mut provider_current_usages = provider_current_usages.lock().unwrap();
+                let mut provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
                 let value = provider_current_usages.entry(provider.clone()).or_insert(0);
                 *value += 1;
             }
@@ -201,15 +205,15 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             };
             match &result {
                 JobResult::Complete(_) => {
-                    provider.clone().reward(provider_failures.lock().unwrap());
+                    provider.clone().reward(provider_stats.provider_failures.lock().unwrap());
                 },
                 JobResult::Partial(partial_job) => {
-                    provider.clone().punish(provider_failures.lock().unwrap());
+                    provider.clone().punish(provider_stats.provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
                     debug!("Job only partially finished until size {:?}", partial_job.continue_at);
                 },
                 JobResult::Error(e) => {
-                    provider.clone().punish(provider_failures.lock().unwrap());
+                    provider.clone().punish(provider_stats.provider_failures.lock().unwrap());
                     punished_providers.push(provider.clone());
                     info!("Error: {:?}, try again", e)
                 },
@@ -223,12 +227,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     break result;
                 },
             };
-            if result.is_success() || providers.is_empty() || last_chance {
+            if result.is_success() || provider_stats.providers.is_empty() || last_chance {
                 break result;
             }
         };
         if !result.is_success() {
-            Self::pardon(punished_providers, provider_failures.lock().unwrap());
+            Self::pardon(punished_providers, provider_stats.provider_failures.lock().unwrap());
         }
 
         result
@@ -236,11 +240,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
     fn select_provider(
         &self,
-        providers: &mut Vec<<<Self as Order>::J as Job>::P>,
-        provider_current_usages: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>,
-        provider_failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>,
+        provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
     ) -> (<<Self as Order>::J as Job>::P, bool) {
-        let (idx, (_, _, _, _)) = providers
+        let provider_failures = provider_stats.provider_failures.lock().unwrap();
+        let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
+        let (idx, (_, _, _, _)) = provider_stats.providers
             .iter()
             .map(|x| (provider_failures.get(&x).unwrap_or(&0), provider_current_usages.get(&x).unwrap_or(&0), x.score(), x))
             .enumerate()
@@ -249,8 +253,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 (num_failures_x, num_usages_x, score_x).cmp(&(num_failures_y, num_usages_y, score_y)))
             .unwrap();
 
-        let provider = providers.remove(idx);
-        (provider, providers.is_empty())
+        let provider = provider_stats.providers.remove(idx);
+        (provider, provider_stats.providers.is_empty())
     }
 
     fn pardon(punished_providers: Vec<<<Self as Order>::J as Job>::P>,
@@ -441,19 +445,23 @@ impl <J> JobContext<J> where J: Job {
         let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
         let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
         let channels_cloned = Arc::clone(&self.channels);
-        let mut providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
-        let mut provider_failures_cloned = Arc::clone(&self.provider_failures);
-        let mut providers_in_use_cloned = Arc::clone(&self.providers_in_use);
+        let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
+        let provider_failures_cloned = Arc::clone(&self.provider_failures);
+        let providers_in_use_cloned = Arc::clone(&self.providers_in_use);
         let order_states = Arc::clone(&self.order_states);
         let order_cloned = order.clone();
         let properties = self.properties.clone();
+
+        let mut provider_stats = ProvidersWithStats {
+            providers: providers_cloned,
+            provider_failures: provider_failures_cloned,
+            provider_current_usages: providers_in_use_cloned,
+        };
         let t = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
             let order: <J as Job>::O = order.clone();
             let result = order.try_until_success(
-                &mut providers_cloned,
-                &mut provider_failures_cloned,
-                &mut providers_in_use_cloned,
+                &mut provider_stats,
                 channels_cloned.clone(),
                 tx,
                 tx_progress,
@@ -476,26 +484,26 @@ impl <J> JobContext<J> where J: Job {
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
                     channel.job_state().release_job_resources();
-                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Error(JobTerminated { mut channel, .. } ) => {
                     channel.job_state().release_job_resources();
-                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
                     info!("The given order was unavailable for all providers.");
                     channel.job_state().release_job_resources();
-                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::ClientError => {
-                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::UnexpectedInternalError => {
-                    let provider_failures = provider_failures_cloned.lock().unwrap().clone();
+                    let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
                 }
             }
