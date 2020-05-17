@@ -1,13 +1,17 @@
-FROM curlimages/curl:7.70.0
+FROM rust:1.43.1-buster as build
 
-USER root
+WORKDIR /tmp
 
-RUN apk add --no-cache openssl ca-certificates
+COPY flexo.tar.gz /tmp
 
-RUN ln -s /lib/ld-musl-x86_64.so.1  /lib/ld64.so.1
+RUN tar xf flexo.tar.gz && \
+    cd /tmp/flexo && \
+    cargo build --release
 
-ENV RUST_BACKTRACE="full" \
-    RUST_LOG="debug"
+FROM debian:buster-slim
+
+RUN apt-get update && \
+    apt-get install -y curl
 
 RUN mkdir -p /var/cache/flexo/pkg && \
     mkdir /var/cache/flexo/state && \
@@ -25,6 +29,8 @@ RUN mkdir -p /var/cache/flexo/pkg && \
     mkdir -p /var/cache/flexo/pkg/testing/os/x86_64
 
 ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
+    FLEXO_LOW_SPEED_LIMIT=128000 \
+    FLEXO_LOW_SPEED_TIME_SECS=3 \
     FLEXO_MIRRORLIST_FALLBACK_FILE="/var/cache/flexo/state/mirrorlist" \
     FLEXO_PORT=7878 \
     FLEXO_MIRROR_SELECTION_METHOD="auto" \
@@ -39,6 +45,9 @@ ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
     FLEXO_MIRRORS_AUTO_TIMEOUT=350 \
     FLEXO_MIRRORS_AUTO_MAX_SPEED_LIMIT=102400
 
-COPY flexo /usr/bin/flexo
+ENV RUST_BACKTRACE="full" \
+    RUST_LOG="debug"
+
+COPY --from=build /tmp/flexo/target/release/flexo /usr/bin/flexo
 
 ENTRYPOINT /usr/bin/flexo

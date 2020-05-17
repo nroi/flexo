@@ -1,10 +1,17 @@
-FROM curlimages/curl:7.70.0
+FROM rust:1.43.1-buster as build
 
-USER root
+WORKDIR /tmp
 
-RUN apk add --no-cache openssl ca-certificates
+COPY flexo.tar.gz /tmp
 
-RUN ln -s /lib/ld-musl-x86_64.so.1  /lib/ld64.so.1
+RUN tar xf flexo.tar.gz && \
+    cd /tmp/flexo && \
+    cargo build --release
+
+FROM debian:buster-slim
+
+RUN apt-get update && \
+    apt-get install -y curl
 
 RUN mkdir -p /var/cache/flexo/pkg && \
     mkdir /var/cache/flexo/state && \
@@ -44,6 +51,6 @@ ENV RUST_BACKTRACE="full" \
 ENV FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT="file:///root/mirrors.json"
 COPY mirrors.json /root
 
-COPY flexo /usr/bin/flexo
+COPY --from=build /tmp/flexo/target/release/flexo /usr/bin/flexo
 
 ENTRYPOINT /usr/bin/flexo
