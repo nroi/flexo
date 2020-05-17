@@ -12,7 +12,7 @@ and store the packages: You can just set flexo as your new ArchLinux mirror so t
 to be downloaded more than once.
 * If you sometimes run ArchLinux inside docker, you may be annoyed when packages have to be downloded and installed on the container even though they have already been downloaded on the host: Just run this command on the docker container:
     ````
-    echo 'Server = http://<DOCKER_HOST_IP_ADDRESS>:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+    echo 'Server = http://172.17.0.1:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     ````
   so that packages that have already been downloaded will be fetched from the cache.
 ## Installation
