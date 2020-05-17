@@ -91,13 +91,6 @@ implications of doing so.
 sudo gpasswd -a <user> docker
 ```
 
-musl is required to compile the binary for alpine linux, which is used for our dockerized end-to-end tests:
-
-```bash
-rustup target add x86_64-unknown-linux-musl
-```
-
-
 Before submitting a PR, please make sure that all tests pass. We have two types
 of test cases:
 1. Tests written in Rust: [integration_tests.rs](flexo/tests/integration_test.rs). These tests run quickly
