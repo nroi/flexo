@@ -10,7 +10,7 @@ switch from one mirror to another if a mirror turns out to be too slow.
 * If you have multiple machines running ArchLinux, and you don't want each machine to download
 and store the packages: You can just set flexo as your new ArchLinux mirror so that no file needs
 to be downloaded more than once.
-* If you sometimes run ArchLinux inside docker, you may be annoyed when packages have to be downloded and installed on the container even though they have already been downloaded on the host: Just run this command on the docker container:
+* If you run ArchLinux inside docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just run this command on the docker container:
     ````
     echo 'Server = http://172.17.0.1:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     ````
