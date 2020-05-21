@@ -13,4 +13,11 @@ RUN tar -C /tmp -xf /tmp/pkg.tar && \
 COPY ./flexo_test_wrap_output /root/flexo_test_wrap_output
 COPY ./flexo_test /root/flexo_test
 
+COPY packages/libbsd-0.10.0-2-x86_64.pkg.tar.zst /root
+COPY packages/openbsd-netcat-1.206_1-1-x86_64.pkg.tar.zst /root
+
+# netcat is required for our test cases. libbsd is installed since it is
+# required by netcat.
+RUN pacman -U --noconfirm --noprogress /root/openbsd-netcat-1.206_1-1-x86_64.pkg.tar.zst /root/libbsd-0.10.0-2-x86_64.pkg.tar.zst
+
 ENTRYPOINT ["/root/flexo_test_wrap_output"]

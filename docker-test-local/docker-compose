@@ -3,6 +3,7 @@
 docker-compose down
 
 tar -C .. -czvf flexo-server/flexo.tar.gz flexo/src flexo/Cargo.toml
+cp flexo-server/flexo.tar.gz flexo-server-slow-primary/
 
 /usr/bin/docker-compose build || exit 1
 /usr/bin/docker-compose up --exit-code-from flexo-client

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# shellcheck disable=SC2016
+
 function fail_and_exit() {
   printf "%-50s %s\n" "$TESTCASE" "[FAILURE]"
   exit 1
@@ -27,3 +29,23 @@ TIMEOUT="2"
 timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly dnstracer || fail_and_exit
 # Being able to download this file within the timeout is taken as proof that the fast mirror has been selected.
 print_success
+
+## ==============================================================================================================
+TESTCASE="flexo-test-mirror-selection-slow-mirror"
+# If a remote mirror turns out to be very slow, flexo switches to another mirror.
+## ==============================================================================================================
+echo 'Server = http://flexo-server-slow-primary:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+TIMEOUT="2"
+timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly dnstracer || fail_and_exit
+# Being able to download this file within the timeout is taken as proof that the fast mirror has been selected.
+print_success
+
+## ==============================================================================================================
+TESTCASE="flexo-test-malformed-header"
+# Sending a malformed header does not cause the server to crash.
+## ==============================================================================================================
+echo 'malformed header' | nc -v flexo-server-slow-primary 7878
+curl -f http://flexo-server:7878/status || fail_and_exit
+# Being able to download this file within the timeout is taken as proof that the fast mirror has been selected.
+print_success
+
