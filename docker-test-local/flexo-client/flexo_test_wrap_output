@@ -12,13 +12,12 @@ function print_output() {
 
 if /root/flexo_test | tee $OUTPUT_FILE; then
   print_output
+else
+  print_output
+  # exit 1
   # Using tail allows us to keep the container running: This can be helpful because it allows us to run an
   # interactive shell on the container and troubleshoot the failing test case.
   /usr/bin/tail -f /dev/null
-else
-  print_output
-  /usr/bin/tail -f /dev/null
-  exit 1
 fi
 
 
