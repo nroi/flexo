@@ -1,4 +1,4 @@
-version: '2.0'
+version: '3.7'
 services:
   mirror-slow-mock:
     build: mirror-slow-mock
@@ -15,6 +15,12 @@ services:
     depends_on:
       - mirror-slow-mock
       - mirror-fast-mock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7878/status || exit 1"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
   flexo-server-slow-primary:
     build: flexo-server-slow-primary
     container_name: flexo-server-slow-primary
