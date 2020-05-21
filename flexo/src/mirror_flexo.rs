@@ -50,6 +50,7 @@ pub enum ClientError {
     TimedOut,
     SocketClosed,
     UnsupportedHttpMethod(ClientStatus),
+    InvalidHeader(ClientStatus),
     Other(ErrorKind)
 }
 
@@ -604,8 +605,9 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
             Ok(Status::Partial) => {
                 unimplemented!()
             }
-            Err(_e) => {
-                unimplemented!()
+            Err(_) => {
+                let client_status = ClientStatus { response_headers_sent: false };
+                break Err(ClientError::InvalidHeader(client_status))
             }
         }
     }

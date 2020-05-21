@@ -98,6 +98,9 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                 info!("Invalid path: Serve 403");
                 serve_403_header(&mut stream);
             }
+            Ok(get_request) if get_request.path.as_os_str() == "status" => {
+                serve_200_ok_empty(&mut stream)
+            }
             Ok(get_request) => {
                 let path = Path::new(PATH_PREFIX).join(&get_request.path);
                 let order = DownloadOrder {
@@ -168,11 +171,17 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         for subsequent requests from the client.");
                     }
                     ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
-                        eprintln!("The client has used an HTTP method that is not supported by flexo.");
+                        error!("The client has used an HTTP method that is not supported by flexo.");
                         if !response_headers_sent {
                             serve_400_header(&mut stream);
                         }
                     },
+                    ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
+                        error!("The client has sent an invalid header");
+                        if !response_headers_sent {
+                            serve_400_header(&mut stream);
+                        }
+                    }
                     _ => {
                         eprintln!("error: {:?}", e);
                     }
@@ -335,6 +344,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
 fn serve_404_header(stream: &mut TcpStream) {
     let header = reply_header_not_found();
     stream.write_all(header.as_bytes()).unwrap();
+    // TODO do we really need another "\r\n" here? same with all other serve_xxx_header functions.
     stream.write_all(b"\r\n").unwrap();
 }
 
@@ -354,6 +364,11 @@ fn serve_403_header(stream: &mut TcpStream) {
     let header = reply_header_forbidden();
     stream.write_all(header.as_bytes()).unwrap();
     stream.write_all(b"\r\n").unwrap();
+}
+
+fn serve_200_ok_empty(stream: &mut TcpStream) {
+    let header = reply_header_success(0);
+    stream.write_all(header.as_bytes()).unwrap();
 }
 
 fn reply_header_success(content_length: u64) -> String {
