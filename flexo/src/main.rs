@@ -344,26 +344,21 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
 fn serve_404_header(stream: &mut TcpStream) {
     let header = reply_header_not_found();
     stream.write_all(header.as_bytes()).unwrap();
-    // TODO do we really need another "\r\n" here? same with all other serve_xxx_header functions.
-    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_400_header(stream: &mut TcpStream) {
     let header = reply_header_bad_request();
     stream.write_all(header.as_bytes()).unwrap();
-    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_500_header(stream: &mut TcpStream) {
     let header = reply_header_internal_server_error();
     stream.write_all(header.as_bytes()).unwrap();
-    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_403_header(stream: &mut TcpStream) {
     let header = reply_header_forbidden();
     stream.write_all(header.as_bytes()).unwrap();
-    stream.write_all(b"\r\n").unwrap();
 }
 
 fn serve_200_ok_empty(stream: &mut TcpStream) {
