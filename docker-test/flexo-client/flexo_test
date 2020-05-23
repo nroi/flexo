@@ -10,7 +10,7 @@ function print_success() {
 }
 
 function clear_pacman_cache() {
-  mv /var/cache/pacman/pkg/* /tmp/verified || fail_and_exit
+  find /var/cache/pacman/pkg -type f -exec mv -t /tmp/verified {} + || fail_and_exit
 }
 
 cd /tmp || exit 1
@@ -54,14 +54,13 @@ TESTCASE='flexo-test-install'
 ## ==============================================================================================================
 
 if /usr/bin/pacman -Sy --noconfirm --noprogressbar mozilla-common java-environment-common fuse-common; then
+  # Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
+  # but not by the client that connects to the flexo server.
+  clear_pacman_cache
   print_success
 else
   fail_and_exit
 fi
-
-# Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
-# but not by the client that connects to the flexo server.
-clean_pacman_cache
 
 ## ==============================================================================================================
 TESTCASE='flexo-test-persistent-connections-s2s'
