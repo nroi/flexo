@@ -36,6 +36,17 @@ Instead of referring to localhost, use the appropriate IP address or hostname:
 Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
 ```
 
+## Features
+* Concurrent downloads: You can have multiple clients downloading files from flexo without one
+client having to wait.
+* Efficient bandwidth sharing for concurrent downloads: Flexo does not require a new connection to the remote
+mirror when the same file is downloaded by multiple clients. For instance, suppose a client starts downloading
+a given file. After 5 seconds have elapsed, 100MB have been downloaded. Now, a second client requests the same file. The second client will receive the first 100MB immediately from the local file system. Then, both clients continue to download
+the file, while only a single connection to the remote mirror exists. This means that your bandwidth is not split
+for the two clients, both will be able to download the file with the full download speed provided by your ISP.
+* Persistent connections: This is especially useful when many small files are downloaded, since no new TLS negotation
+is required for each file.
+
 ## Configuration
 
 The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
