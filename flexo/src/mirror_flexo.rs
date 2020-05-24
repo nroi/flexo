@@ -342,13 +342,16 @@ impl Job for DownloadJob {
             received_header: vec![],
             header_success: None
         };
-        let file_state = DownloadJobResources {
+        let file_state = FileState  {
             buf_writer,
             size_written,
+        };
+        let download_job_resources = DownloadJobResources {
+            file_state,
             header_state,
             last_chance,
         };
-        Ok(file_state)
+        Ok(download_job_resources)
     }
 }
 
@@ -382,11 +385,16 @@ impl Order for DownloadOrder {
     }
 }
 
+
 #[derive(Debug)]
-pub struct DownloadJobResources {
+pub struct FileState {
     buf_writer: BufWriter<File>,
     size_written: u64,
-    // TODO do these two belong here? It seems they have nothing to do with the file that is written.
+}
+
+#[derive(Debug)]
+pub struct DownloadJobResources {
+    file_state: FileState,
     header_state: HeaderState,
     last_chance: bool,
 }
@@ -415,10 +423,10 @@ struct DownloadState {
 impl DownloadState {
 
     pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
-        let file_state = DownloadJob::acquire_resources(&order, &properties, last_chance)?;
+        let download_job_resources = DownloadJob::acquire_resources(&order, &properties, last_chance)?;
         let job_state = JobState {
             order,
-            job_resources: Some(file_state),
+            job_resources: Some(download_job_resources),
             tx,
         };
         Ok(DownloadState { job_state, properties })
@@ -445,10 +453,10 @@ impl Handler for DownloadState {
                 unreachable!("The header should have been parsed before this function is called");
             }
         }
-        job_resources.size_written += data.len() as u64;
-        match job_resources.buf_writer.write(data) {
+        job_resources.file_state.size_written += data.len() as u64;
+        match job_resources.file_state.buf_writer.write(data) {
             Ok(size) => {
-                let len = job_resources.buf_writer.get_ref().metadata().unwrap().len();
+                let len = job_resources.file_state.buf_writer.get_ref().metadata().unwrap().len();
                 let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
                 Ok(size)
             },
@@ -487,7 +495,7 @@ impl Handler for DownloadState {
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current implementation,
                     // we assume that the header method is always called before anything is written to the file.
-                    let size_written = self.job_state.job_resources.as_ref().unwrap().size_written;
+                    let size_written = self.job_state.job_resources.as_ref().unwrap().file_state.size_written;
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
                     // provider_content_length = the content length we send to the provider.
@@ -529,8 +537,8 @@ impl Channel for DownloadChannel {
     type J = DownloadJob;
 
     fn progress_indicator(&self) -> Option<u64> {
-        let file_state = self.handle.get_ref().job_state.job_resources.as_ref().unwrap();
-        let size_written = file_state.size_written;
+        let job_resources = self.handle.get_ref().job_state.job_resources.as_ref().unwrap();
+        let size_written = job_resources.file_state.size_written;
         if size_written > 0 {
             Some(size_written)
         } else {
