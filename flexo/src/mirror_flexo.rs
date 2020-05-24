@@ -338,12 +338,15 @@ impl Job for DownloadJob {
         let f = f?;
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
+        let header_state = HeaderState {
+            received_header: vec![],
+            header_success: None
+        };
         let file_state = FileState {
             buf_writer,
             size_written,
-            received_header: vec![],
+            header_state,
             last_chance,
-            header_success: None
         };
         Ok(file_state)
     }
@@ -383,11 +386,16 @@ impl Order for DownloadOrder {
 pub struct FileState {
     buf_writer: BufWriter<File>,
     size_written: u64,
+    header_state: HeaderState,
+    // TODO does this belong here? It seems it has nothing to do with the file that is written.
+    last_chance: bool,
+}
 
+#[derive(Debug)]
+pub struct HeaderState {
     // TODO maybe the following items belong to a separate struct, maybe HeaderState, RemoteState or so.
     received_header: Vec<u8>,
     header_success: Option<HeaderOutcome>,
-    last_chance: bool,
 }
 
 #[derive(Debug)]
@@ -424,7 +432,7 @@ impl DownloadState {
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
         let mut job_resources = self.job_state.job_resources.as_mut().unwrap();
-        match job_resources.header_success {
+        match job_resources.header_state.header_success {
             Some(HeaderOutcome::Ok(_content_length)) => {},
             Some(HeaderOutcome::Unavailable) => {
                 // If the header says the file is not available, we return early without writing anything to
@@ -453,12 +461,12 @@ impl Handler for DownloadState {
 
     fn header(&mut self, data: &[u8]) -> bool {
         let job_resources = self.job_state.job_resources.as_mut().unwrap();
-        job_resources.received_header.extend(data);
+        job_resources.header_state.received_header.extend(data);
 
         let mut headers: [Header; MAX_HEADER_COUNT] = [httparse::EMPTY_HEADER; MAX_HEADER_COUNT];
         let mut req: httparse::Response = httparse::Response::new(&mut headers);
         let result: std::result::Result<httparse::Status<usize>, httparse::Error> =
-            req.parse(job_resources.received_header.as_slice());
+            req.parse(job_resources.header_state.received_header.as_slice());
 
         match result {
             Ok(Status::Complete(_header_size)) => {
@@ -473,7 +481,7 @@ impl Handler for DownloadState {
                             None
                         }
                     ).unwrap();
-                    job_resources.header_success = Some(HeaderOutcome::Ok(content_length));
+                    job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
                     let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
@@ -491,10 +499,10 @@ impl Handler for DownloadState {
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);
                 } else if !job_resources.last_chance {
-                    job_resources.header_success = Some(HeaderOutcome::Unavailable);
+                    job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     info!("Hoping that another provider can fulfil this request…");
                 } else if job_resources.last_chance {
-                    job_resources.header_success = Some(HeaderOutcome::Unavailable);
+                    job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     error!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
                     let _ = self.job_state.tx.send(message);
