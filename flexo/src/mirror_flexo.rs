@@ -177,7 +177,7 @@ impl From<std::io::Error> for OrderError {
 
 impl Job for DownloadJob {
     type S = MirrorResults;
-    type JS = FileState;
+    type JS = DownloadJobResources;
     type C = DownloadChannel;
     type O = DownloadOrder;
     type P = DownloadProvider;
@@ -328,7 +328,7 @@ impl Job for DownloadJob {
         }
     }
 
-    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<FileState> {
+    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
         info!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
@@ -342,7 +342,7 @@ impl Job for DownloadJob {
             received_header: vec![],
             header_success: None
         };
-        let file_state = FileState {
+        let file_state = DownloadJobResources {
             buf_writer,
             size_written,
             header_state,
@@ -383,11 +383,11 @@ impl Order for DownloadOrder {
 }
 
 #[derive(Debug)]
-pub struct FileState {
+pub struct DownloadJobResources {
     buf_writer: BufWriter<File>,
     size_written: u64,
+    // TODO do these two belong here? It seems they have nothing to do with the file that is written.
     header_state: HeaderState,
-    // TODO does this belong here? It seems it has nothing to do with the file that is written.
     last_chance: bool,
 }
 
