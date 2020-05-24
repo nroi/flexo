@@ -49,3 +49,23 @@ curl -f http://flexo-server:7878/status || fail_and_exit
 # Being able to download this file within the timeout is taken as proof that the fast mirror has been selected.
 print_success
 
+## ==============================================================================================================
+TESTCASE='flexo-test-concurrent-download-non-blocking'
+# Downloading a larger file does not stop another client from obtaining a small file quickly.
+## ==============================================================================================================
+echo 'Server = http://flexo-server-slow-primary:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+# First, we start downloading a relatively large file:
+curl http://flexo-server-slow-primary:7878/zero > /dev/null &
+CURL_PID=$!
+# Next, we download a smaller package:
+SMALL_PACKAGE='realtime-privileges'
+DOWNLOAD_PATH=$(pacman -Sp $SMALL_PACKAGE)
+curl "$DOWNLOAD_PATH" > /dev/null || fail_and_exit
+# The download of the second package should have completed before the first download.
+if ps -p $CURL_PID >/dev/null; then
+  print_success
+else
+  fail_and_exit
+fi
+
+
