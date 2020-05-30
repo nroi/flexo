@@ -319,7 +319,7 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
         let filesize = file.metadata().unwrap().len();
         if filesize > client_received {
             // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
-            let result = send_payload(&mut file, filesize, client_received as i64, stream);
+            let result = send_payload_and_flush(&mut file, filesize, client_received as i64, stream);
             match result {
                 Ok(_) => {
                     client_received = result.unwrap() as u64;
@@ -431,12 +431,22 @@ fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &m
     };
     stream.write_all(header.as_bytes()).unwrap();
     let bytes_sent = resume_from.unwrap_or(0) as i64;
-    send_payload(&mut file, filesize, bytes_sent, stream).unwrap();
+    send_payload_and_flush(&mut file, filesize, bytes_sent, stream).unwrap();
 }
 
 fn serve_via_redirect(uri: String, stream: &mut TcpStream) {
     let header = redirect_header(&uri);
     stream.write_all(header.as_bytes()).unwrap();
+}
+
+fn send_payload_and_flush(mut source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut TcpStream) -> Result<i64, std::io::Error> {
+    let result = send_payload(&mut source, filesize, bytes_sent, receiver);
+    // Enabling and then disabling the nodelay option results in a flush.
+    // For some reason, receiver.flush() does not have this effect.
+    receiver.set_nodelay(true).unwrap();
+    receiver.set_nodelay(false).unwrap();
+
+    result
 }
 
 fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut T) -> Result<i64, std::io::Error> where T: AsRawFd {
@@ -452,6 +462,7 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
         }
         offset
     };
+
     Ok(size)
 }
 
