@@ -1,0 +1,21 @@
+{
+    "urls": [
+        {
+            "url": "http://mirror-fast-mock/",
+            "protocol": "http",
+            "last_sync": "2020-05-02T08:25:06Z",
+            "completion_pct": 1.0,
+            "delay": 2,
+            "duration_avg": 0.02,
+            "duration_stddev": 0.02,
+            "score": 0.02,
+            "active": true,
+            "country": "Germany",
+            "country_code": "DE",
+            "isos": true,
+            "ipv4": true,
+            "ipv6": true,
+            "details": "https://www.archlinux.org/mirrors/does_not_exist"
+        }
+    ]
+}

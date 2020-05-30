@@ -12,6 +12,61 @@ function print_success() {
 }
 
 ## ==============================================================================================================
+TESTCASE='flexo-test-partial-header'
+# Sending the header in multiple TCP segments does not cause the server to crash
+## ==============================================================================================================
+touch /tmp/header
+tail -f /tmp/header | nc -v flexo-server-slow-primary 7878 > /tmp/header_response &
+
+printf 'GET ' >> /tmp/header
+# Wait a bit so that the header is sent in multiple segments
+sleep .5
+printf '/community/os/x86_64/lostfiles-4.03-1-any.pkg.tar.xz HTTP/1.1\r\nHost: flexo-server-slow-primary\r\n\r\n' >> /tmp/header
+
+sleep 1
+
+if grep -q 'HTTP/1.1 200 OK' /tmp/header_response; then
+  print_success
+else
+  fail_and_exit
+fi
+
+## ==============================================================================================================
+TESTCASE='flexo-test-persistent-connections-c2s'
+# Connections made from client-to-server (i.e., from pacman to flexo) should be persistent.
+## ==============================================================================================================
+
+declare -a curl_args
+for i in {0..99}; do
+  curl_args[i]="http://flexo-server-delay:7878/test_$i"
+done
+
+echo "downloading ${curl_args[*]}"
+
+# Downloading all 100 files within 200 milliseconds is taken as proof that curl can use persistent connections:
+# Since the server has a delay of 100 ms for each connection, 200 ms would not suffice to serve all 100 files
+# if a new connection is established for each file.
+timeout 200 curl -s -f ${curl_args[*]} || fail_and_exit
+
+print_success
+
+## ==============================================================================================================
+TESTCASE='flexo-test-persistent-connections-s2s'
+# Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
+## ==============================================================================================================
+
+for i in {0..99}; do
+  curl_args[i]="http://flexo-server-delay-primary:7878/test_$i"
+done
+
+echo "downloading ${curl_args[*]}"
+
+# See the previous test case for an explanation why we choose the timeout command.
+timeout 200 curl -s -f ${curl_args[*]} || fail_and_exit
+
+print_success
+
+## ==============================================================================================================
 TESTCASE="flexo-test-mirror-selection-slow-mirror-startup"
 # Having an extremely slow mirror does not cause flexo's startup time to increase significantly.
 ## ==============================================================================================================
@@ -67,5 +122,4 @@ if ps -p $CURL_PID >/dev/null; then
 else
   fail_and_exit
 fi
-
 

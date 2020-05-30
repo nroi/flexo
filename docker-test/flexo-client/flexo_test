@@ -20,32 +20,6 @@ mkdir /tmp/verified || exit 1
 # Wait for the flexo server to start and finish the mirror selection process.
 sleep 5
 
-## ==============================================================================================================
-TESTCASE='flexo-test-persistent-connections-c2s'
-# Connections made from client-to-server (i.e., from pacman to flexo) should be persistent.
-## ==============================================================================================================
-/usr/bin/tcpdump -i lo 'tcp[tcpflags] & tcp-syn != 0' 2>/tmp/tcpdump-syn &
-TCPDUMP_PID=$!
-clear_pacman_cache
-
-sleep .1
-
-# There's no particular reason why we chose those packages, we just selected a few arbitrary packages that are small
-# and have no dependencies.
-/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly rxvt-unicode-terminfo lostfiles  perl-file-path-expand || fail_and_exit
-
-sleep .1
-
-kill $TCPDUMP_PID || fail_and_exit
-
-if grep -q '2 packets captured' /tmp/tcpdump-syn; then
-  # Expect only a single connection to be established, so we should have 2 SYN packets: One from pacman to flexo,
-  # and a second one from flexo to pacman.
-  print_success
-else
-  fail_and_exit
-fi
-
 # ===============================================================================================================
 TESTCASE='flexo-test-install'
 ## Install a few packages via pacman. Using pacman (instead of just downloading the package via wget or curl)
@@ -57,29 +31,6 @@ if /usr/bin/pacman -Sy --noconfirm --noprogressbar mozilla-common java-environme
   # Clear the pacman cache: We intend to simulate the situation where the package is cached by the flexo server,
   # but not by the client that connects to the flexo server.
   clear_pacman_cache
-  print_success
-else
-  fail_and_exit
-fi
-
-## ==============================================================================================================
-TESTCASE='flexo-test-persistent-connections-s2s'
-# Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
-## ==============================================================================================================
-
-/usr/bin/tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0' 2>/tmp/tcpdump-syn &
-TCPDUMP_PID=$!
-clear_pacman_cache
-
-# There's no particular reason why we chose those packages, we just selected a few arbitrary packages that are small
-# and have no dependencies.
-/usr/bin/pacman -S --noconfirm --noprogressbar --downloadonly pambase dnssec-anchors hyphen-it realtime-privileges || fail_and_exit
-
-kill $TCPDUMP_PID || fail_and_exit
-
-if grep -q '0 packets captured' /tmp/tcpdump-syn; then
-  # We assume that since we have already established a connection to the remote mirror, no new connection
-  # will we established and therefore, no new SYN packets are sent or received.
   print_success
 else
   fail_and_exit

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+for i in {0..999}; do
+    echo "test_$i" > /usr/share/nginx/html/test_$i
+done

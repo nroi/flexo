@@ -6,8 +6,13 @@ export COMPOSE_DOCKER_CLI_BUILD=1
 docker-compose down
 docker-compose build
 
-tar -C .. -czvf flexo-server/flexo.tar.gz flexo/src flexo/Cargo.toml
+tar -C .. -czvf flexo-server/flexo.tar.gz flexo/src flexo/Cargo.toml tcp-proxy-delay/Cargo.lock
 cp flexo-server/flexo.tar.gz flexo-server-slow-primary/
+cp flexo-server/flexo.tar.gz flexo-server-delay-primary/
+cp flexo-server/flexo.tar.gz flexo-server-fast/
+
+tar -C ../test -czvf flexo-server-delay/tcp-proxy-delay.tar.gz tcp-proxy-delay/src tcp-proxy-delay/Cargo.toml
+cp flexo-server-delay/tcp-proxy-delay.tar.gz mirror-delay-mock/
 
 /usr/bin/docker-compose build || exit 1
 /usr/bin/docker-compose up --exit-code-from flexo-client

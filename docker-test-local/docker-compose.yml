@@ -1,19 +1,19 @@
 version: '3.8'
 services:
-  mirror-slow-mock:
-    build: mirror-slow-mock
-    container_name: mirror-slow-mock
   mirror-low-bandwidth-mock:
     build: mirror-low-bandwidth-mock
     container_name: mirror-low-bandwidth-mock
   mirror-fast-mock:
     build: mirror-fast-mock
     container_name: mirror-fast-mock
+  mirror-delay-mock:
+    build: mirror-delay-mock
+    container_name: mirror-delay-mock
   flexo-server:
     build: flexo-server
     container_name: flexo-server
     depends_on:
-      - mirror-slow-mock
+      - mirror-delay-mock
       - mirror-fast-mock
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:7878/status || exit 1"]
@@ -21,16 +21,42 @@ services:
       timeout: 5s
       retries: 5
       start_period: 1s
+  flexo-server-fast:
+    build: flexo-server-fast
+    container_name: flexo-server-fast
+    depends_on:
+      - mirror-fast-mock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7878/status || exit 1"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+  flexo-server-delay:
+    build: flexo-server-delay
+    container_name: flexo-server-delay
+    depends_on:
+      - mirror-delay-mock
+      - mirror-fast-mock
+      - flexo-server
   flexo-server-slow-primary:
     build: flexo-server-slow-primary
     container_name: flexo-server-slow-primary
     depends_on:
       - mirror-fast-mock
       - mirror-low-bandwidth-mock
+  flexo-server-delay-primary:
+    build: flexo-server-delay-primary
+    container_name: flexo-server-delay-primary
+    depends_on:
+      - mirror-delay-mock
   flexo-client:
     build: flexo-client
     container_name: flexo-client
     depends_on:
       - flexo-server
-      - mirror-slow-mock
+      - mirror-delay-mock
       - mirror-fast-mock
+    # We want both containers to share the same network device: This way, we can use tcpdump on the client to check
+    # if the server uses persistent connections.
+    network_mode: "service:flexo-server"

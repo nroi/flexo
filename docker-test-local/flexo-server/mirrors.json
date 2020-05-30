@@ -18,7 +18,7 @@
             "details": "https://www.archlinux.org/mirrors/does_not_exist"
         },
         {
-            "url": "http://mirror-slow-mock/",
+            "url": "http://mirror-delay-mock/",
             "protocol": "http",
             "last_sync": "2020-05-02T08:25:06Z",
             "completion_pct": 1.0,
