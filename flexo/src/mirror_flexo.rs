@@ -619,7 +619,7 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
                 break(Ok(GetRequest::new(req)?))
             }
             Ok(Status::Partial) => {
-                unimplemented!()
+                {}
             }
             Err(_) => {
                 let client_status = ClientStatus { response_headers_sent: false };
