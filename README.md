@@ -94,7 +94,7 @@ The following packages are required to build and test flexo:
 pacman -S rustup docker docker-compose curl
 ```
 
-The [./docker-compose](docker-test-local/docker-compose) script may require you to be able to use docker
+The [./docker-compose](test/docker-test-local/docker-compose) script may require you to be able to use docker
 without root privileges. Add your user to the docker group to do so. You may want to read
 the [wiki](https://wiki.archlinux.org/index.php/Docker) for more details on on the security
 implications of doing so.
@@ -110,13 +110,13 @@ and they are fully deterministic (afaik). You can run them with `cargo`:
    cd flexo
    cargo test
     ```
-2. end-to-end tests written in bash: [flexo_test](docker-test-local/flexo-client/flexo_test).
+2. end-to-end tests written in bash: [flexo_test](test/docker-test-local/flexo-client/flexo_test).
 Keep in mind that our end-to-end tests are not deterministic: A failing end-to-end test may indicate that
 a new bug was introduced, but it might also have been caused by a misbehaving remote mirror, or by a timeout
 that did not occur in previous runs.
 We use docker to set up the entire context required by our test-to-end tests:
     ```
-    cd docker-test-local
+    cd test/docker-test-local
     ./docker-compose
     ```
     Most of the output is relevant only if you need to investigate failing test cases. The outcome
