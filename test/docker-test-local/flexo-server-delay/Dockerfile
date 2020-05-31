@@ -2,13 +2,13 @@
 
 FROM rust:1.43.1-buster as build
 
-COPY tcp-proxy-delay.tar.gz /tmp
-
 WORKDIR /tmp
 
-RUN tar xf tcp-proxy-delay.tar.gz
-
 RUN mkdir /tmp/build_output
+
+COPY tcp-proxy-delay.tar.gz /tmp
+
+RUN tar xf tcp-proxy-delay.tar.gz
 
 WORKDIR /tmp/tcp-proxy-delay
 
@@ -18,6 +18,8 @@ RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.43.1-buster,source=/u
     cp /tmp/tcp-proxy-delay/target/release/tcp-proxy-delay /tmp/build_output/
 
 FROM debian:buster-slim
+
+EXPOSE 7878
 
 ENV RUST_BACKTRACE="full" \
     RUST_LOG="debug"

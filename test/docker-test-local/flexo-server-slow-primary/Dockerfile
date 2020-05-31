@@ -2,13 +2,13 @@
 
 FROM rust:1.43.1-buster as build
 
-COPY flexo.tar.gz /tmp
-
 WORKDIR /tmp
 
-RUN tar xf flexo.tar.gz
-
 RUN mkdir /tmp/build_output
+
+COPY flexo.tar.gz /tmp
+
+RUN tar xf flexo.tar.gz
 
 WORKDIR /tmp/flexo
 
@@ -18,6 +18,8 @@ RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.43.1-buster,source=/u
     cp /tmp/flexo/target/release/flexo /tmp/build_output/
 
 FROM debian:buster-slim
+
+EXPOSE 7878
 
 RUN apt-get update && \
     apt-get install -y curl

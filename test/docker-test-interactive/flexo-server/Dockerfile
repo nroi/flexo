@@ -10,6 +10,8 @@ RUN tar xf flexo.tar.gz && \
 
 FROM debian:buster-slim
 
+EXPOSE 7878
+
 RUN apt-get update && \
     apt-get install -y curl
 

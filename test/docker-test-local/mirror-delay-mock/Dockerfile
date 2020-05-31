@@ -2,13 +2,13 @@
 
 FROM rust:1.43.1-buster as build
 
-COPY tcp-proxy-delay.tar.gz /tmp
-
 WORKDIR /tmp
 
-RUN tar xf tcp-proxy-delay.tar.gz
-
 RUN mkdir /tmp/build_output
+
+COPY tcp-proxy-delay.tar.gz /tmp
+
+RUN tar xf tcp-proxy-delay.tar.gz
 
 WORKDIR /tmp/tcp-proxy-delay
 
