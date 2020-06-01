@@ -67,15 +67,6 @@ timeout 200 curl -s -f ${curl_args[*]} || fail_and_exit
 print_success
 
 ## ==============================================================================================================
-TESTCASE="flexo-test-mirror-selection-slow-mirror-startup"
-# Having an extremely slow mirror does not cause flexo's startup time to increase significantly.
-## ==============================================================================================================
-TIMEOUT="0.2"
-timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly mozilla-common || fail_and_exit
-# Being able to download this file is taken as proof that flexo has started successfully within the TIMEOUT.
-print_success
-
-## ==============================================================================================================
 TESTCASE="flexo-test-mirror-selection-slow-mirror"
 # If a remote mirror turns out to be very slow, flexo switches to another mirror.
 ## ==============================================================================================================
