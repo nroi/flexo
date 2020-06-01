@@ -76,7 +76,18 @@ config to the new TOML file.
 the package from [AUR](https://aur.archlinux.org/packages/flexo-git/) and see if it works. Feel free
 to leave a comment on this [issue](https://github.com/nroi/flexo/issues/14) to describe if it works.
 
+## Cleaning the package cache
 
+`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old packages. Install it if you haven't done so already:
+```bash
+sudo pacman -S pacman-contrib
+```
+Packages are stored in the directory specified by the `cache_directory` variable in `/etc/flexo/flexo.toml`. By default, it's `/var/cache/flexo`. Use `paccache` to clean up the subdirectories of this directory. For instance,
+the following will delete all packages except for the three most recent versions:
+
+```bash
+paccache -r -k3  $(find /var/cache/flexo/pkg -type d -name x86_64 -printf "-c %p ")
+```
 
 ## Contribute
 If you know rust, feel free to dive into the code base and send a PR. Smaller improvements
