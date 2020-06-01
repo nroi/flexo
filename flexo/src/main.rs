@@ -19,7 +19,6 @@ mod mirror_cache;
 mod mirror_flexo;
 
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::time::Duration;
 use std::path;
 use std::path::Path;
 use std::fs::File;
@@ -69,7 +68,6 @@ fn main() {
     for stream in listener.incoming() {
         let stream: TcpStream = stream.unwrap();
         debug!("Established connection with client.");
-        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let job_context = job_context.clone();
         let properties = properties.clone();
         std::thread::spawn(move || {
