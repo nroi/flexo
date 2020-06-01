@@ -17,6 +17,7 @@ to be downloaded more than once.
   so that packages that have already been downloaded will be fetched from the cache.
 ## Installation
 A package for Arch Linux is available on [AUR](https://aur.archlinux.org/packages/flexo-git/).
+Alternatively, you can use the [docker image](https://hub.docker.com/r/nroi/flexo) instead.
 Flexo needs to be installed on a single machine (the server) so that it can be accessed by
 multiple clients.
 Once you have installed flexo on the server, start and enable the systemd service:
