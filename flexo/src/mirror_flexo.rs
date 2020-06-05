@@ -219,8 +219,13 @@ impl Job for DownloadJob {
                         // Therefore, we can set the content length attribute of this file to the file size.
                         debug!("Set content length for file: #{:?}", entry.path());
                         let value = file_size.to_string();
-                        xattr::set(entry.path(), &key, &value.as_bytes())
-                            .expect("Unable to set extended file attributes");
+                        match xattr::set(entry.path(), &key, &value.as_bytes()) {
+                            Ok(()) => {},
+                            Err(e) => {
+                                error!("Unable to set extended file attributes for {:?}: {:?}. Please make sure that \
+                                flexo has write permissions for this file.", entry.path(), e)
+                            },
+                        }
                         file_size
                     },
                 };
