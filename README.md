@@ -66,7 +66,7 @@ mirror is too slow or causes other issues.
 
 ## Switching from cpcache to flexo
 
-Notice the following changes between cpcache and flexo:
+If you have previously used cpcache, please note the following changes between cpcache and flexo:
 * Flexo uses port `7878`, while cpcache uses `7070`. Make sure to change this port in `/etc/pacman.d/mirrorlist`.
 * The configuration file `/etc/flexo/flexo.toml` is mostly the same as `/etc/cpcache/cpcache.toml`,
 but they are not identical! So don't just copy the TOML file from cpcache to `/etc/flexo/flexo.toml`.
