@@ -122,11 +122,14 @@ and they are fully deterministic (afaik). You can run them with `cargo`:
    cd flexo
    cargo test
     ```
-2. end-to-end tests written in bash: [flexo_test](test/docker-test-local/flexo-client/flexo_test).
-Keep in mind that our end-to-end tests are not deterministic: A failing end-to-end test may indicate that
-a new bug was introduced, but it might also have been caused by a misbehaving remote mirror, or by a timeout
-that did not occur in previous runs.
-We use docker to set up the entire context required by our test-to-end tests:
+2. end-to-end tests written in bash using Docker: [flexo_test](test/docker-test-local/flexo-client/flexo_test).
+We try to avoid flaky test cases, but we cannot guarantee that all our docker test cases are deterministic,
+since their outcome depends on various factors outside of our control (e.g. how the scheduler runs OS processes,
+how TCP packets are assembled by the kernel's TCP stack, etc.).  
+As a result, a failing end-to-end
+test may indicate that a new bug was introduced, but it might also have been bad luck or a badly written test case.
+
+In order to run the Docker test cases, run the shell script to set up everything:
     ```
     cd test/docker-test-local
     ./docker-compose
