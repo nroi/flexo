@@ -429,7 +429,10 @@ fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &m
     };
     stream.write_all(header.as_bytes()).unwrap();
     let bytes_sent = resume_from.unwrap_or(0) as i64;
-    send_payload_and_flush(&mut file, filesize, bytes_sent, stream).unwrap();
+    match send_payload_and_flush(&mut file, filesize, bytes_sent, stream) {
+        Ok(s) => debug!("{} bytes have been transmitted to the client.", s),
+        Err(e) => warn!("Error while sending payload: {:?}", e),
+    }
 }
 
 fn serve_via_redirect(uri: String, stream: &mut TcpStream) {
