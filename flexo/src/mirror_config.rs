@@ -87,7 +87,7 @@ pub struct MirrorConfig {
     pub mirrors_auto: Option<MirrorsAutoConfig>,
 }
 
-fn load_toml_config() -> MirrorConfig {
+fn mirror_config_from_toml() -> MirrorConfig {
     let config_contents = fs::read_to_string(CONFIG_FILE)
         .unwrap_or_else(|_| panic!("Unable to read file: {}", CONFIG_FILE));
     toml::from_str(&config_contents).unwrap()
@@ -166,6 +166,6 @@ pub fn load_config() -> MirrorConfig {
     if std::env::vars().any(|(key, _value)| key.starts_with("FLEXO_")) {
         mirror_config_from_env()
     } else {
-        load_toml_config()
+        mirror_config_from_toml()
     }
 }
