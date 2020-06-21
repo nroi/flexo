@@ -25,6 +25,7 @@ use std::fs::File;
 use crossbeam::crossbeam_channel::RecvTimeoutError;
 use std::ffi::OsString;
 
+use libc::off64_t;
 
 #[cfg(test)]
 use tempfile::tempfile;
@@ -454,9 +455,9 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
     let fd = source.as_raw_fd();
     let sfd = receiver.as_raw_fd();
     let size = unsafe {
-        let mut offset = bytes_sent;
+        let mut offset = bytes_sent as off64_t;
         while (offset as u64) < filesize {
-            let size: isize = libc::sendfile(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
+            let size: isize = libc::sendfile64(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
             if size == -1 {
                 return Err(std::io::Error::last_os_error());
             }
