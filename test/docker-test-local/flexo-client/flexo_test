@@ -114,3 +114,28 @@ else
   fail_and_exit
 fi
 
+## ==============================================================================================================
+TESTCASE='flexo-test-download-large-file'
+# Large files can be downloaded.
+# This test case is mainly used to provoke errors due to various 2GiB or 4GiB limits. For instance,
+# sendfile uses off_t as offset (see man 2 sendfile). off_t can be only 32 bit on some platforms.
+## ==============================================================================================================
+echo 'Server = http://flexo-server-slow-primary:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+curl http://flexo-server-fast:7878/large > /dev/null || fail_and_exit
+print_success
+
+## ==============================================================================================================
+TESTCASE='flexo-test-download-large-file-cached'
+# Large files can be downloaded from the cache.
+## ==============================================================================================================
+echo 'Server = http://flexo-server-slow-primary:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+curl http://flexo-server-fast:7878/large > /dev/null || fail_and_exit
+print_success
+
+## ==============================================================================================================
+TESTCASE='flexo-test-download-large-file-cached-resume'
+# Large files can be resumed
+## ==============================================================================================================
+echo 'Server = http://flexo-server-slow-primary:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+curl --continue-at 6291456 http://flexo-server-fast:7878/large > /dev/null || fail_and_exit
+print_success
