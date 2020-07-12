@@ -50,12 +50,19 @@ pub enum ClientError {
     IoError(std::io::ErrorKind),
     UnsupportedHttpMethod(ClientStatus),
     InvalidHeader(ClientStatus),
-    Other(ErrorKind)
+    Other(ErrorKind),
+    FileAttrError(FileAttrError),
 }
 
 impl From<std::io::Error> for ClientError {
     fn from(error: std::io::Error) -> Self {
         ClientError::IoError(error.kind())
+    }
+}
+
+impl From<FileAttrError> for ClientError {
+    fn from(error: FileAttrError) -> Self {
+        ClientError::FileAttrError(error)
     }
 }
 
@@ -179,10 +186,12 @@ impl From<std::io::Error> for OrderError {
     }
 }
 
-#[derive(Debug)]
-enum FileAttrError {
+#[derive(Debug, PartialEq, Eq)]
+pub enum FileAttrError {
     Utf8Error(FromUtf8Error),
     ParseError(ParseIntError),
+    IoError(std::io::ErrorKind),
+    TimeoutError,
 }
 
 impl From<FromUtf8Error> for FileAttrError {
@@ -194,6 +203,12 @@ impl From<FromUtf8Error> for FileAttrError {
 impl From<ParseIntError> for FileAttrError {
     fn from(error: ParseIntError) -> Self {
         FileAttrError::ParseError(error)
+    }
+}
+
+impl From<std::io::Error> for FileAttrError {
+    fn from(error: std::io::Error) -> Self {
+        FileAttrError::IoError(error.kind())
     }
 }
 

@@ -108,7 +108,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             ScheduleOutcome::AlreadyInProgress => {
                 debug!("Job is already in progress");
                 let path = Path::new(&properties.cache_directory).join(&order.filepath.as_ref());
-                let complete_filesize: u64 = try_complete_filesize_from_path(&path).unwrap();
+                let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
                 let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
                 let file: File = File::open(&path)?;
                 serve_from_growing_file(file, content_length, get_request.resume_from, stream);
@@ -295,38 +295,38 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthRe
 }
 
 /// Returns the size of the complete file. This size may be larger than the size we have stored locally.
-fn try_complete_filesize_from_path(path: &Path) -> Option<u64> {
+fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
     let mut num_attempts = 0;
     // Timeout after 2 seconds.
     while num_attempts < 2_000 * 2 {
-        match content_length_from_path(path) {
+        match content_length_from_path(path)? {
             None => {
+                // for the unlikely event that this file has just been created, but the extended attribute
+                // has not been set yet.
                 std::thread::sleep(std::time::Duration::from_micros(500));
             },
-            Some(v) => return Some(v),
+            Some(v) => return Ok(v),
         }
         num_attempts += 1;
     }
 
     info!("Number of attempts exceeded: File {:?} not found.", &path);
-    None
+    Err(FileAttrError::TimeoutError)
 }
 
-fn content_length_from_path(path: &Path) -> Option<u64> {
+fn content_length_from_path(path: &Path) -> Result<Option<u64>, FileAttrError> {
     let key = OsString::from("user.content_length");
-    let value = xattr::get(&path, &key);
+    let value = xattr::get(&path, &key)?;
     match value {
-        Ok(Some(value)) => {
-            let content_length = String::from_utf8(value).unwrap().parse::<u64>().unwrap();
+        Some(value) => {
+            let content_length = String::from_utf8(value).map_err(FileAttrError::from)
+                .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from))?;
             debug!("Found file! content length is {}", content_length);
-            Some(content_length)
+            Ok(Some(content_length))
         },
-        Ok(None) => {
+        None => {
             info!("file exists, but no content length is set.");
-            None
-        }
-        Err(_) => {
-            None
+            Ok(None)
         }
     }
 }
