@@ -210,7 +210,20 @@ impl Job for DownloadJob {
                 sum_size += file_size;
                 let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
                     Some(value) => {
-                        String::from_utf8(value).unwrap().parse::<u64>().unwrap()
+                        // TODO Only used for troubleshooting purposes (see #20), remove the two statements when
+                        // this issue has been closed.
+                        let v = value.clone();
+                        let s = String::from_utf8_lossy(&v);
+                        match String::from_utf8(value).unwrap().parse::<u64>() {
+                            Ok(v) => v,
+                            Err(e) => {
+                                error!("File {:?} has user.content_length set to value {:?}: Unable to convert \
+                                this value to String: {:?}", entry.path(), &s, e);
+                                // TODO need a better strategy in this case: if the content-length could not be
+                                // parsed for some reason, we can't just assume that the file is complete.
+                                file_size
+                            },
+                        }
                     },
                     None => {
                         // Flexo sets the extended attributes for all files, but this file lacks this attribute:
