@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "flexo"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "crossbeam 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "curl 0.4.29 (registry+https://github.com/rust-lang/crates.io-index)",
