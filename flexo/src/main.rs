@@ -120,11 +120,17 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         // TODO this branch is also executed when the server returns 404.
                         debug!("Job was scheduled, will serve from growing file");
                         match receive_content_length(rx_progress) {
-                            Ok(content_length) => {
+                            Ok(ContentLengthResult::ContentLength(content_length)) => {
                                 debug!("Received content length via channel: {}", content_length);
                                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
                                 let file: File = File::open(&path).unwrap();
                                 serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
+                            },
+                            Ok(ContentLengthResult::AlreadyCached) => {
+                                debug!("File is already available in cache.");
+                                let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                                let file: File = File::open(&path).unwrap();
+                                serve_from_complete_file(file, get_request.resume_from, &mut stream)
                             },
                             Err(ContentLengthError::Unavailable) => {
                                 debug!("Will send 404 reply to client.");
@@ -248,11 +254,19 @@ enum ContentLengthError {
     OrderError,
 }
 
-fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<u64, ContentLengthError> {
+enum ContentLengthResult {
+    ContentLength(u64),
+    AlreadyCached,
+}
+
+fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthResult, ContentLengthError> {
     loop {
         match rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(FlexoProgress::JobSize(content_length)) => {
-                break Ok(content_length);
+                break Ok(ContentLengthResult::ContentLength(content_length));
+            }
+            Ok(FlexoProgress::Completed) => {
+                break Ok(ContentLengthResult::AlreadyCached);
             }
             Ok(FlexoProgress::Unavailable) => {
                 break Err(ContentLengthError::Unavailable);

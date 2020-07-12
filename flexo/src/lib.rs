@@ -308,7 +308,7 @@ impl <J> JobState<J> where J: Job {
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub struct CachedItem {
-    pub complete_size: u64,
+    pub complete_size: Option<u64>,
     pub cached_size: u64,
 }
 
@@ -408,7 +408,7 @@ impl <J> JobContext<J> where J: Job {
                     // Cannot serve this order from cache: See issue #7
                     return ScheduleOutcome::Uncacheable(self.best_provider());
                 },
-                Some(OrderState::Cached(CachedItem { complete_size, cached_size } )) if complete_size == cached_size => {
+                Some(OrderState::Cached(CachedItem { complete_size: Some(c), cached_size } )) if c == cached_size => {
                     return ScheduleOutcome::Cached;
                 },
                 Some(OrderState::Cached(CachedItem { cached_size, .. } )) => *cached_size,
@@ -475,7 +475,7 @@ impl <J> JobContext<J> where J: Job {
                     let mut channels_cloned = channels_cloned.lock().unwrap();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
                     let cached_item = CachedItem {
-                        complete_size: complete_job.size as u64,
+                        complete_size: Some(complete_job.size as u64),
                         cached_size: complete_job.size as u64,
                     };
                     let order_state = OrderState::Cached(cached_item);

@@ -20,6 +20,8 @@ use std::ffi::OsString;
 use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::string::FromUtf8Error;
+use std::num::ParseIntError;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -175,6 +177,24 @@ impl From<std::io::Error> for OrderError {
     }
 }
 
+#[derive(Debug)]
+enum FileAttrError {
+    Utf8Error(FromUtf8Error),
+    ParseError(ParseIntError),
+}
+
+impl From<FromUtf8Error> for FileAttrError {
+    fn from(error: FromUtf8Error) -> Self {
+        FileAttrError::Utf8Error(error)
+    }
+}
+
+impl From<ParseIntError> for FileAttrError {
+    fn from(error: ParseIntError) -> Self {
+        FileAttrError::ParseError(error)
+    }
+}
+
 impl Job for DownloadJob {
     type S = MirrorResults;
     type JS = DownloadJobResources;
@@ -210,18 +230,14 @@ impl Job for DownloadJob {
                 sum_size += file_size;
                 let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
                     Some(value) => {
-                        // TODO Only used for troubleshooting purposes (see #20), remove the two statements when
-                        // this issue has been closed.
-                        let v = value.clone();
-                        let s = String::from_utf8_lossy(&v);
-                        match String::from_utf8(value).unwrap().parse::<u64>() {
-                            Ok(v) => v,
+                        let result = String::from_utf8(value).map_err(FileAttrError::from)
+                            .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
+                        match result {
+                            Ok(v) => Some(v),
                             Err(e) => {
-                                error!("File {:?} has user.content_length set to value {:?}: Unable to convert \
-                                this value to String: {:?}", entry.path(), &s, e);
-                                // TODO need a better strategy in this case: if the content-length could not be
-                                // parsed for some reason, we can't just assume that the file is complete.
-                                file_size
+                                error!("Unable to read extended attribute user.content_length from file {:?}: {:?}",
+                                       entry.path(), e);
+                                None
                             },
                         }
                     },
@@ -239,7 +255,7 @@ impl Job for DownloadJob {
                                 flexo has write permissions for this file.", entry.path(), e)
                             },
                         }
-                        file_size
+                        Some(file_size)
                     },
                 };
                 let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
@@ -523,6 +539,15 @@ impl Handler for DownloadState {
                         .expect("Unable to set extended file attributes");
                     debug!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
+                    let _ = self.job_state.tx.send(message);
+                }  else if code == 416 {
+                    // If the requested file was already cached, but we don't know if the cached file has been
+                    // downloaded completely or only partially, we send the Content-Range header in order to not
+                    // download anything we already have available in cache.
+                    // If the server responds with 416, we assume that the cached file was already complete.
+                    job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
+                    error!("All providers have been unable to fulfil this request.");
+                    let message: FlexoProgress = FlexoProgress::Completed;
                     let _ = self.job_state.tx.send(message);
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);

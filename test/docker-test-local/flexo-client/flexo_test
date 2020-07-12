@@ -136,3 +136,13 @@ TESTCASE='flexo-test-download-large-file-cached-resume'
 ## ==============================================================================================================
 curl --continue-at 6291456 http://flexo-server-fast:7878/large > /dev/null || fail_and_exit
 print_success
+
+## ==============================================================================================================
+TESTCASE='flexo-test-download-file-malformed-xattr'
+# Files can be downloaded if their extended attribute cannot be parsed to an integer
+## ==============================================================================================================
+CHECKSUM='752027099aeff4f4093d6155af59405f96734b62f5667a25dee7d66425763a9f'
+curl http://flexo-server-fast:7878/test-malformed-xattr > /tmp/test-malformed-xattr || fail_and_exit
+cat /tmp/test-malformed-xattr
+echo $CHECKSUM /tmp/test-malformed-xattr | sha256sum --check - || fail_and_exit
+print_success

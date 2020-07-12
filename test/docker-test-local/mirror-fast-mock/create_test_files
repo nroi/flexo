@@ -3,3 +3,5 @@
 for i in {0..999}; do
     echo "test_$i" > /usr/share/nginx/html/test_$i
 done
+
+echo 'test-malformed-xattr' > /usr/share/nginx/html/test-malformed-xattr

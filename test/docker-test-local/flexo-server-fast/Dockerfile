@@ -22,7 +22,7 @@ FROM debian:buster-slim
 EXPOSE 7878
 
 RUN apt-get update && \
-    apt-get install -y curl
+    apt-get install -y curl attr
 
 RUN mkdir -p /var/cache/flexo/pkg && \
     mkdir /var/cache/flexo/state && \
@@ -61,6 +61,9 @@ ENV RUST_BACKTRACE="full" \
 # greater flexibility for our test cases.
 ENV FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT="file:///root/mirrors.json"
 COPY mirrors.json /root
+
+RUN echo 'test-malformed-xattr' > /var/cache/flexo/pkg/test-malformed-xattr
+RUN setfattr -n user.content_length -v 'not-a-number' /var/cache/flexo/pkg/test-malformed-xattr
 
 COPY --from=build /tmp/build_output/flexo /usr/bin/flexo
 
