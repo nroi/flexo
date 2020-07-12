@@ -3,6 +3,8 @@ extern crate flexo;
 use crate::mirror_config::MirrorConfig;
 use crate::mirror_fetch;
 use crate::mirror_fetch::MirrorUrl;
+use crate::str_path::StrPath;
+
 
 use flexo::*;
 use http::Uri;
@@ -19,7 +21,7 @@ use walkdir::WalkDir;
 use std::ffi::OsString;
 use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::string::FromUtf8Error;
 use std::num::ParseIntError;
 
@@ -29,12 +31,6 @@ use std::num::ParseIntError;
 const MAX_HEADER_SIZE: usize = 8192;
 
 const MAX_HEADER_COUNT: usize = 64;
-
-#[cfg(test)]
-pub const PATH_PREFIX: &str = "";
-
-#[cfg(not (test))]
-pub const PATH_PREFIX: &str = "";
 
 #[cfg(test)]
 const TEST_CHUNK_SIZE: usize = 128;
@@ -73,7 +69,7 @@ fn parse_range_header_value(s: &str) -> u64 {
 #[derive(Debug, PartialEq, Eq)]
 pub struct GetRequest {
     pub resume_from: Option<u64>,
-    pub path: PathBuf,
+    pub path: StrPath,
 }
 
 impl GetRequest {
@@ -91,9 +87,8 @@ impl GetRequest {
             None => panic!("Expected the request method to be set."),
         }
         let p = &request.path.unwrap()[1..]; // Skip the leading "/"
-        let path = Path::new(p).to_path_buf();
         Ok(Self {
-            path,
+            path: StrPath::new(p.to_owned()),
             resume_from,
         })
     }
@@ -110,7 +105,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri_string = format!("{}{}", self.uri, order.filepath);
+        let uri_string = format!("{}{}", self.uri, order.filepath.to_str());
         let uri = uri_string.parse::<Uri>().unwrap();
         let provider = self.clone();
         let properties = properties.clone();
@@ -260,7 +255,7 @@ impl Job for DownloadJob {
                 };
                 let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
                 let order = DownloadOrder {
-                    filepath: sub_path.to_str().unwrap().to_owned()
+                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned())
                 };
                 let cached_item = CachedItem {
                     cached_size: file_size,
@@ -392,7 +387,7 @@ impl Job for DownloadJob {
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
-    pub filepath: String,
+    pub filepath: StrPath,
 }
 
 impl Order for DownloadOrder {
@@ -415,7 +410,7 @@ impl Order for DownloadOrder {
     }
 
     fn is_cacheable(&self) -> bool {
-        !(self.filepath.ends_with(".db") || self.filepath.ends_with(".sig"))
+        !(self.filepath.to_str().ends_with(".db") || self.filepath.to_str().ends_with(".sig"))
     }
 }
 

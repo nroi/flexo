@@ -17,6 +17,7 @@ mod mirror_config;
 mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
+mod str_path;
 
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::path;
@@ -93,24 +94,24 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
         debug!("Read header from client.");
         let result = read_client_header(&mut stream);
         match result {
-            Ok(get_request) if !valid_path(&get_request.path) => {
+            Ok(get_request) if !valid_path(&get_request.path.as_ref()) => {
                 info!("Invalid path: Serve 403");
                 serve_403_header(&mut stream);
             }
-            Ok(get_request) if get_request.path.as_os_str() == "status" => {
+            Ok(get_request) if get_request.path.to_str() == "status" => {
                 serve_200_ok_empty(&mut stream)
             }
             Ok(get_request) => {
-                let path = Path::new(PATH_PREFIX).join(&get_request.path);
+                let request_path = get_request.path.clone();
                 let order = DownloadOrder {
-                    filepath: path.to_str().unwrap().to_owned()
+                    filepath: get_request.path,
                 };
                 debug!("Attempt to schedule new job");
                 let result = job_context.lock().unwrap().try_schedule(order.clone(), get_request.resume_from);
                 match result {
                     ScheduleOutcome::AlreadyInProgress => {
                         debug!("Job is already in progress");
-                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                        let path = Path::new(&properties.cache_directory).join(&order.filepath.as_ref());
                         let complete_filesize: u64 = try_complete_filesize_from_path(&path).unwrap();
                         let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
                         let file: File = File::open(&path).unwrap();
@@ -157,11 +158,11 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                     },
                     ScheduleOutcome::Uncacheable(p) => {
                         debug!("Serve file via redirect.");
-                        let uri_string = format!("{}{}", p.uri, order.filepath);
+                        let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
                         serve_via_redirect(uri_string, &mut stream);
                     }
                 }
-                info!("Request served: {:?}", &get_request.path);
+                info!("Request served: {:?}", &request_path.to_str());
             },
             Err(e) => {
                 match e {
