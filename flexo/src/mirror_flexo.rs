@@ -47,9 +47,16 @@ pub enum ClientError {
     BufferSizeExceeded,
     TimedOut,
     SocketClosed,
+    IoError(std::io::ErrorKind),
     UnsupportedHttpMethod(ClientStatus),
     InvalidHeader(ClientStatus),
     Other(ErrorKind)
+}
+
+impl From<std::io::Error> for ClientError {
+    fn from(error: std::io::Error) -> Self {
+        ClientError::IoError(error.kind())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

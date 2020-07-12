@@ -88,82 +88,93 @@ fn valid_path(path: &Path) -> bool {
     })
 }
 
+fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
+                 stream: &mut TcpStream,
+                 properties: MirrorConfig,
+                 get_request: GetRequest,
+) -> Result<(), ClientError> {
+    if !valid_path(&get_request.path.as_ref())  {
+        info!("Invalid path: Serve 403");
+        serve_403_header(stream)
+    } else if get_request.path.to_str() == "status" {
+        serve_200_ok_empty(stream)
+    } else {
+        let order = DownloadOrder {
+            filepath: get_request.path,
+        };
+        debug!("Attempt to schedule new job");
+        let result = job_context.lock().unwrap().try_schedule(order.clone(), get_request.resume_from);
+        match result {
+            ScheduleOutcome::AlreadyInProgress => {
+                debug!("Job is already in progress");
+                let path = Path::new(&properties.cache_directory).join(&order.filepath.as_ref());
+                let complete_filesize: u64 = try_complete_filesize_from_path(&path).unwrap();
+                let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
+                let file: File = File::open(&path)?;
+                serve_from_growing_file(file, content_length, get_request.resume_from, stream);
+            }
+            ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
+                // TODO this branch is also executed when the server returns 404.
+                debug!("Job was scheduled, will serve from growing file");
+                match receive_content_length(rx_progress) {
+                    Ok(ContentLengthResult::ContentLength(content_length)) => {
+                        debug!("Received content length via channel: {}", content_length);
+                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                        let file: File = File::open(&path)?;
+                        serve_from_growing_file(file, content_length, get_request.resume_from, stream);
+                    },
+                    Ok(ContentLengthResult::AlreadyCached) => {
+                        debug!("File is already available in cache.");
+                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                        let file: File = File::open(&path)?;
+                        serve_from_complete_file(file, get_request.resume_from, stream);
+                    },
+                    Err(ContentLengthError::Unavailable) => {
+                        debug!("Will send 404 reply to client.");
+                        serve_404_header(stream);
+                    },
+                    Err(ContentLengthError::OrderError) => {
+                        debug!("Will send 400 reply to client.");
+                        serve_400_header(stream);
+                    },
+                    Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
+                        eprintln!("Remote server has disconnected unexpectedly.");
+                        serve_500_header(stream);
+                    },
+                    Err(e) => {
+                        panic!("Error: {:?}", e);
+                    },
+                }
+            },
+            ScheduleOutcome::Cached => {
+                debug!("Serve file from cache.");
+                let path = Path::new(&properties.cache_directory).join(&order.filepath);
+                let file: File = File::open(path).unwrap();
+                serve_from_complete_file(file, get_request.resume_from, stream);
+            },
+            ScheduleOutcome::Uncacheable(p) => {
+                debug!("Serve file via redirect.");
+                let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
+                serve_via_redirect(uri_string, stream);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) -> Result<(), ClientError> {
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
         debug!("Read header from client.");
         let result = read_client_header(&mut stream);
         match result {
-            Ok(get_request) if !valid_path(&get_request.path.as_ref()) => {
-                info!("Invalid path: Serve 403");
-                serve_403_header(&mut stream);
-            }
-            Ok(get_request) if get_request.path.to_str() == "status" => {
-                serve_200_ok_empty(&mut stream)
-            }
             Ok(get_request) => {
                 let request_path = get_request.path.clone();
-                let order = DownloadOrder {
-                    filepath: get_request.path,
-                };
-                debug!("Attempt to schedule new job");
-                let result = job_context.lock().unwrap().try_schedule(order.clone(), get_request.resume_from);
-                match result {
-                    ScheduleOutcome::AlreadyInProgress => {
-                        debug!("Job is already in progress");
-                        let path = Path::new(&properties.cache_directory).join(&order.filepath.as_ref());
-                        let complete_filesize: u64 = try_complete_filesize_from_path(&path).unwrap();
-                        let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
-                        let file: File = File::open(&path).unwrap();
-                        serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
-                    }
-                    ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
-                        // TODO this branch is also executed when the server returns 404.
-                        debug!("Job was scheduled, will serve from growing file");
-                        match receive_content_length(rx_progress) {
-                            Ok(ContentLengthResult::ContentLength(content_length)) => {
-                                debug!("Received content length via channel: {}", content_length);
-                                let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                                let file: File = File::open(&path).unwrap();
-                                serve_from_growing_file(file, content_length, get_request.resume_from, &mut stream);
-                            },
-                            Ok(ContentLengthResult::AlreadyCached) => {
-                                debug!("File is already available in cache.");
-                                let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                                let file: File = File::open(&path).unwrap();
-                                serve_from_complete_file(file, get_request.resume_from, &mut stream)
-                            },
-                            Err(ContentLengthError::Unavailable) => {
-                                debug!("Will send 404 reply to client.");
-                                serve_404_header(&mut stream);
-                            },
-                            Err(ContentLengthError::OrderError) => {
-                                debug!("Will send 400 reply to client.");
-                                serve_400_header(&mut stream);
-                            },
-                            Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
-                                eprintln!("Remote server has disconnected unexpectedly.");
-                                serve_500_header(&mut stream);
-                            },
-                            Err(e) => {
-                                panic!("Error: {:?}", e)
-                            },
-                        }
-                    },
-                    ScheduleOutcome::Cached => {
-                        debug!("Serve file from cache.");
-                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                        let file: File = File::open(path).unwrap();
-                        serve_from_complete_file(file, get_request.resume_from, &mut stream);
-                    },
-                    ScheduleOutcome::Uncacheable(p) => {
-                        debug!("Serve file via redirect.");
-                        let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
-                        serve_via_redirect(uri_string, &mut stream);
-                    }
+                match serve_request(job_context.clone(), &mut stream, properties.clone(), get_request) {
+                    Ok(()) => info!("Request served: {:?}", &request_path.to_str()),
+                    Err(e) => error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e),
                 }
-                info!("Request served: {:?}", &request_path.to_str());
-            },
+            }
             Err(e) => {
                 match e {
                     ClientError::SocketClosed => {
@@ -189,7 +200,7 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                         }
                     }
                     _ => {
-                        eprintln!("error: {:?}", e);
+                        eprintln!("Unable to read header: {:?}", e);
                     }
                 }
                 let _ = stream.shutdown(std::net::Shutdown::Both);
