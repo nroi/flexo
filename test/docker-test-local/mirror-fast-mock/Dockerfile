@@ -1,4 +1,4 @@
-FROM nginx:1.17.10
+FROM nginx:1.19.1-alpine
 
 COPY pkg.tar /tmp
 RUN tar -C /usr/share/nginx/html -xf /tmp/pkg.tar
