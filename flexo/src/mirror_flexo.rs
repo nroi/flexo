@@ -295,7 +295,7 @@ impl Job for DownloadJob {
 
     fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, resume_from: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
-        debug!("Fetch package from remote mirror: {}", &url);
+        debug!("Fetch package from remote mirror: {}. Resume from byte {}", &url, resume_from);
         channel.handle.url(&url).unwrap();
         channel.handle.resume_from(resume_from).unwrap();
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
@@ -344,9 +344,9 @@ impl Job for DownloadJob {
                 }
             },
             Err(e) => {
-                warn!("Error occurred during download from remote mirror: {:?}", e);
+                warn!("Error occurred during download from remote mirror {:?}: {:?}", &url, e);
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
-                    warn!("Timeout reached: Try another remote mirror.");
+                    warn!("Unable to download from {:?}: Timeout reached. Try another remote mirror.", &url);
                 }
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {

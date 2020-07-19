@@ -177,8 +177,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let mut punished_providers = Vec::new();
         let result = loop {
             num_attempt += 1;
+            debug!("Attempt number {}", num_attempt);
             let (provider, is_last_provider) =
                 self.select_provider(provider_stats);
+            debug!("selected provider: {:?}", &provider);
+            debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
@@ -187,7 +190,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 let value = provider_current_usages.entry(provider.clone()).or_insert(0);
                 *value += 1;
             }
-            debug!("selected provider: {:?}", &provider);
             let self_cloned: Self = self.clone();
             let job = provider.new_job(&properties, self_cloned);
             debug!("Attempt to obtain new channel");
