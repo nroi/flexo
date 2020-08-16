@@ -452,7 +452,6 @@ pub struct DownloadJobResources {
 
 #[derive(Debug)]
 pub struct HeaderState {
-    // TODO maybe the following items belong to a separate struct, maybe HeaderState, RemoteState or so.
     received_header: Vec<u8>,
     header_success: Option<HeaderOutcome>,
 }
