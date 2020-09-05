@@ -141,8 +141,9 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         eprintln!("Remote server has disconnected unexpectedly.");
                         serve_500_header(stream);
                     },
-                    Err(e) => {
-                        panic!("Error: {:?}", e);
+                    Err(ContentLengthError::TransmissionError(RecvTimeoutError::Timeout)) => {
+                        eprintln!("Timeout: Unable to obtain content length.");
+                        serve_500_header(stream);
                     },
                 }
             },
@@ -286,10 +287,10 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthRe
             Ok(FlexoProgress::OrderError) => {
                 break Err(ContentLengthError::OrderError);
             }
-            Err(e) => break Err(ContentLengthError::TransmissionError(e)),
             Ok(msg) => {
                 panic!("Unexpected message: {:?}", msg);
             },
+            Err(e) => break Err(ContentLengthError::TransmissionError(e)),
         }
     }
 }
