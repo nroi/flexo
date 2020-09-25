@@ -142,6 +142,9 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         serve_500_header(stream);
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Timeout)) => {
+                        // TODO we should not immediately return 500, and instead try another mirror.
+                        // TODO the problem is that the entire logic about retrying other mirrors is
+                        // inside lib.rs
                         eprintln!("Timeout: Unable to obtain content length.");
                         serve_500_header(stream);
                     },
