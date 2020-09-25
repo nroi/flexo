@@ -301,6 +301,7 @@ impl Job for DownloadJob {
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
+        channel.handle.connect_timeout(Duration::from_secs(3));
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
