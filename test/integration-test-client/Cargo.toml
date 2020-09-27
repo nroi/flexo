@@ -1,0 +1,11 @@
+[package]
+name = "integration-test-client"
+version = "0.1.0"
+authors = ["Fabian Muscariello <nroi@mailbox.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sha2 = "0.9.1"
+http = "0.2.1"
