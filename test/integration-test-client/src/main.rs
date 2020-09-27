@@ -3,21 +3,6 @@ use crate::http_client::{Uri, http_get, http_get_with_header};
 mod http_client;
 
 fn main() {
-    let uri = Uri {
-        host: "files.xnet.space",
-        port: 80u16,
-        path: "/random",
-    };
-    let result = http_get(uri);
-    println!("content_length: {:?}", result.header_result.content_length);
-    println!("status code: {}", result.header_result.status_code);
-    match result.sha256 {
-        Some(sha) => {
-            let hash = &sha[..];
-            println!("hash: {:x?}", hash);
-        },
-        None => {},
-    }
     test_malformed_header();
 }
 
@@ -40,6 +25,6 @@ fn test_malformed_header() {
     let result = http_get(uri2);
     println!("result: {:?}", &result);
     assert_eq!(result.header_result.status_code, 200);
-    println!("test_malformed_header: [PASS]")
+    println!("test_malformed_header: [SUCCESS]")
 }
 
