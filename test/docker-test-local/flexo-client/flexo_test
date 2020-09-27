@@ -87,15 +87,6 @@ timeout $TIMEOUT pacman -S --noconfirm --noprogressbar --downloadonly dnstracer 
 print_success
 
 ## ==============================================================================================================
-TESTCASE="flexo-test-malformed-header"
-# Sending a malformed header does not cause the server to crash.
-## ==============================================================================================================
-echo 'malformed header' | nc -v flexo-server-slow-primary 7878
-curl -f http://flexo-server:7878/status || fail_and_exit
-# Being able to download this file within the timeout is taken as proof that the fast mirror has been selected.
-print_success
-
-## ==============================================================================================================
 TESTCASE='flexo-test-concurrent-download-non-blocking'
 # Downloading a larger file does not stop another client from obtaining a small file quickly.
 ## ==============================================================================================================

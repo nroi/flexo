@@ -10,8 +10,11 @@ function print_output() {
   grep flexo-test $OUTPUT_FILE
 }
 
+# Some test cases are written in this rust binary:
+/usr/bin/integration-test-client
+
+# other test cases are written in bash:
 if /root/flexo_test | tee $OUTPUT_FILE; then
-  echo 'All test cases have succeeded!'
   print_output
 else
   echo 'A test case has failed!'
@@ -21,6 +24,4 @@ else
   # interactive shell on the container and troubleshoot the failing test case.
   /usr/bin/tail -f /dev/null
 fi
-
-
 

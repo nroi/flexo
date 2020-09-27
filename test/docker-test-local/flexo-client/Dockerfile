@@ -1,3 +1,22 @@
+# syntax=docker/dockerfile:experimental
+
+FROM rust:1.43.1-buster as build
+
+WORKDIR /tmp
+
+RUN mkdir /tmp/build_output
+
+COPY integration-test-client.tar.gz /tmp
+
+RUN tar xf integration-test-client.tar.gz
+
+WORKDIR /tmp/integration-test-client
+
+RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.43.1-buster,source=/usr/local/cargo \
+    --mount=type=cache,target=/tmp/integration-test-client/target \
+    cargo build --release && \
+    cp /tmp/integration-test-client/target/release/integration-test-client /tmp/build_output/
+
 FROM archlinux:20200407
 
 RUN echo 'Server = http://flexo-server:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
@@ -21,5 +40,7 @@ COPY packages/openbsd-netcat-1.206_1-1-x86_64.pkg.tar.zst /root
 RUN pacman -U --noconfirm --noprogress \
     /root/openbsd-netcat-1.206_1-1-x86_64.pkg.tar.zst \
     /root/libbsd-0.10.0-2-x86_64.pkg.tar.zst
+
+COPY --from=build /tmp/build_output/integration-test-client /usr/bin/integration-test-client
 
 ENTRYPOINT ["/root/flexo_test_wrap_output"]

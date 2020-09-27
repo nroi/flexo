@@ -14,5 +14,10 @@ cp flexo-server/flexo.tar.gz flexo-server-fast/
 tar -C .. -czvf flexo-server-delay/tcp-proxy-delay.tar.gz tcp-proxy-delay/src tcp-proxy-delay/Cargo.toml
 cp flexo-server-delay/tcp-proxy-delay.tar.gz mirror-delay-mock/
 
+tar -C .. -czvf flexo-client/integration-test-client.tar.gz \
+    integration-test-client/src/main.rs \
+    integration-test-client/src/http_client.rs \
+    integration-test-client/Cargo.toml
+
 /usr/bin/docker-compose build || exit 1
 /usr/bin/docker-compose up --exit-code-from flexo-client
