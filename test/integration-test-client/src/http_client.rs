@@ -2,10 +2,13 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{TcpStream};
 use sha2::{Sha256, Digest};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
-pub struct  Uri <'a> {
-    pub host: &'a str,
-    pub path: &'a str,
+pub struct  Uri {
+    pub host: String,
+    pub path: String,
     pub port: u16,
 }
 
@@ -28,21 +31,28 @@ pub struct HttpGetResult {
 
 pub fn http_get(uri: Uri) -> HttpGetResult {
     let header = format!("GET {} HTTP/1.1\r\nHost: {}{}", uri.path, uri.host, HEADER_SEPARATOR_STR);
-    http_get_with_header(uri, &header)
+    http_get_with_header(uri, header)
 }
 
-pub fn http_get_with_header(uri: Uri, header: &str) -> HttpGetResult {
-    let mut stream = TcpStream::connect((uri.host, uri.port)).unwrap();
-    stream.write(header.as_bytes()).unwrap();
-    let mut reader = BufReader::new(stream);
-    let header_result = read_header(&mut reader);
-    let sha256 = match header_result.content_length {
-        0 => None,
-        content_length => Some(sha256(&mut reader, content_length)),
-    };
-    HttpGetResult {
-        header_result,
-        sha256,
+pub fn http_get_with_header(uri: Uri, header: String) -> HttpGetResult {
+    let (_, receiver) = mpsc::channel::<HttpGetResult>();
+    thread::spawn(move || {
+        let mut stream = TcpStream::connect((uri.host, uri.port)).unwrap();
+        stream.write(header.as_bytes()).unwrap();
+        let mut reader = BufReader::new(stream);
+        let header_result = read_header(&mut reader);
+        let sha256 = match header_result.content_length {
+            0 => None,
+            content_length => Some(sha256(&mut reader, content_length)),
+        };
+        HttpGetResult {
+            header_result,
+            sha256,
+        }
+    });
+    match receiver.recv_timeout(Duration::from_millis(5000)) {
+        Ok(r) => r,
+        Err(e) => panic!("HTTP GET request timeout: {:?}", e),
     }
 }
 
