@@ -35,10 +35,21 @@ pub fn http_get(uri: Uri) -> HttpGetResult {
 }
 
 pub fn http_get_with_header(uri: Uri, header: String) -> HttpGetResult {
+    let pattern = ChunkPattern {
+        chunk_size: header.len(),
+        wait_interval: Duration::from_millis(0)
+    };
+    http_get_with_header_chunked(uri, header, pattern)
+}
+
+pub fn http_get_with_header_chunked(uri: Uri, header: String, pattern: ChunkPattern) -> HttpGetResult {
     let (_, receiver) = mpsc::channel::<HttpGetResult>();
     thread::spawn(move || {
         let mut stream = TcpStream::connect((uri.host, uri.port)).unwrap();
-        stream.write(header.as_bytes()).unwrap();
+        let header_bytes = header.as_bytes();
+        for header_chunk in header_bytes.chunks(pattern.chunk_size) {
+            stream.write(header_chunk).unwrap();
+        }
         let mut reader = BufReader::new(stream);
         let header_result = read_header(&mut reader);
         let sha256 = match header_result.content_length {
@@ -52,8 +63,13 @@ pub fn http_get_with_header(uri: Uri, header: String) -> HttpGetResult {
     });
     match receiver.recv_timeout(Duration::from_millis(5000)) {
         Ok(r) => r,
-        Err(e) => panic!("HTTP GET request timeout: {:?}", e),
+        Err(e) => panic!("Unable to obtain response from thread: {:?}", e),
     }
+}
+
+pub struct ChunkPattern {
+    pub chunk_size: usize,
+    pub wait_interval: Duration,
 }
 
 fn read_header(reader: &mut BufReader<TcpStream>) -> HeaderResult {

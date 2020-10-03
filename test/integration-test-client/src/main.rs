@@ -1,9 +1,28 @@
-use crate::http_client::{Uri, http_get, http_get_with_header};
+use crate::http_client::{Uri, http_get, http_get_with_header, http_get_with_header_chunked, ChunkPattern};
+use std::time::Duration;
 
 mod http_client;
 
 fn main() {
     test_malformed_header();
+    test_partial_header();
+}
+
+fn test_partial_header() {
+    // Sending the header in multiple TCP segments does not cause the server to crash
+    let uri = Uri {
+        host: "flexo-server-slow-primary".to_owned(),
+        path: "/community/os/x86_64/lostfiles-4.03-1-any.pkg.tar.xz".to_owned(),
+        port: 7878,
+    };
+    let malformed_header = "GET /foobar HTTP/1.1".to_owned();
+    let pattern = ChunkPattern {
+        chunk_size: 3,
+        wait_interval: Duration::from_millis(300),
+    };
+    let result = http_get_with_header_chunked(uri, malformed_header, pattern);
+    assert_eq!(result.header_result.status_code, 200);
+    println!("test_partial_header: [SUCCESS]")
 }
 
 fn test_malformed_header() {

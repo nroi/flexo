@@ -10,6 +10,9 @@ function print_output() {
   grep flexo-test $OUTPUT_FILE
 }
 
+# Wait a moment until all servers have started.
+sleep 3
+
 # Some test cases are written in this rust binary:
 /usr/bin/integration-test-client
 
