@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:1.43.1-buster as build
+FROM rust:1.46.0-buster as build
 
 WORKDIR /tmp
 
@@ -12,7 +12,7 @@ RUN tar xf integration-test-client.tar.gz
 
 WORKDIR /tmp/integration-test-client
 
-RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.43.1-buster,source=/usr/local/cargo \
+RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.46.0-buster,source=/usr/local/cargo \
     --mount=type=cache,target=/tmp/integration-test-client/target \
     cargo build --release && \
     cp /tmp/integration-test-client/target/release/integration-test-client /tmp/build_output/
