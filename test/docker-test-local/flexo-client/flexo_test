@@ -11,25 +11,6 @@ function print_success() {
   printf "%-50s %s\n" "$TESTCASE" "[SUCCESS]"
 }
 
-# ==============================================================================================================
-TESTCASE='flexo-test-persistent-connections-c2s'
-# Connections made from client-to-server (i.e., from pacman to flexo) should be persistent.
-## ==============================================================================================================
-
-declare -a curl_args
-for i in {0..99}; do
-  curl_args[i]="http://flexo-server-delay:7878/test_$i"
-done
-
-echo "downloading ${curl_args[*]}"
-
-# Downloading all 100 files within 1 second is taken as proof that curl can use persistent connections:
-# Since the server has a delay of 100 ms for each connection, 1 second would not suffice to serve all 100 files
-# if a new connection is established for each file.
-timeout -v 1 curl -v -f ${curl_args[*]} || fail_and_exit
-
-print_success
-
 ## ==============================================================================================================
 TESTCASE='flexo-test-persistent-connections-s2s'
 # Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.

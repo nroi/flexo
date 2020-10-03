@@ -16,7 +16,7 @@ sleep 3
 # Some test cases are written in this rust binary:
 /usr/bin/integration-test-client
 
-# other test cases are written in bash:
+# # other test cases are written in bash:
 if /root/flexo_test | tee $OUTPUT_FILE; then
   print_output
 else
