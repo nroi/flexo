@@ -7,17 +7,17 @@ mod http_client;
 const DEFAULT_PORT: u16 = 7878;
 
 fn main() {
-    test_malformed_header();
-    println!("test_malformed_header:           [SUCCESS]");
-    test_partial_header();
-    println!("test_partial_header:             [SUCCESS]");
-    test_persistent_connections_c2s();
-    println!("test_persistent_connections_c2s: [SUCCESS]");
-    test_persistent_connections_s2s();
-    println!("test_persistent_connections_s2s: [SUCCESS]");
+    flexo_test_malformed_header();
+    println!("flexo_test_malformed_header:           [SUCCESS]");
+    flexo_test_partial_header();
+    println!("flexo_test_partial_header:             [SUCCESS]");
+    flexo_test_persistent_connections_c2s();
+    println!("flexo_test_persistent_connections_c2s: [SUCCESS]");
+    flexo_test_persistent_connections_s2s();
+    println!("flexo_test_persistent_connections_s2s: [SUCCESS]");
 }
 
-fn test_partial_header() {
+fn flexo_test_partial_header() {
     // Sending the header in multiple TCP segments does not cause the server to crash
     let uri = GetRequestTest {
         conn_addr: ConnAddr {
@@ -40,7 +40,7 @@ fn test_partial_header() {
     assert_eq!(result.header_result.status_code, 200);
 }
 
-fn test_malformed_header() {
+fn flexo_test_malformed_header() {
     let malformed_header = "this is not a valid http header".to_owned();
     let uri1 = GetRequestTest {
         conn_addr: ConnAddr {
@@ -77,7 +77,7 @@ fn test_malformed_header() {
     assert_eq!(result.header_result.status_code, 200);
 }
 
-fn test_persistent_connections_c2s() {
+fn flexo_test_persistent_connections_c2s() {
     let request_test = GetRequestTest {
         conn_addr: ConnAddr {
             host: "flexo-server-delay".to_owned(),
@@ -105,7 +105,7 @@ fn test_persistent_connections_c2s() {
     assert!(all_ok);
 }
 
-fn test_persistent_connections_s2s() {
+fn flexo_test_persistent_connections_s2s() {
     // Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
     // We can test this only in an indirect manner: Based on the assumption that a short delay happens before
     // the flexo server can connect to the remote mirror, we conclude that if many files have been successfully
