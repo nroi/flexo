@@ -19,6 +19,7 @@ pub struct GetRequest {
 pub struct GetRequestTest {
     pub conn_addr: ConnAddr,
     pub get_requests: Vec<GetRequest>,
+    pub timeout: Option<Duration>,
 }
 
 pub enum ClientHeader {
@@ -49,6 +50,7 @@ pub fn http_get(request: GetRequestTest) -> Vec<HttpGetResult> {
 
 pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern: Option<ChunkPattern>) -> Vec<HttpGetResult> {
     let (sender, receiver) = mpsc::channel::<Vec<HttpGetResult>>();
+    let timeout = request_test.timeout.unwrap_or(Duration::from_millis(5000));
     thread::spawn(move || {
         let conn_addr = request_test.conn_addr.clone();
         let mut stream = TcpStream::connect((conn_addr.host, conn_addr.port)).unwrap();
@@ -78,7 +80,7 @@ pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern:
         }).collect::<Vec<HttpGetResult>>();
         sender.send(results)
     });
-    match receiver.recv_timeout(Duration::from_millis(5000)) {
+    match receiver.recv_timeout(timeout) {
         Ok(r) => r,
         Err(e) => panic!("Unable to obtain response from thread: {:?}", e),
     }

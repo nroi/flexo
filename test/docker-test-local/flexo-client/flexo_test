@@ -12,22 +12,6 @@ function print_success() {
 }
 
 ## ==============================================================================================================
-TESTCASE='flexo-test-persistent-connections-s2s'
-# Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
-## ==============================================================================================================
-
-for i in {0..99}; do
-  curl_args[i]="http://flexo-server-delay-primary:7878/test_$i"
-done
-
-echo "downloading ${curl_args[*]}"
-
-# See the previous test case for an explanation why we choose the timeout command.
-timeout 200 curl -s -f ${curl_args[*]} || fail_and_exit
-
-print_success
-
-## ==============================================================================================================
 TESTCASE="flexo-test-mirror-selection-slow-mirror"
 # If a remote mirror turns out to be very slow, flexo switches to another mirror.
 ## ==============================================================================================================
