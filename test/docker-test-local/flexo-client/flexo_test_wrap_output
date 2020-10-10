@@ -13,18 +13,19 @@ function print_output() {
 # Wait a moment until all servers have started.
 sleep 3
 
-# Some test cases are written in this rust binary:
-/usr/bin/integration-test-client
+# Some test cases are written in this shell script:
+/root/flexo_test
 
-# # other test cases are written in bash:
-if /root/flexo_test | tee $OUTPUT_FILE; then
+# other test cases are written in rust:
+if /usr/bin/integration-test-client | tee $OUTPUT_FILE; then
   print_output
+  echo 'all test cases have succeeded!'
 else
   echo 'A test case has failed!'
-  print_output
-  # exit 1
+  exit 1
+  # print_output
   # Using tail allows us to keep the container running: This can be helpful because it allows us to run an
   # interactive shell on the container and troubleshoot the failing test case.
-  /usr/bin/tail -f /dev/null
+  # /usr/bin/tail -f /dev/null
 fi
 
