@@ -39,9 +39,15 @@ pub struct HeaderResult {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
+pub struct BodyResult {
+    pub sha: Vec<u8>,
+    pub size: usize,
+}
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct HttpGetResult {
     pub header_result: HeaderResult,
-    pub sha256: Option<Vec<u8>>,
+    pub payload_result: Option<BodyResult>,
 }
 
 pub fn http_get(request: GetRequestTest) -> Vec<HttpGetResult> {
@@ -51,6 +57,7 @@ pub fn http_get(request: GetRequestTest) -> Vec<HttpGetResult> {
 pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern: Option<ChunkPattern>) -> Vec<HttpGetResult> {
     let (sender, receiver) = mpsc::channel::<Vec<HttpGetResult>>();
     let timeout = request_test.timeout.unwrap_or(Duration::from_millis(5000));
+    println!(">>> timeout: {:?}", timeout);
     thread::spawn(move || {
         let conn_addr = request_test.conn_addr.clone();
         let mut stream = TcpStream::connect((conn_addr.host, conn_addr.port)).unwrap();
@@ -69,13 +76,13 @@ pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern:
                 stream.write(header_chunk).unwrap();
             }
             let header_result = read_header(&mut stream);
-            let sha256 = match header_result.content_length {
+            let payload_result = match header_result.content_length {
                 0 => None,
-                content_length => Some(sha256(&mut stream, content_length)),
+                content_length => Some(body_result(&mut stream, content_length)),
             };
             HttpGetResult {
                 header_result,
-                sha256,
+                payload_result,
             }
         }).collect::<Vec<HttpGetResult>>();
         sender.send(results)
@@ -118,7 +125,7 @@ fn read_header(stream: &mut TcpStream) -> HeaderResult {
     }
 }
 
-fn sha256(stream: &mut TcpStream, content_length: usize) -> Vec<u8> {
+fn body_result(stream: &mut TcpStream, content_length: usize) -> BodyResult {
     let mut hasher = Sha256::new();
     let payload = &mut[0; BUF_SIZE];
     let mut size_read = 0;
@@ -131,7 +138,10 @@ fn sha256(stream: &mut TcpStream, content_length: usize) -> Vec<u8> {
             Err(e) => panic!("Unable to read header: {:?}", e),
         }
     }
-    hasher.finalize().to_vec()
+    BodyResult {
+        sha: hasher.finalize().to_vec(),
+        size: size_read,
+    }
 }
 
 fn content_length(header: &[u8]) -> usize {
