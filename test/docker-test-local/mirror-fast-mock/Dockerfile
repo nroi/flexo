@@ -7,4 +7,3 @@ RUN dd if=/dev/zero of=/usr/share/nginx/html/zero bs=8192M count=1
 
 COPY create_test_files /root
 RUN /root/create_test_files
-
