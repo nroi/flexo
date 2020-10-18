@@ -16,9 +16,6 @@ if [ "$FLEXO_TEST_MODE" = 'INTEGRATION_TEST' ]; then
   # Wait a moment until all servers have started.
   sleep 3
 
-  # Some test cases are written in this shell script:
-  /root/flexo_test
-
   # other test cases are written in rust:
   if /usr/bin/integration-test-client | tee $OUTPUT_FILE; then
     print_output

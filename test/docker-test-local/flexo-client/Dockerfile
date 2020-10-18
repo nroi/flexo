@@ -30,7 +30,6 @@ RUN tar -C /tmp -xf /tmp/pkg.tar && \
     cp /tmp/community/os/x86_64/community.db /var/lib/pacman/sync
 
 COPY ./flexo_test_wrap_output /root/flexo_test_wrap_output
-COPY ./flexo_test /root/flexo_test
 
 COPY packages/libbsd-0.10.0-2-x86_64.pkg.tar.zst /root
 COPY packages/openbsd-netcat-1.206_1-1-x86_64.pkg.tar.zst /root

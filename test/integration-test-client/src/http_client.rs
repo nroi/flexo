@@ -58,7 +58,6 @@ pub fn http_get(request: GetRequestTest) -> Vec<HttpGetResult> {
 pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern: Option<ChunkPattern>) -> Vec<HttpGetResult> {
     let (sender, receiver) = mpsc::channel::<Vec<HttpGetResult>>();
     let timeout = request_test.timeout.unwrap_or(Duration::from_millis(5000));
-    println!(">>> timeout: {:?}", timeout);
     thread::spawn(move || {
         let conn_addr = request_test.conn_addr.clone();
         let mut stream = TcpStream::connect((conn_addr.host, conn_addr.port)).unwrap();
