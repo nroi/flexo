@@ -53,6 +53,8 @@ services:
   flexo-client:
     build: flexo-client
     container_name: flexo-client
+    environment:
+      FLEXO_TEST_MODE: ${FLEXO_TEST_MODE}
     depends_on:
       - flexo-server
       - mirror-delay-mock

@@ -10,22 +10,30 @@ function print_output() {
   grep flexo-test $OUTPUT_FILE
 }
 
-# Wait a moment until all servers have started.
-sleep 3
+echo "FLEXO_TEST_MODE=$FLEXO_TEST_MODE"
 
-# Some test cases are written in this shell script:
-/root/flexo_test
+if [ "$FLEXO_TEST_MODE" = 'INTEGRATION_TEST' ]; then
+  # Wait a moment until all servers have started.
+  sleep 3
 
-# other test cases are written in rust:
-if /usr/bin/integration-test-client | tee $OUTPUT_FILE; then
-  print_output
-  echo 'all test cases have succeeded!'
+  # Some test cases are written in this shell script:
+  /root/flexo_test
+
+  # other test cases are written in rust:
+  if /usr/bin/integration-test-client | tee $OUTPUT_FILE; then
+    print_output
+    echo 'All test cases have succeeded!'
+  else
+    echo 'A test case has failed!'
+    exit 1
+    # print_output
+    # Using tail allows us to keep the container running: This can be helpful because it allows us to run an
+    # interactive shell on the container and troubleshoot the failing test case.
+    # /usr/bin/tail -f /dev/null
+  fi
 else
-  echo 'A test case has failed!'
-  exit 1
-  # print_output
-  # Using tail allows us to keep the container running: This can be helpful because it allows us to run an
-  # interactive shell on the container and troubleshoot the failing test case.
-  # /usr/bin/tail -f /dev/null
+  # If INTEGRATION_TEST has not been specified, then we just keep all containers running with the following statement:
+  tail -f /dev/null
+  # This can be useful to just interactively run commands inside the various docker containers and try things out
+  # or troubleshoot issues.
 fi
-

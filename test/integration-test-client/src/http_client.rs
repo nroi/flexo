@@ -36,6 +36,7 @@ const HEADER_SEPARATOR_STR: &str = "\r\n\r\n";
 pub struct HeaderResult {
     pub status_code: u32,
     pub content_length: usize,
+    pub cached: bool,
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
@@ -119,9 +120,11 @@ fn read_header(stream: &mut TcpStream) -> HeaderResult {
     let header_bytes = &payload[..size_read - HEADER_SEPARATOR.len()];
     let content_length = content_length(header_bytes);
     let status_code = status_code(header_bytes);
+    let cached = cached(header_bytes);
     HeaderResult {
         status_code,
         content_length,
+        cached,
     }
 }
 
@@ -145,16 +148,13 @@ fn body_result(stream: &mut TcpStream, content_length: usize) -> BodyResult {
 }
 
 fn content_length(header: &[u8]) -> usize {
-    let keyword = b"Content-Length: ";
-    let start_idx = header
-        .windows(keyword.len())
-        .position(|header_part| header_part == keyword).unwrap() + keyword.len();
-    let end_idx = header[start_idx..]
-        .iter()
-        .position(|header_part| header_part == &b'\r').map(|i| i + start_idx)
-        .unwrap_or(header.len());
-    let content_length = &header[start_idx..end_idx];
-    std::string::String::from_utf8(Vec::from(content_length)).unwrap().parse::<usize>().unwrap()
+    let content_length = get_header_value(header, b"Content-Length: ");
+    content_length.parse::<usize>().unwrap()
+}
+
+fn cached(header: &[u8]) -> bool {
+    let payload_origin = get_header_value(header, b"Flexo-Payload-Origin: ");
+    payload_origin == "Cache"
 }
 
 fn status_code(header: &[u8]) -> u32 {
@@ -169,4 +169,16 @@ fn status_code(header: &[u8]) -> u32 {
         .unwrap() + start_idx;
     let status_code = &header[start_idx..end_idx];
     std::string::String::from_utf8(Vec::from(status_code)).unwrap().parse::<u32>().unwrap()
+}
+
+fn get_header_value(header: &[u8], keyword: &[u8]) -> String {
+    let start_idx = header
+        .windows(keyword.len())
+        .position(|header_part| header_part == keyword).unwrap() + keyword.len();
+    let end_idx = header[start_idx..]
+        .iter()
+        .position(|header_part| header_part == &b'\r').map(|i| i + start_idx)
+        .unwrap_or(header.len());
+    let content_length = &header[start_idx..end_idx];
+    std::string::String::from_utf8(Vec::from(content_length)).unwrap()
 }
