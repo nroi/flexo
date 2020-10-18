@@ -53,6 +53,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex-literal"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5af1f635ef1bc545d78392b136bfe1c9809e029023c84a3638a864a10b8819c8"
+
+[[package]]
 name = "http"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -67,6 +73,7 @@ dependencies = [
 name = "integration-test-client"
 version = "0.1.0"
 dependencies = [
+ "hex-literal",
  "http",
  "sha2",
 ]
