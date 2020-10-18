@@ -30,7 +30,7 @@ pub enum ClientHeader {
 const BUF_SIZE: usize = 4096;
 
 const HEADER_SEPARATOR: &[u8; 4] = b"\r\n\r\n";
-const HEADER_SEPARATOR_STR: &str = "\r\n\r\n";
+pub const HEADER_SEPARATOR_STR: &str = "\r\n\r\n";
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct HeaderResult {
