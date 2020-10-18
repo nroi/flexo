@@ -40,6 +40,13 @@ const MAX_SENDFILE_COUNT: usize = 0x7fff_f000;
 #[cfg(test)]
 const MAX_SENDFILE_COUNT: usize = 128;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum PayloadOrigin {
+    Cache,
+    RemoteMirror,
+    NoPayload,
+}
+
 fn main() {
     env_logger::init();
 
@@ -337,8 +344,8 @@ fn content_length_from_path(path: &Path) -> Result<Option<u64>, FileAttrError> {
 
 fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Option<u64>, stream: &mut TcpStream) {
     let header = match resume_from {
-        None => reply_header_success(content_length),
-        Some(r) => reply_header_partial(content_length, r)
+        None => reply_header_success(content_length, PayloadOrigin::RemoteMirror),
+        Some(r) => reply_header_partial(content_length, r, PayloadOrigin::RemoteMirror)
     };
     stream.write_all(header.as_bytes()).unwrap();
     let resume_from = resume_from.unwrap_or(0);
@@ -391,35 +398,38 @@ fn serve_403_header(stream: &mut TcpStream) {
 }
 
 fn serve_200_ok_empty(stream: &mut TcpStream) {
-    let header = reply_header_success(0);
-    stream.write_all(header.as_bytes()).unwrap();
+    let header = reply_header_success(0, PayloadOrigin::NoPayload);
+    stream.write_all(header.as_bytes()).unwrap()
 }
 
-fn reply_header_success(content_length: u64) -> String {
-    reply_header("200 OK", content_length, None)
+fn reply_header_success(content_length: u64, payload_origin: PayloadOrigin) -> String {
+    reply_header("200 OK", content_length, None, payload_origin)
 }
 
-fn reply_header_partial(content_length: u64, resume_from: u64) -> String {
-    reply_header("206 Partial Content", content_length, Some(resume_from))
+fn reply_header_partial(content_length: u64, resume_from: u64, payload_origin: PayloadOrigin) -> String {
+    reply_header("206 Partial Content", content_length, Some(resume_from), payload_origin)
 }
 
 fn reply_header_not_found() -> String {
-    reply_header("404 Not Found", 0, None)
+    reply_header("404 Not Found", 0, None, PayloadOrigin::NoPayload)
 }
 
 fn reply_header_bad_request() -> String {
-    reply_header("400 Bad Request", 0, None)
+    reply_header("400 Bad Request", 0, None, PayloadOrigin::NoPayload)
 }
 
 fn reply_header_internal_server_error() -> String {
-    reply_header("500 Internal Server Error", 0, None)
+    reply_header("500 Internal Server Error", 0, None, PayloadOrigin::NoPayload)
 }
 
 fn reply_header_forbidden() -> String {
-    reply_header("403 Forbidden", 0, None)
+    reply_header("403 Forbidden", 0, None, PayloadOrigin::NoPayload)
 }
 
-fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>) -> String {
+fn reply_header(status_line: &str,
+                content_length: u64,
+                resume_from: Option<u64>,
+                payload_origin: PayloadOrigin) -> String {
     let now = time::now_utc();
     let timestamp = now.rfc822();
     let content_range_header = resume_from.map(|r| {
@@ -431,8 +441,15 @@ fn reply_header(status_line: &str, content_length: u64, resume_from: Option<u64>
         HTTP/1.1 {}\r\n\
         Server: flexo\r\n\
         Date: {}\r\n\
+        Flexo-Payload-Origin: {:?}\r\n\
         {}\
-        Content-Length: {}\r\n\r\n", status_line, timestamp, content_range_header, content_length);
+        Content-Length: {}\r\n\r\n",
+                         status_line,
+                         timestamp,
+                         payload_origin,
+                         content_range_header,
+                         content_length
+    );
     debug!("Sending header to client: {:?}", &header);
 
     header
@@ -455,8 +472,8 @@ fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &m
     let filesize = file.metadata().unwrap().len();
     let content_length = filesize - resume_from.unwrap_or(0);
     let header = match resume_from {
-        None => reply_header_success(content_length),
-        Some(r) => reply_header_partial(content_length, r)
+        None => reply_header_success(content_length, PayloadOrigin::Cache),
+        Some(r) => reply_header_partial(content_length, r, PayloadOrigin::Cache)
     };
     stream.write_all(header.as_bytes()).unwrap();
     let bytes_sent = resume_from.unwrap_or(0) as i64;
