@@ -88,6 +88,9 @@ pub trait Provider where
     fn identifier(&self) -> &<<Self as Provider>::J as Job>::PI;
     fn score(&self) -> <<Self as Provider>::J as Job>::S;
 
+    /// A short description which will be used in log messages.
+    fn description(&self) -> String;
+
     fn punish(self, mut failures: MutexGuard<HashMap<Self, i32>>) {
         let value = failures.entry(self).or_insert(0);
         *value += 1;
@@ -122,14 +125,14 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(channel) => {
-                debug!("Reusing previous channel: {:?}", &self.provider());
+                info!("Reusing previous connection from {}", &self.provider().description());
                 let result = self.order().reuse_channel(self.properties(), tx, last_chance, channel);
                 result.map(|new_channel| {
                     (new_channel, ChannelEstablishment::ExistingChannel)
                 })
             }
             None => {
-                debug!("need to create new channel: {:?}", &self.provider());
+                info!("Establish a new connection to {:?}", &self.provider().description());
                 let channel = self.order().new_channel(self.properties(), tx, last_chance);
                 channel.map(|c| {
                     (c, ChannelEstablishment::NewChannel)
@@ -186,13 +189,15 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
+                debug!("Obtain lock on provider_current_usages…");
                 let mut provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
+                debug!("Got lock on provider_current_usages.");
                 let value = provider_current_usages.entry(provider.clone()).or_insert(0);
                 *value += 1;
             }
             let self_cloned: Self = self.clone();
             let job = provider.new_job(&properties, self_cloned);
-            debug!("Attempt to obtain new channel");
+            debug!("Attempt to establish new connection");
             let channel_result = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let result = match channel_result {
                 Ok((c, ce)) => {
@@ -200,6 +205,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     job.serve_from_provider(c, properties.clone(), cached_size)
                 }
                 Err(e) => {
+                    warn!("Error while attempting to establish a new connection: {:?}", e);
                     let _ = tx.send(FlexoMessage::OrderError);
                     let _ = tx_progress.send(FlexoProgress::OrderError);
                     job.handle_error(e)
@@ -207,6 +213,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             };
             match &result {
                 JobResult::Complete(_) => {
+                    debug!("Job completed: Rewarding provider {}", provider.description());
                     provider.clone().reward(provider_stats.provider_failures.lock().unwrap());
                 },
                 JobResult::Partial(partial_job) => {
@@ -223,9 +230,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     info!("Order is not available, let's try again with a different provider.")
                 },
                 JobResult::ClientError => {
+                    warn!("Unable to finish job: {:?}", &result);
                     break result;
                 },
                 JobResult::UnexpectedInternalError => {
+                    warn!("Unable to finish job: {:?}", &result);
                     break result;
                 },
             };

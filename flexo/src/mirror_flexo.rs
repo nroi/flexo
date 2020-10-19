@@ -138,6 +138,10 @@ impl Provider for DownloadProvider {
     fn score(&self) -> MirrorResults {
         self.mirror_results
     }
+
+    fn description(&self) -> String {
+        self.uri.to_string()
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
@@ -327,11 +331,12 @@ impl Job for DownloadJob {
                 channel.handle.resume_from(start).unwrap();
             }
         }
+        info!("Start download from {}", self.provider.description());
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
+                info!("{} replied with status code {}.", self.provider.description(), response_code);
                 if response_code >= 200 && response_code < 300 {
-                    debug!("Received header from provider, status OK");
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
                 } else if response_code == 404 {
@@ -385,7 +390,7 @@ impl Job for DownloadJob {
         info!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
         if f.is_err() {
-            debug!("Unable to create file: {:?}", f);
+            warn!("Unable to create file: {:?}", f);
         }
         let f = f?;
         let size_written = f.metadata()?.len();
@@ -503,6 +508,9 @@ impl Handler for DownloadState {
             None => {
                 unreachable!("The header should have been parsed before this function is called");
             }
+        }
+        if job_resources.file_state.size_written == 0 {
+            info!("Starting to transfer body to file {}", self.job_state.order.filepath.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write(data) {

@@ -59,6 +59,10 @@ impl Provider for DummyProvider {
             DummyProvider::PartialCompletion(p) => p.score,
         }
     }
+
+    fn description(&self) -> String {
+        "DummyProvider".to_owned()
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
