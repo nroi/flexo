@@ -125,7 +125,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(channel) => {
-                info!("Reusing previous connection from {}", &self.provider().description());
+                info!("Attempt to reuse previous connection from {}", &self.provider().description());
                 let result = self.order().reuse_channel(self.properties(), tx, last_chance, channel);
                 result.map(|new_channel| {
                     (new_channel, ChannelEstablishment::ExistingChannel)
