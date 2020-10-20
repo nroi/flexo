@@ -10,7 +10,7 @@ switch from one mirror to another if a mirror turns out to be too slow.
 * If you have multiple machines running ArchLinux, and you don't want each machine to download
 and store the packages: You can just set flexo as your new ArchLinux mirror so that no file needs
 to be downloaded more than once.
-* If you run ArchLinux inside docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just run this command on the docker container:
+* If you run ArchLinux inside docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just install Flexo on the host and run this command on the docker container:
     ````
     echo 'Server = http://172.17.0.1:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     ````
@@ -44,7 +44,7 @@ client having to wait.
 mirror when the same file is downloaded by multiple clients. For instance, suppose a client starts downloading
 a given file. After 5 seconds have elapsed, 100MB have been downloaded. Now, a second client requests the same file. The second client will receive the first 100MB immediately from the local file system. Then, both clients continue to download
 the file, while only a single connection to the remote mirror exists. This means that your bandwidth is not split
-for the two clients, both will be able to download the file with the full download speed provided by your ISP.
+for the two clients, both clients will be able to download the file with the full download speed provided by your ISP.
 * Persistent connections: This is especially useful when many small files are downloaded, since no new TLS negotation
 is required for each file.
 
@@ -63,18 +63,6 @@ uncomment the setting and enter an appropriate value.
 * Robust: Flexo includes certain functions to allow it to switch from one mirror to another if a
 mirror is too slow or causes other issues.
 * Simple: Users should not require more than a few minutes to set up flexo and understand what it does.
-
-## Switching from cpcache to flexo
-
-If you have previously used cpcache, please note the following changes between cpcache and flexo:
-* Flexo uses port `7878`, while cpcache uses `7070`. Make sure to change this port in `/etc/pacman.d/mirrorlist`.
-* The configuration file `/etc/flexo/flexo.toml` is mostly the same as `/etc/cpcache/cpcache.toml`,
-but they are not identical! So don't just copy the TOML file from cpcache to `/etc/flexo/flexo.toml`.
-Instead, you should start with the default file and manually transfer all settings from your cpcache
-config to the new TOML file.
-* Running flexo in ARM devices like the Raspberry PI has not been tested yet. You can just try to build
-the package from [AUR](https://aur.archlinux.org/packages/flexo-git/) and see if it works. Feel free
-to leave a comment on this [issue](https://github.com/nroi/flexo/issues/14) to describe if it works.
 
 ## Cleaning the package cache
 
@@ -130,16 +118,19 @@ As a result, a failing end-to-end
 test may indicate that a new bug was introduced, but it might also have been bad luck or a badly written test case.
 
 In order to run the Docker test cases, run the shell script to set up everything:
-    ```
-    cd test/docker-test-local
-    ./docker-compose
-    ```
-    Most of the output is relevant only if you need to investigate failing test cases. The outcome
-    of all test cases is shown towards the end:
-    ```
-    flexo-client_1  | Test summary:
-    flexo-client_1  | flexo-test-install                       [SUCCESS]
-    flexo-client_1  | flexo-test-install-cached                [SUCCESS]
-    flexo-client_1  | flexo-test-download-cached-concurrently  [SUCCESS]
-    flexo-client_1  | flexo-test-download-concurrently         [SUCCESS]
-   ```
+
+```
+cd test/docker-test-local
+./docker-compose
+```
+
+Most of the output is relevant only if you need to investigate failing test cases. The outcome
+of all test cases is shown towards the end:
+
+```
+flexo-client_1  | Test summary:
+flexo-client_1  | flexo-test-install                       [SUCCESS]
+flexo-client_1  | flexo-test-install-cached                [SUCCESS]
+flexo-client_1  | flexo-test-download-cached-concurrently  [SUCCESS]
+flexo-client_1  | flexo-test-download-concurrently         [SUCCESS]
+```
