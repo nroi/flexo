@@ -62,3 +62,5 @@ services:
     # We want both containers to share the same network device: This way, we can use tcpdump on the client to check
     # if the server uses persistent connections.
     network_mode: "service:flexo-server"
+    # Enable colorized output for our test cases.
+    tty: true
