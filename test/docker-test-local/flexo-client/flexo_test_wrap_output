@@ -8,7 +8,7 @@ if [ "$FLEXO_TEST_MODE" = 'INTEGRATION_TEST' ]; then
   # Wait a moment until all servers have started.
   sleep 3
 
-  /usr/bin/integration-test-client
+  RUST_BACKTRACE=full /usr/bin/integration-test-client
 else
   # If INTEGRATION_TEST has not been specified, then we just keep all containers running with the following statement:
   tail -f /dev/null

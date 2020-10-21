@@ -37,13 +37,13 @@ enum TestOutcome {
 
 fn main() {
 
-
     let flexo_test_run_only = match std::env::var("FLEXO_TEST_RUN_ONLY") {
+        Ok(n) if n.is_empty() => None,
+        Err(_) => None,
         Ok(n) => Some(n),
-        Err(_) => None
     };
 
-    let tests: Vec<FlexoTest> = vec![
+    let all_tests: Vec<FlexoTest> = vec![
         FlexoTest {
             description: "flexo_test_partial_header",
             action: flexo_test_partial_header,
@@ -84,13 +84,18 @@ fn main() {
             description: "flexo_test_download_large_file_cached_resume",
             action: flexo_test_download_large_file_cached_resume,
         },
-    ].into_iter().filter(|test| match &flexo_test_run_only {
+    ];
+    let tests: Vec<FlexoTest> = all_tests.into_iter().filter(|test| match &flexo_test_run_only {
         Some(f) =>
             test.description == f,
         None =>
             // if the environment variable was not specified, run all tests.
             true,
     }).collect();
+    if tests.is_empty() {
+        println!("No tests match the specified criteria.");
+        return;
+    }
     let max_len = tests.iter().map(|t| t.description.chars().count()).max().unwrap();
 
     let mut path_generator = PathGenerator {
@@ -315,6 +320,9 @@ fn download_large_file() -> Vec<HttpGetResult> {
 }
 
 fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenerator) {
+    // The resume feature can only be used when the file is already cached, so we download it before continuing
+    // with the actual test:
+    download_large_file();
     let start_byte = 6291456;
     let remaining_size = LARGE_FILE_SIZE - start_byte;
     let header = format!("GET {} HTTP/1.1\r\nHost: {}\r\nRange: bytes={}-{}",
