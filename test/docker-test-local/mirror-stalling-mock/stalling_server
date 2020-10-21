@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Simulate a stalling server: Just listen for incoming connections, ignore the input, and never reply.
+nc -l -k 0.0.0.0 80 > /dev/null

@@ -9,6 +9,9 @@ services:
   mirror-delay-mock:
     build: mirror-delay-mock
     container_name: mirror-delay-mock
+  mirror-stalling-mock:
+    build: mirror-stalling-mock
+    container_name: mirror-stalling-mock
   flexo-server:
     build: flexo-server
     container_name: flexo-server
@@ -50,6 +53,11 @@ services:
     container_name: flexo-server-delay-primary
     depends_on:
       - mirror-delay-mock
+  flexo-server-mirror-stalling:
+    build: flexo-server-mirror-stalling
+    container_name: flexo-server-mirror-stalling
+    depends_on:
+      - mirror-stalling-mock
   flexo-client:
     build: flexo-client
     container_name: flexo-client
