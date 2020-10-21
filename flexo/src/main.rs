@@ -48,7 +48,7 @@ enum PayloadOrigin {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::builder().format_timestamp_millis().init();
 
     // Exit the entire process when a single thread panics:
     let hook = std::panic::take_hook();
@@ -152,7 +152,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         // TODO we should not immediately return 500, and instead try another mirror.
                         // TODO the problem is that the entire logic about retrying other mirrors is
                         // inside lib.rs
-                        eprintln!("Timeout: Unable to obtain content length.");
+                        error!("Timeout: Unable to obtain content length.");
                         serve_500_header(stream);
                     },
                 }
