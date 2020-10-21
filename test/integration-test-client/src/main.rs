@@ -37,6 +37,12 @@ enum TestOutcome {
 
 fn main() {
 
+
+    let flexo_test_run_only = match std::env::var("FLEXO_TEST_RUN_ONLY") {
+        Ok(n) => Some(n),
+        Err(_) => None
+    };
+
     let tests: Vec<FlexoTest> = vec![
         FlexoTest {
             description: "flexo_test_partial_header",
@@ -45,10 +51,6 @@ fn main() {
         FlexoTest {
             description: "flexo_test_malformed_header",
             action: flexo_test_malformed_header,
-        },
-        FlexoTest {
-            description: "flexo_test_partial_header",
-            action: flexo_test_partial_header,
         },
         FlexoTest {
             description: "flexo_test_persistent_connections_c2s",
@@ -82,7 +84,13 @@ fn main() {
             description: "flexo_test_download_large_file_cached_resume",
             action: flexo_test_download_large_file_cached_resume,
         },
-    ];
+    ].into_iter().filter(|test| match &flexo_test_run_only {
+        Some(f) =>
+            test.description == f,
+        None =>
+            // if the environment variable was not specified, run all tests.
+            true,
+    }).collect();
     let max_len = tests.iter().map(|t| t.description.chars().count()).max().unwrap();
 
     let mut path_generator = PathGenerator {
