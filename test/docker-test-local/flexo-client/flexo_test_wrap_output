@@ -4,11 +4,13 @@ set -o pipefail
 
 echo "FLEXO_TEST_MODE=$FLEXO_TEST_MODE"
 
+export RUST_BACKTRACE=full
+
 if [ "$FLEXO_TEST_MODE" = 'INTEGRATION_TEST' ]; then
   # Wait a moment until all servers have started.
   sleep 3
 
-  RUST_BACKTRACE=full /usr/bin/integration-test-client
+  exec /usr/bin/integration-test-client
 else
   # If INTEGRATION_TEST has not been specified, then we just keep all containers running with the following statement:
   tail -f /dev/null

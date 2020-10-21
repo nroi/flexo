@@ -139,11 +139,22 @@ fn main() {
         };
         println!("{}:{}[{}]", testname, padding, colored_suffix.green());
     }
-    match num_failures {
-        0 => println!("All test cases have succeeded!"),
-        1 => println!("A test case has failed!"),
-        _ => println!("{} test cases have failed!", num_failures),
-    }
+    let exit_code = match num_failures {
+        0 => {
+            println!("All test cases have succeeded!");
+            0
+        },
+        1 => {
+            println!("A test case has failed!");
+            1
+        },
+        _ => {
+            println!("{} test cases have failed!", num_failures);
+            1
+        }
+    };
+
+    std::process::exit(exit_code);
 }
 
 fn flexo_test_malformed_header(_path_generator: &mut PathGenerator) {
@@ -446,13 +457,12 @@ fn flexo_test_mirror_stalling(path_generator: &mut PathGenerator) {
             port: DEFAULT_PORT,
         },
         get_requests,
-        timeout: Some(Duration::from_millis(2_000)),
+        timeout: Some(Duration::from_millis(5_000)),
     };
     let results = http_get(request_test);
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
-    assert_eq!(result.payload_result.as_ref().unwrap().size, 7);
 }
 
 

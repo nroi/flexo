@@ -4,7 +4,6 @@ export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
 
 docker-compose down
-docker-compose build
 
 tar -C ../../ -czvf flexo-server/flexo.tar.gz flexo/src flexo/Cargo.toml flexo/Cargo.lock
 cp flexo-server/flexo.tar.gz flexo-server-slow-primary/
