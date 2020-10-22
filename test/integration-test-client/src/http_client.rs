@@ -56,6 +56,7 @@ pub fn http_get(request: GetRequestTest) -> Vec<HttpGetResult> {
 }
 
 pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern: Option<ChunkPattern>) -> Vec<HttpGetResult> {
+    let host = request_test.conn_addr.host.clone();
     let (sender, receiver) = mpsc::channel::<Vec<HttpGetResult>>();
     let timeout = request_test.timeout.unwrap_or(Duration::from_millis(5000));
     thread::spawn(move || {
@@ -87,9 +88,13 @@ pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern:
         }).collect::<Vec<HttpGetResult>>();
         sender.send(results)
     });
+    info!("Waiting for response from thread for request at host {}, Timeout is {:?}", host, timeout);
     match receiver.recv_timeout(timeout) {
         Ok(r) => r,
-        Err(e) => panic!("Unable to obtain response from thread: {:?}", e),
+        Err(e) => {
+            error!("Unable to obtain response from thread: {:?}", e);
+            panic!("Unable to obtain response from thread: {:?}", e);
+        },
     }
 }
 

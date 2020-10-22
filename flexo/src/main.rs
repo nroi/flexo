@@ -79,7 +79,9 @@ fn main() {
         debug!("Established connection with client.");
         let job_context = job_context.clone();
         let properties = properties.clone();
+        debug!("All set, spawning new thread.");
         std::thread::spawn(move || {
+            debug!("Started new thread.");
             serve_client(job_context, stream, properties)
         });
     }
@@ -176,7 +178,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
 fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) -> Result<(), ClientError> {
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
-        debug!("Read header from client.");
+        debug!("Reading header from client.");
         let result = read_client_header(&mut stream);
         match result {
             Ok(get_request) => {
@@ -284,7 +286,7 @@ enum ContentLengthResult {
 
 fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthResult, ContentLengthError> {
     loop {
-        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        match rx.recv_timeout(std::time::Duration::from_secs(6)) {
             Ok(FlexoProgress::JobSize(content_length)) => {
                 break Ok(ContentLengthResult::ContentLength(content_length));
             }

@@ -40,7 +40,7 @@ const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\
 
 const CURLE_OPERATION_TIMEDOUT: u32 = 28;
 
-const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 4;
+const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -305,12 +305,14 @@ impl Job for DownloadJob {
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
+        // TODO avoid hardcoded values, make this configurable.
         channel.handle.connect_timeout(Duration::from_secs(3));
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
                 channel.handle.low_speed_limit(speed).unwrap();
                 let low_speed_time_secs = properties.low_speed_time_secs.unwrap_or(DEFAULT_LOW_SPEED_TIME_SECS);
+                debug!("Set low_speed_time to {} seconds.", low_speed_time_secs);
                 channel.handle.low_speed_time(std::time::Duration::from_secs(low_speed_time_secs)).unwrap();
             },
         }
@@ -539,7 +541,7 @@ impl Handler for DownloadState {
             Ok(Status::Complete(_header_size)) => {
                 debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
-                debug!("code is {}", code);
+                debug!("HTTP response code is {}", code);
                 if code == 200 || code == 206 {
                     let content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
@@ -548,6 +550,7 @@ impl Handler for DownloadState {
                             None
                         }
                     ).unwrap();
+                    debug!("Content length is {}", content_length);
                     job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
                     let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     let key = OsString::from("user.content_length");
@@ -560,6 +563,7 @@ impl Handler for DownloadState {
                     // provider_content_length = the content length we send to the provider.
                     let client_content_length = size_written + content_length;
                     let value = format!("{}", client_content_length);
+                    debug!("Setting the extended file attribute");
                     xattr::set(path, &key, &value.as_bytes())
                         .expect("Unable to set extended file attributes");
                     debug!("Sending content length: {}", client_content_length);
