@@ -626,11 +626,13 @@ impl Channel for DownloadChannel {
 pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+    debug!("Mirrors will be filtered according to the following criteria: {:?}", mirrors_auto);
     let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
         .into_iter()
         .filter(|x| x.filter_predicate(&mirrors_auto))
         .take(mirrors_auto.num_mirrors)
         .collect();
+    debug!("Running latency tests on the following mirrors: {:?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
     let timeout = Duration::from_millis(mirrors_auto.timeout);
     for mirror in filtered_mirror_urls.into_iter() {

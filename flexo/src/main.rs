@@ -229,7 +229,7 @@ pub enum ProviderSelectionError {
 
 fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<DownloadJob>, ProviderSelectionError> {
     let providers: Vec<DownloadProvider> = rated_providers(&properties);
-    debug!("mirrors: {:#?}", providers);
+    debug!("Mirror latency test results: {:#?}", providers);
     if providers.is_empty() {
         return Err(ProviderSelectionError::NoProviders)
     }
