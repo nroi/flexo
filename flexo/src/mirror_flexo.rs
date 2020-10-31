@@ -24,6 +24,8 @@ use std::io::{Read, ErrorKind, Write};
 use std::path::Path;
 use std::string::FromUtf8Error;
 use std::num::ParseIntError;
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use serde::ser::SerializeStruct;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -108,9 +110,9 @@ impl GetRequest {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
-    pub uri: Uri,
+    pub uri: String,
     pub mirror_results: MirrorResults,
     pub country: String,
 }
@@ -119,8 +121,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri_string = format!("{}{}", self.uri, order.filepath.to_str());
-        let uri = uri_string.parse::<Uri>().unwrap();
+        let uri = format!("{}{}", self.uri, order.filepath.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -131,7 +132,7 @@ impl Provider for DownloadProvider {
         }
     }
 
-    fn identifier(&self) -> &Uri {
+    fn identifier(&self) -> &String {
         &self.uri
     }
 
@@ -140,11 +141,11 @@ impl Provider for DownloadProvider {
     }
 
     fn description(&self) -> String {
-        self.uri.to_string()
+        self.uri.clone()
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
+#[derive(Serialize, PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
 pub struct MirrorResults {
     pub total_time: Duration,
     pub namelookup_duration: Duration,
@@ -174,7 +175,7 @@ pub enum DownloadJobError {
 #[derive(Debug)]
 pub struct DownloadJob {
     provider: DownloadProvider,
-    uri: Uri,
+    uri: String,
     order: DownloadOrder,
     properties: MirrorConfig,
 }
@@ -223,7 +224,7 @@ impl Job for DownloadJob {
     type O = DownloadOrder;
     type P = DownloadProvider;
     type E = DownloadJobError;
-    type PI = Uri;
+    type PI = String;
     type PR = MirrorConfig;
     type OE = OrderError;
 
@@ -649,11 +650,20 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
         DownloadProvider {
-            uri: mirror.url.parse::<Uri>().unwrap(),
+            uri: mirror.url,
             mirror_results,
             country: mirror.country,
         }
     }).collect()
+}
+
+pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    todo!("TODO")
+}
+
+pub fn rate_providers_cached(download_providers: Vec<DownloadProvider>,
+                             mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    todo!("TODO")
 }
 
 pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {

@@ -30,7 +30,7 @@ use libc::off64_t;
 
 #[cfg(test)]
 use tempfile::tempfile;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Error};
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -244,27 +244,41 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
 
 fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
-            Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
+        match mirror_cache::fetch_download_providers(mirror_config) {
+            Ok(download_providers) => rate_providers_cached(download_providers, mirror_config),
             Err(e) => {
-                info!("Unable to fetch mirrors remotely: {:?}", e);
-                info!("Will try to fetch them from cache.");
-                let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
-                mirrors.iter().map(|url| {
-                    DownloadProvider {
-                        uri: url.parse::<Uri>().unwrap(),
-                        mirror_results: MirrorResults::default(),
-                        country: "unknown".to_owned(),
+                match e.kind() {
+                    ErrorKind::NotFound => {
+                        info!("No cached latency test results available. \
+                        Continue to run latency tests on all mirrors.");
                     }
-                }).collect()
-            },
+                    e => {
+                        error!("Unable to fetch latency test results from file: {:?}", e);
+                    }
+                }
+                match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
+                    Ok(mirror_urls) => rate_providers_uncached(mirror_urls, &mirror_config),
+                    Err(e) => {
+                        info!("Unable to fetch mirrors remotely: {:?}", e);
+                        info!("Will try to fetch them from cache.");
+                        let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
+                        mirrors.iter().map(|url| {
+                            DownloadProvider {
+                                uri: url.clone(),
+                                mirror_results: MirrorResults::default(),
+                                country: "unknown".to_owned(),
+                            }
+                        }).collect()
+                    },
+                }
+            }
         }
     } else {
         let default_mirror_result: MirrorResults = Default::default();
         let mirrors_predefined = mirror_config.mirrors_predefined.clone();
         mirrors_predefined.into_iter().map(|uri| {
             DownloadProvider {
-                uri: uri.parse::<Uri>().unwrap(),
+                uri,
                 mirror_results: default_mirror_result,
                 country: "Unknown".to_owned(),
             }
