@@ -7,7 +7,6 @@ use crate::str_path::StrPath;
 
 
 use flexo::*;
-use http::Uri;
 use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
@@ -24,6 +23,7 @@ use std::io::{Read, ErrorKind, Write};
 use std::path::Path;
 use std::string::FromUtf8Error;
 use std::num::ParseIntError;
+use serde::{Serialize, Deserialize};
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -41,6 +41,8 @@ const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\
 const CURLE_OPERATION_TIMEDOUT: u32 = 28;
 
 const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
+
+const MAX_REDIRECTIONS: u32 = 3;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -69,6 +71,25 @@ impl From<FileAttrError> for ClientError {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ClientStatus {
     pub response_headers_sent: bool
+}
+
+pub enum CountryFilter {
+    AllCountries,
+    SelectedCountries(Vec<String>),
+}
+
+pub enum Limit {
+    NoLimit,
+    Limit(usize),
+}
+
+impl CountryFilter {
+    fn includes_country(&self, country: &str) -> bool {
+        match self {
+            CountryFilter::AllCountries => true,
+            CountryFilter::SelectedCountries(countries) => countries.iter().any(|c| c == country)
+        }
+    }
 }
 
 fn parse_range_header_value(s: &str) -> u64 {
@@ -108,9 +129,9 @@ impl GetRequest {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
-    pub uri: Uri,
+    pub uri: String,
     pub mirror_results: MirrorResults,
     pub country: String,
 }
@@ -119,8 +140,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri_string = format!("{}{}", self.uri, order.filepath.to_str());
-        let uri = uri_string.parse::<Uri>().unwrap();
+        let uri = format!("{}/{}", self.uri, order.filepath.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -131,7 +151,7 @@ impl Provider for DownloadProvider {
         }
     }
 
-    fn identifier(&self) -> &Uri {
+    fn identifier(&self) -> &String {
         &self.uri
     }
 
@@ -140,11 +160,11 @@ impl Provider for DownloadProvider {
     }
 
     fn description(&self) -> String {
-        self.uri.to_string()
+        self.uri.clone()
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
 pub struct MirrorResults {
     pub total_time: Duration,
     pub namelookup_duration: Duration,
@@ -155,6 +175,9 @@ pub struct MirrorResults {
 
 impl Ord for MirrorResults {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Compare the connect_duration because we mainly care about latency. Bandwidth is more difficult
+        // to measure because we would need to download a larger payload to obtain meaningful results, which
+        // would cause more stress on the remote mirrors and an increased startup time for Flexo.
         self.connect_duration.cmp(&other.connect_duration)
     }
 }
@@ -174,7 +197,7 @@ pub enum DownloadJobError {
 #[derive(Debug)]
 pub struct DownloadJob {
     provider: DownloadProvider,
-    uri: Uri,
+    uri: String,
     order: DownloadOrder,
     properties: MirrorConfig,
 }
@@ -223,7 +246,7 @@ impl Job for DownloadJob {
     type O = DownloadOrder;
     type P = DownloadProvider;
     type E = DownloadJobError;
-    type PI = Uri;
+    type PI = String;
     type PR = MirrorConfig;
     type OE = OrderError;
 
@@ -246,7 +269,8 @@ impl Job for DownloadJob {
             let entry = entry.expect("Error while reading directory entry");
             let key = OsString::from("user.content_length");
             if entry.file_type().is_file() {
-                let file = File::open(entry.path()).unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
+                let file = File::open(entry.path())
+                    .unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
                 let file_size = file.metadata().expect("Unable to fetch file metadata").len();
                 sum_size += file_size;
                 let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
@@ -297,7 +321,9 @@ impl Job for DownloadJob {
         hashmap
     }
 
-    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, resume_from: u64) -> JobResult<DownloadJob> {
+    fn serve_from_provider(self, mut channel: DownloadChannel,
+                           properties: MirrorConfig,
+                           resume_from: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         debug!("Fetch package from remote mirror: {}. Resume from byte {}", &url, resume_from);
         channel.handle.url(&url).unwrap();
@@ -306,7 +332,7 @@ impl Job for DownloadJob {
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
         // TODO avoid hardcoded values, make this configurable.
-        channel.handle.connect_timeout(Duration::from_secs(3));
+        channel.handle.connect_timeout(Duration::from_secs(3)).unwrap();
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
@@ -326,7 +352,7 @@ impl Job for DownloadJob {
             },
         }
         channel.handle.follow_location(true).unwrap();
-        channel.handle.max_redirections(3).unwrap();
+        channel.handle.max_redirections(MAX_REDIRECTIONS).unwrap();
         match channel.progress_indicator() {
             None => {},
             Some(start) => {
@@ -352,9 +378,10 @@ impl Job for DownloadJob {
                 }
             },
             Err(e) => {
-                warn!("Error occurred during download from remote mirror {:?}: {:?}", &url, e);
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
                     warn!("Unable to download from {:?}: Timeout reached. Try another remote mirror.", &url);
+                } else {
+                    warn!("An unknown error occurred while downloading from remote mirror {:?}: {:?}", &url, e);
                 }
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
@@ -423,14 +450,20 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn new_channel(self, properties: MirrorConfig,
+                   tx: Sender<FlexoProgress>,
+                   last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         Ok(DownloadChannel {
             handle: Easy2::new(download_state)
         })
     }
 
-    fn reuse_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool, previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn reuse_channel(self,
+                     properties: MirrorConfig,
+                     tx: Sender<FlexoProgress>,
+                     last_chance: bool,
+                     previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         let mut handle = previous_channel.handle;
         handle.get_mut().replace(download_state);
@@ -555,8 +588,9 @@ impl Handler for DownloadState {
                     let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
-                    // the job state that stores the size the job should be started with. With the current implementation,
-                    // we assume that the header method is always called before anything is written to the file.
+                    // the job state that stores the size the job should be started with. With the current
+                    // implementation, we assume that the header method is always called before anything is written to
+                    // the file.
                     let size_written = self.job_state.job_resources.as_ref().unwrap().file_state.size_written;
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
@@ -623,37 +657,74 @@ impl Channel for DownloadChannel {
     }
 }
 
-pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
+                               mirror_config: &MirrorConfig,
+                               country_filter: CountryFilter,
+                               limit: Limit
+) -> Vec<DownloadProvider> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
-    debug!("Mirrors will be filtered according to the following criteria: {:?}", mirrors_auto);
-    let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
+    debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
+    let filtered_mirror_urls_unlimited = mirror_urls
         .into_iter()
         .filter(|x| x.filter_predicate(&mirrors_auto))
-        .take(mirrors_auto.num_mirrors)
-        .collect();
-    debug!("Running latency tests on the following mirrors: {:?}", filtered_mirror_urls);
+        .filter(|x| country_filter.includes_country(&x.country));
+    let filtered_mirror_urls: Vec<MirrorUrl> = match limit {
+        Limit::NoLimit => filtered_mirror_urls_unlimited.collect(),
+        Limit::Limit(l) => filtered_mirror_urls_unlimited.take(l).collect(),
+    };
+    debug!("Running latency tests on the following mirrors: {:#?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
     let timeout = Duration::from_millis(mirrors_auto.timeout);
     for mirror in filtered_mirror_urls.into_iter() {
         match mirror_fetch::measure_latency(&mirror.url, timeout) {
-            None => {},
-            Some(latency) => {
-                mirrors_with_latencies.push((mirror, latency));
+            Err(e) => {
+                if e.code() == CURLE_OPERATION_TIMEDOUT {
+                    debug!("Skip mirror {} due to timeout.", mirror.url);
+                } else {
+                    warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
+                }
+            }
+            Ok(mirror_results) => {
+                mirrors_with_latencies.push((mirror, mirror_results));
             }
         }
     }
-    mirrors_with_latencies.sort_unstable_by_key(|(_, latency)| {
-        latency.total_time
+    mirrors_with_latencies.sort_unstable_by_key(|(_, mirror_result)| {
+        *mirror_result
     });
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
         DownloadProvider {
-            uri: mirror.url.parse::<Uri>().unwrap(),
+            uri: mirror.url,
             mirror_results,
             country: mirror.country,
         }
     }).collect()
+}
+
+pub fn rate_providers_cached(mirror_urls: Vec<MirrorUrl>,
+                             mirror_config: &MirrorConfig,
+                             prev_rated_providers: Vec<DownloadProvider>,
+) -> Vec<DownloadProvider> {
+    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
+    let country_filter = country_filter(&prev_rated_providers, mirrors_auto.num_mirrors);
+    let limit = Limit::Limit(mirrors_auto.num_mirrors);
+
+    rate_providers_uncached(mirror_urls, mirror_config, country_filter, limit)
+}
+
+fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
+    // If the user already ran a latency test, then we can restrict our latency tests to mirrors that are located at a
+    // country that scored well in the previous latency test. For example, for users located in Australia, we will
+    // not consider European mirrors because the previous latency test should have revealed that mirrors from
+    // Australia have better latency than mirrors from European countries.
+    let countries = prev_rated_providers.iter()
+        .take(num_mirrors)
+        .map(|m| m.country.clone())
+        .collect::<Vec<String>>();
+
+    CountryFilter::SelectedCountries(countries)
 }
 
 pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
@@ -665,13 +736,12 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
             return Err(ClientError::BufferSizeExceeded);
         }
         let size = match stream.read(&mut buf[size_read_all..]) {
-            Ok(s) if s > MAX_HEADER_SIZE => return Err(ClientError::BufferSizeExceeded),
-            Ok(s) if s > 0 => s,
-            Ok(_) => {
-                // we need this branch in case the socket is closed: Otherwise, we would read a size of 0
-                // indefinitely.
+            Ok(0) => {
+                // we need this branch in case the socket is closed: Otherwise, we would read a size of 0 indefinitely.
                 return Err(ClientError::SocketClosed);
             }
+            Ok(s) if s > MAX_HEADER_SIZE => return Err(ClientError::BufferSizeExceeded),
+            Ok(s) => s,
             Err(e) => {
                 let error = match e.kind() {
                     ErrorKind::TimedOut => ClientError::TimedOut,
@@ -734,8 +804,9 @@ mod tests {
     impl Read for TooMuchDataReader {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             // Notice that we cause an error by writing the exact amount of the maximum header size,
-            // has received this exact amount of bytes, or if it has received more than 8192 bytes but the returned value
-            // is 8192 because that is the maximum buffer size. So we cautiously assume the latter case and return an error.
+            // has received this exact amount of bytes, or if it has received more than 8192 bytes but the returned
+            // value is 8192 because that is the maximum buffer size. So we cautiously assume the latter case and
+            // return an error.
             let too_much_data = [0; MAX_HEADER_SIZE + 1];
             buf[..too_much_data.len()].copy_from_slice(&too_much_data);
             Ok(MAX_HEADER_SIZE + 1)
@@ -757,8 +828,7 @@ mod tests {
             }
         }
     }
-    struct NoDelimiterReader {
-    }
+    struct NoDelimiterReader {}
     impl Read for NoDelimiterReader {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             let array: [u8; TEST_CHUNK_SIZE] = [b'a'; TEST_CHUNK_SIZE];

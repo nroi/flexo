@@ -6,7 +6,6 @@ extern crate flexo;
 
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
-use http::Uri;
 use flexo::*;
 use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig};
 use crossbeam::crossbeam_channel::Receiver;
@@ -31,6 +30,7 @@ use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
 use std::io::ErrorKind;
+use crate::mirror_cache::TimestampedDownloadProviders;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -167,7 +167,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
-                let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
+                let uri_string = format!("{}/{}", p.uri, order.filepath.to_str());
                 serve_via_redirect(uri_string, stream);
             }
         }
@@ -234,37 +234,91 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
         return Err(ProviderSelectionError::NoProviders)
     }
     info!("Primary mirror: {:#?}", providers[0].uri);
-    let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
-    mirror_cache::store(&properties, &urls);
-
-    // Change the implementation so that mirror_config is accepted.
-    // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
+    let providers = mirror_cache::store_download_providers(&properties, providers);
+    
     Ok(JobContext::new(providers, properties))
 }
 
+fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
+        Ok(mirror_urls) => {
+            match mirror_cache::fetch_download_providers(mirror_config) {
+                Ok(download_providers) => {
+                    match latency_tests_refresh_required(mirror_config, &download_providers) {
+                        true => {
+                            info!("Continue to run latency test against all mirrors.");
+                            rate_providers_uncached(mirror_urls,
+                                                    &mirror_config,
+                                                    CountryFilter::AllCountries,
+                                                    Limit::NoLimit)
+                        },
+                        false => {
+                            info!("Continue to run latency test against a limited number of mirrors.");
+                            rate_providers_cached(mirror_urls,
+                                                  mirror_config,
+                                                  download_providers.download_providers)
+                        }
+                    }
+                },
+                Err(e) => {
+                    match e.kind() {
+                        ErrorKind::NotFound => {
+                            info!("No cached latency test results available. \
+                        Continue to run latency tests on all mirrors.");
+                        }
+                        e => {
+                            error!("Unable to fetch latency test results from file: {:?}. \
+                            Continue to run latency tests on all mirrors.", e);
+                        }
+                    }
+                    rate_providers_uncached(mirror_urls,
+                                            &mirror_config,
+                                            CountryFilter::AllCountries,
+                                            Limit::NoLimit)
+                }
+            }
+        }
+        Err(e) => {
+            info!("Unable to fetch mirrors remotely: {:?}\nWill try to fetch them from cache.", e);
+            mirror_cache::fetch_download_providers(&mirror_config)
+                .unwrap()
+                .download_providers
+        },
+    }
+}
+
+fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
+                                  download_providers: &TimestampedDownloadProviders) -> bool {
+    let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("Unable to convert duration: {:?}", e);
+            return true;
+        }
+    };
+    let last_check = match chrono::DateTime::parse_from_rfc3339(&download_providers.timestamp) {
+        Ok(dt) => dt.naive_utc(),
+        Err(e) => {
+            error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
+            return true;
+        }
+    };
+    info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
+    duration of {:?}", last_check, refresh_latency_tests_after);
+    let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
+    duration_since_last_check > refresh_latency_tests_after
+}
+
+
 fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
-            Ok(mirror_urls) => rate_providers(mirror_urls, &mirror_config),
-            Err(e) => {
-                info!("Unable to fetch mirrors remotely: {:?}", e);
-                info!("Will try to fetch them from cache.");
-                let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
-                mirrors.iter().map(|url| {
-                    DownloadProvider {
-                        uri: url.parse::<Uri>().unwrap(),
-                        mirror_results: MirrorResults::default(),
-                        country: "unknown".to_owned(),
-                    }
-                }).collect()
-            },
-        }
+        fetch_auto(mirror_config)
     } else {
         let default_mirror_result: MirrorResults = Default::default();
         let mirrors_predefined = mirror_config.mirrors_predefined.clone();
         mirrors_predefined.into_iter().map(|uri| {
             DownloadProvider {
-                uri: uri.parse::<Uri>().unwrap(),
+                uri,
                 mirror_results: default_mirror_result,
                 country: "Unknown".to_owned(),
             }

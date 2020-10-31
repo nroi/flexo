@@ -19,7 +19,7 @@ static INITIAL_CONNECTIVITY_DELAY_AFTER_FAILURE_SECONDS: u64 = 3;
 static SCORE_SCALE: u64 = 1_000_000_000_000_000;
 
 #[derive(Deserialize, Debug)]
-struct MirrorListOption {
+pub struct MirrorListOption {
     pub urls: Vec<MirrorUrlOption>,
 }
 
@@ -164,24 +164,24 @@ pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Resul
     Ok(mirror_list.urls)
 }
 
-pub fn measure_latency(url: &str, timeout: Duration) -> Option<MirrorResults> {
+pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, curl::Error> {
     let mut easy = Easy::new();
     let url = url.to_owned() + "core/os/x86_64/core.db";
-    easy.url(&url).unwrap();
-    easy.nobody(true).unwrap();
-    easy.follow_location(true).unwrap();
-    easy.dns_cache_timeout(Duration::from_secs(3600 * 24)).unwrap();
-    easy.timeout(timeout).unwrap();
+    easy.url(&url)?;
+    easy.nobody(true)?;
+    easy.follow_location(true)?;
+    easy.dns_cache_timeout(Duration::from_secs(3600 * 24))?;
+    easy.timeout(timeout)?;
     // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
     // any benefit for our use case (afaik), so this setting should not have any downsides.
-    easy.http_version(HttpVersion::V11).unwrap();
-    easy.transfer().perform().ok()?;
-    Some(MirrorResults {
-        namelookup_duration: easy.namelookup_time().ok()?,
-        connect_duration: easy.connect_time().ok()?,
-        pretransfer_time: easy.pretransfer_time().ok()?,
-        total_time: easy.total_time().ok()?,
-        starttransfer_time: easy.starttransfer_time().ok()?,
+    easy.http_version(HttpVersion::V11)?;
+    easy.transfer().perform()?;
+    Ok(MirrorResults {
+        namelookup_duration: easy.namelookup_time()?,
+        connect_duration: easy.connect_time()?,
+        pretransfer_time: easy.pretransfer_time()?,
+        total_time: easy.total_time()?,
+        starttransfer_time: easy.starttransfer_time()?,
     })
 }
 

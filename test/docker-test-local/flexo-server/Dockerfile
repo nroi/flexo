@@ -41,6 +41,7 @@ RUN mkdir -p /var/cache/flexo/pkg && \
 
 ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
     FLEXO_MIRRORLIST_FALLBACK_FILE="/var/cache/flexo/state/mirrorlist" \
+    FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE="/var/cache/flexo/state/latency_test_results.json" \
     FLEXO_PORT=7878 \
     FLEXO_MIRROR_SELECTION_METHOD="auto" \
     FLEXO_MIRRORS_PREDEFINED=[] \
