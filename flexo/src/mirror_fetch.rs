@@ -5,6 +5,15 @@ use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use crate::MirrorResults;
 
+// If Flexo starts automatically with each system boot, it may happen that internet connectivity is not immediately
+// available. For this reason, more than one attempt is made to connect to the server, hoping that the client
+// will eventually have internet connectivity.
+static INITIAL_CONNECTIVITY_NUM_ATTEMPTS: i32 = 8;
+
+// For failed connection attempts that were made immediately after Flexo has started, we wait for this period of time
+// before making a new attempt.
+static INITIAL_CONNECTIVITY_DELAY_AFTER_FAILURE_SECONDS: u64 = 3;
+
 // integer values are easier to handle than float, since we don't have things like NaN. Hence, we just
 // scale the float values from the JSON file in order to obtain integer values.
 static SCORE_SCALE: u64 = 1_000_000_000_000_000;
@@ -110,7 +119,7 @@ impl MirrorUrl {
 fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     debug!("Fetch json from {:?}", &mirrors_auto.mirrors_status_json_endpoint);
-    try_num_attempts(8, || {
+    try_num_attempts(INITIAL_CONNECTIVITY_NUM_ATTEMPTS, || {
         let mut received = Vec::new();
         let mut easy = Easy::new();
         easy.url(&mirrors_auto.mirrors_status_json_endpoint)?;
@@ -137,8 +146,9 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
                 break result;
             },
             Err(reason) if num_attempts < max_num_attempts => {
-                info!("Failure: {:?}. No internet connectivity yet? Will try again in a few seconds.", reason);
-                std::thread::sleep(Duration::from_secs(3));
+                info!("Failure: {:?}. No internet connectivity yet? Will try again in {} seconds.",
+                      reason, INITIAL_CONNECTIVITY_DELAY_AFTER_FAILURE_SECONDS);
+                std::thread::sleep(Duration::from_secs(INITIAL_CONNECTIVITY_DELAY_AFTER_FAILURE_SECONDS));
                 result = action();
                 num_attempts += 1;
             },
