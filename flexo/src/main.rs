@@ -167,7 +167,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
-                let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
+                let uri_string = format!("{}/{}", p.uri, order.filepath.to_str());
                 serve_via_redirect(uri_string, stream);
             }
         }
@@ -244,38 +244,40 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
 
 fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        match mirror_cache::fetch_download_providers(mirror_config) {
-            Ok(download_providers) => rate_providers_cached(mirror_config, download_providers),
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::NotFound => {
-                        info!("No cached latency test results available. \
-                        Continue to run latency tests on all mirrors.");
-                    }
-                    e => {
-                        error!("Unable to fetch latency test results from file: {:?}", e);
-                    }
-                }
-                match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
-                    Ok(mirror_urls) => rate_providers_uncached(mirror_urls,
-                                                               &mirror_config,
-                                                               CountryFilter::AllCountries,
-                                                               Limit::NoLimit,
-                    ),
+        match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
+            Ok(mirror_urls) => {
+                match mirror_cache::fetch_download_providers(mirror_config) {
+                    Ok(download_providers) => rate_providers_cached(mirror_urls, mirror_config, download_providers),
                     Err(e) => {
-                        info!("Unable to fetch mirrors remotely: {:?}", e);
-                        info!("Will try to fetch them from cache.");
-                        let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
-                        mirrors.iter().map(|url| {
-                            DownloadProvider {
-                                uri: url.clone(),
-                                mirror_results: MirrorResults::default(),
-                                country: "unknown".to_owned(),
+                        match e.kind() {
+                            ErrorKind::NotFound => {
+                                info!("No cached latency test results available. \
+                        Continue to run latency tests on all mirrors.");
                             }
-                        }).collect()
-                    },
+                            e => {
+                                error!("Unable to fetch latency test results from file: {:?}", e);
+                            }
+                        }
+                        rate_providers_uncached(mirror_urls,
+                                                &mirror_config,
+                                                CountryFilter::AllCountries,
+                                                Limit::NoLimit,
+                        )
+                    }
                 }
             }
+            Err(e) => {
+                info!("Unable to fetch mirrors remotely: {:?}", e);
+                info!("Will try to fetch them from cache.");
+                let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
+                mirrors.iter().map(|url| {
+                    DownloadProvider {
+                        uri: url.clone(),
+                        mirror_results: MirrorResults::default(),
+                        country: "unknown".to_owned(),
+                    }
+                }).collect()
+            },
         }
     } else {
         let default_mirror_result: MirrorResults = Default::default();

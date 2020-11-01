@@ -26,6 +26,7 @@ use std::string::FromUtf8Error;
 use std::num::ParseIntError;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::ser::SerializeStruct;
+use curl::Error;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -140,7 +141,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri = format!("{}{}", self.uri, order.filepath.to_str());
+        let uri = format!("{}/{}", self.uri, order.filepath.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -664,9 +665,11 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
     let timeout = Duration::from_millis(mirrors_auto.timeout);
     for mirror in filtered_mirror_urls.into_iter() {
         match mirror_fetch::measure_latency(&mirror.url, timeout) {
-            None => {},
-            Some(latency) => {
-                mirrors_with_latencies.push((mirror, latency));
+            Err(e) => {
+                warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
+            }
+            Ok(mirror_results) => {
+                mirrors_with_latencies.push((mirror, mirror_results));
             }
         }
     }
