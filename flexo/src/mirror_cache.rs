@@ -28,8 +28,8 @@ pub fn store(properties: &MirrorConfig, mirrors: &[String]) {
         .unwrap_or_else(|_| panic!("Unable to write file: {}", properties.mirrorlist_fallback_file));
 }
 
-pub fn store_download_providers(properties: &MirrorConfig, download_providers: Vec<DownloadProvider>) {
-    let serialized = serde_json::to_string(&download_providers).unwrap();
+pub fn store_download_providers(properties: &MirrorConfig, download_providers: &Vec<DownloadProvider>) {
+    let serialized = serde_json::to_string(download_providers).unwrap();
     let file_path = latency_test_results_file(properties);
     std::fs::write(file_path, serialized)
         .unwrap_or_else(|_| panic!("Unable to write file: {}", file_path));
