@@ -45,6 +45,6 @@ pub fn fetch(properties: &MirrorConfig) -> Result<Vec<String>, std::io::Error> {
 pub fn fetch_download_providers(properties: &MirrorConfig) -> Result<Vec<DownloadProvider>, std::io::Error> {
     let file_path = latency_test_results_file(properties);
     let contents = std::fs::read_to_string(file_path)?;
-    // let download_providers: Vec<DownloadProvider> = serde_json::from_str(&contents)?;
-    todo!("TODO")
+    let download_providers: Vec<DownloadProvider> = serde_json::from_str(&contents)?;
+    Ok(download_providers)
 }

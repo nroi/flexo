@@ -23,7 +23,7 @@ use std::io::{Read, ErrorKind, Write};
 use std::path::Path;
 use std::string::FromUtf8Error;
 use std::num::ParseIntError;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -127,7 +127,7 @@ impl GetRequest {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
     pub uri: String,
     pub mirror_results: MirrorResults,
@@ -162,7 +162,7 @@ impl Provider for DownloadProvider {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Copy, Clone, Debug, Default)]
 pub struct MirrorResults {
     pub total_time: Duration,
     pub namelookup_duration: Duration,
