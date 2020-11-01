@@ -7,7 +7,6 @@ use crate::str_path::StrPath;
 
 
 use flexo::*;
-use http::Uri;
 use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
@@ -24,9 +23,7 @@ use std::io::{Read, ErrorKind, Write};
 use std::path::Path;
 use std::string::FromUtf8Error;
 use std::num::ParseIntError;
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use serde::ser::SerializeStruct;
-use curl::Error;
+use serde::Serialize;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -327,7 +324,7 @@ impl Job for DownloadJob {
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
         // TODO avoid hardcoded values, make this configurable.
-        channel.handle.connect_timeout(Duration::from_secs(3));
+        channel.handle.connect_timeout(Duration::from_secs(3)).unwrap();
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
@@ -686,7 +683,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
     }).collect()
 }
 
-pub fn rate_providers_cached(mut mirror_urls: Vec<MirrorUrl>,
+pub fn rate_providers_cached(mirror_urls: Vec<MirrorUrl>,
                              mirror_config: &MirrorConfig,
                              cached_download_providers: Vec<DownloadProvider>,
 ) -> Vec<DownloadProvider> {

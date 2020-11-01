@@ -5,6 +5,21 @@
 use crate::mirror_config::MirrorConfig;
 use crate::mirror_flexo::DownloadProvider;
 
+const DEFAULT_LATENCY_TEST_RESULTS_FILE: &str = "/var/cache/flexo/state/latency_test_results.json";
+
+fn latency_test_results_file(properties: &MirrorConfig) -> &str {
+    match &properties.mirrorlist_latency_test_results_file {
+        None => {
+            warn!("The setting \"mirrorlist_latency_test_results_file\" is missing, will use default value {}. \
+            Add the setting to the TOML config file or environment variable to avoid this warning.",
+                  DEFAULT_LATENCY_TEST_RESULTS_FILE
+            );
+            DEFAULT_LATENCY_TEST_RESULTS_FILE
+        }
+        Some(p) => p,
+    }
+}
+
 pub fn store(properties: &MirrorConfig, mirrors: &[String]) {
     // TODO reconsider if we still need this file: if we already store the result of our latency tests
     // in JSON format, we most likely won't need this file anymore.
@@ -15,8 +30,9 @@ pub fn store(properties: &MirrorConfig, mirrors: &[String]) {
 
 pub fn store_download_providers(properties: &MirrorConfig, download_providers: Vec<DownloadProvider>) {
     let serialized = serde_json::to_string(&download_providers).unwrap();
-    std::fs::write(&properties.mirrorlist_latency_test_results_file, serialized)
-        .unwrap_or_else(|_| panic!("Unable to write file: {}", properties.mirrorlist_latency_test_results_file));
+    let file_path = latency_test_results_file(properties);
+    std::fs::write(file_path, serialized)
+        .unwrap_or_else(|_| panic!("Unable to write file: {}", file_path));
 }
 
 pub fn fetch(properties: &MirrorConfig) -> Result<Vec<String>, std::io::Error> {
@@ -27,7 +43,8 @@ pub fn fetch(properties: &MirrorConfig) -> Result<Vec<String>, std::io::Error> {
 }
 
 pub fn fetch_download_providers(properties: &MirrorConfig) -> Result<Vec<DownloadProvider>, std::io::Error> {
-    let contents = std::fs::read_to_string(&properties.mirrorlist_latency_test_results_file)?;
+    let file_path = latency_test_results_file(properties);
+    let contents = std::fs::read_to_string(file_path)?;
     // let download_providers: Vec<DownloadProvider> = serde_json::from_str(&contents)?;
     todo!("TODO")
 }

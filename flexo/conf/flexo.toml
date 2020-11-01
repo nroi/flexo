@@ -23,6 +23,11 @@ low_speed_time_secs = 3
 # connectivity when flexo is started.
 mirrorlist_fallback_file = "/var/cache/flexo/state/mirrorlist"
 
+# The result of the latency tests are stored in a json file and retrieved when
+# Flexo is restarted.
+mirrorlist_latency_test_results_file = "/var/cache/flexo/state/latency_test_results.json"
+
+
 # The port to listen on.
 port = 7878
 

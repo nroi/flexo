@@ -78,7 +78,7 @@ impl Properties for MirrorConfig {}
 pub struct MirrorConfig {
     pub cache_directory: String,
     pub mirrorlist_fallback_file: String,
-    pub mirrorlist_latency_test_results_file: String,
+    pub mirrorlist_latency_test_results_file: Option<String>,
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
@@ -141,7 +141,7 @@ fn mirror_config_from_env() -> MirrorConfig {
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
     let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
     let mirrorlist_latency_test_results_file =
-        parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE").unwrap();
+        parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();

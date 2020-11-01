@@ -6,7 +6,6 @@ extern crate flexo;
 
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
-use http::Uri;
 use flexo::*;
 use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig};
 use crossbeam::crossbeam_channel::Receiver;
@@ -30,7 +29,7 @@ use libc::off64_t;
 
 #[cfg(test)]
 use tempfile::tempfile;
-use std::io::{ErrorKind, Error};
+use std::io::ErrorKind;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
