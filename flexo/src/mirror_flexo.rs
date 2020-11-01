@@ -73,6 +73,25 @@ pub struct ClientStatus {
     pub response_headers_sent: bool
 }
 
+pub enum CountryFilter {
+    AllCountries,
+    SelectedCountries(Vec<String>),
+}
+
+pub enum Limit {
+    NoLimit,
+    Limit(usize),
+}
+
+impl CountryFilter {
+    fn includes_country(&self, country: &str) -> bool {
+        match self {
+            CountryFilter::AllCountries => true,
+            CountryFilter::SelectedCountries(countries) => countries.iter().any(|c| c == country)
+        }
+    }
+}
+
 fn parse_range_header_value(s: &str) -> u64 {
     let s = s.to_lowercase();
     // We ignore everything after the - sign: We assume that pacman will never request only up to a certain size,
@@ -624,15 +643,22 @@ impl Channel for DownloadChannel {
     }
 }
 
-pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
+                               mirror_config: &MirrorConfig,
+                               country_filter: CountryFilter,
+                               limit: Limit
+) -> Vec<DownloadProvider> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     debug!("Mirrors will be filtered according to the following criteria: {:?}", mirrors_auto);
-    let filtered_mirror_urls: Vec<MirrorUrl> = mirror_urls
+    let filtered_mirror_urls_unlimited = mirror_urls
         .into_iter()
         .filter(|x| x.filter_predicate(&mirrors_auto))
-        .take(mirrors_auto.num_mirrors)
-        .collect();
+        .filter(|x| country_filter.includes_country(&x.country));
+    let filtered_mirror_urls: Vec<MirrorUrl> = match limit {
+        Limit::NoLimit => filtered_mirror_urls_unlimited.collect(),
+        Limit::Limit(l) => filtered_mirror_urls_unlimited.take(l).collect(),
+    };
     debug!("Running latency tests on the following mirrors: {:?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
     let timeout = Duration::from_millis(mirrors_auto.timeout);
@@ -657,13 +683,20 @@ pub fn rate_providers(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorCon
     }).collect()
 }
 
-pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>, mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
-    todo!("TODO")
-}
+pub fn rate_providers_cached(mut mirror_urls: Vec<MirrorUrl>,
+                             mirror_config: &MirrorConfig,
+                             cached_download_providers: Vec<DownloadProvider>,
+) -> Vec<DownloadProvider> {
+    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
+    let countries = cached_download_providers.iter()
+        .take(mirrors_auto.num_mirrors)
+        .map(|m| m.country.clone())
+        .collect::<Vec<String>>();
 
-pub fn rate_providers_cached(download_providers: Vec<DownloadProvider>,
-                             mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
-    todo!("TODO")
+    let country_filter = CountryFilter::SelectedCountries(countries);
+    let limit = Limit::Limit(mirrors_auto.num_mirrors);
+
+    rate_providers_uncached(mirror_urls, mirror_config, country_filter, limit)
 }
 
 pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {

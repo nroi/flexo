@@ -245,7 +245,7 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
 fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
         match mirror_cache::fetch_download_providers(mirror_config) {
-            Ok(download_providers) => rate_providers_cached(download_providers, mirror_config),
+            Ok(download_providers) => rate_providers_cached(mirror_config, download_providers),
             Err(e) => {
                 match e.kind() {
                     ErrorKind::NotFound => {
@@ -257,7 +257,11 @@ fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                     }
                 }
                 match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
-                    Ok(mirror_urls) => rate_providers_uncached(mirror_urls, &mirror_config),
+                    Ok(mirror_urls) => rate_providers_uncached(mirror_urls,
+                                                               &mirror_config,
+                                                               CountryFilter::AllCountries,
+                                                               Limit::NoLimit,
+                    ),
                     Err(e) => {
                         info!("Unable to fetch mirrors remotely: {:?}", e);
                         info!("Will try to fetch them from cache.");
