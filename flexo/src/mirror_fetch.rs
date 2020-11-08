@@ -4,7 +4,6 @@ use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use crate::MirrorResults;
-use chrono::{DateTime, Utc};
 
 // If Flexo starts automatically with each system boot, it may happen that internet connectivity is not immediately
 // available. For this reason, more than one attempt is made to connect to the server, hoping that the client
@@ -20,9 +19,8 @@ static INITIAL_CONNECTIVITY_DELAY_AFTER_FAILURE_SECONDS: u64 = 3;
 static SCORE_SCALE: u64 = 1_000_000_000_000_000;
 
 #[derive(Deserialize, Debug)]
-struct MirrorListOption {
+pub struct MirrorListOption {
     pub urls: Vec<MirrorUrlOption>,
-    pub last_check: DateTime<Utc>,
 }
 
 struct MirrorList {

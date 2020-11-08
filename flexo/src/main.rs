@@ -242,43 +242,62 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     Ok(JobContext::new(providers, properties))
 }
 
-fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
-    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
-            Ok(mirror_urls) => {
-                match mirror_cache::fetch_download_providers(mirror_config) {
-                    Ok(download_providers) => rate_providers_cached(mirror_urls, mirror_config, download_providers),
-                    Err(e) => {
-                        match e.kind() {
-                            ErrorKind::NotFound => {
-                                info!("No cached latency test results available. \
+fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
+                                  ) -> bool {
+    let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("Unable to convert duration: {:?}", e);
+            return false;
+        }
+    };
+    let duration_since_last_check: chrono::Duration = todo!();
+    duration_since_last_check > refresh_latency_tests_after
+}
+
+fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
+        Ok(mirror_urls) => {
+            match mirror_cache::fetch_download_providers(mirror_config) {
+                Ok(download_providers) => {
+                    rate_providers_cached(mirror_urls, mirror_config, download_providers)
+                },
+                Err(e) => {
+                    match e.kind() {
+                        ErrorKind::NotFound => {
+                            info!("No cached latency test results available. \
                         Continue to run latency tests on all mirrors.");
-                            }
-                            e => {
-                                error!("Unable to fetch latency test results from file: {:?}", e);
-                            }
                         }
-                        rate_providers_uncached(mirror_urls,
-                                                &mirror_config,
-                                                CountryFilter::AllCountries,
-                                                Limit::NoLimit,
-                        )
+                        e => {
+                            error!("Unable to fetch latency test results from file: {:?}", e);
+                        }
                     }
+                    rate_providers_uncached(mirror_urls,
+                                            &mirror_config,
+                                            CountryFilter::AllCountries,
+                                            Limit::NoLimit,
+                    )
                 }
             }
-            Err(e) => {
-                info!("Unable to fetch mirrors remotely: {:?}", e);
-                info!("Will try to fetch them from cache.");
-                let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
-                mirrors.iter().map(|url| {
-                    DownloadProvider {
-                        uri: url.clone(),
-                        mirror_results: MirrorResults::default(),
-                        country: "unknown".to_owned(),
-                    }
-                }).collect()
-            },
         }
+        Err(e) => {
+            info!("Unable to fetch mirrors remotely: {:?}", e);
+            info!("Will try to fetch them from cache.");
+            let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
+            mirrors.iter().map(|url| {
+                DownloadProvider {
+                    uri: url.clone(),
+                    mirror_results: MirrorResults::default(),
+                    country: "unknown".to_owned(),
+                }
+            }).collect()
+        },
+    }
+}
+
+fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
+        fetch_auto(mirror_config)
     } else {
         let default_mirror_result: MirrorResults = Default::default();
         let mirrors_predefined = mirror_config.mirrors_predefined.clone();
