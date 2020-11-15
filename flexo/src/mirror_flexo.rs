@@ -378,9 +378,10 @@ impl Job for DownloadJob {
                 }
             },
             Err(e) => {
-                warn!("Error occurred during download from remote mirror {:?}: {:?}", &url, e);
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
                     warn!("Unable to download from {:?}: Timeout reached. Try another remote mirror.", &url);
+                } else {
+                    warn!("An unknown error occurred while downloading from remote mirror {:?}: {:?}", &url, e);
                 }
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
