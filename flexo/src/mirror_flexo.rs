@@ -173,6 +173,9 @@ pub struct MirrorResults {
 
 impl Ord for MirrorResults {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Compare the connect_duration because we mainly care about latency. Bandwidth is more difficult
+        // to measure because we would need to download a larger payload to obtain meaningful results, which
+        // would cause more stress on the remote mirrors and an increased startup time for Flexo.
         self.connect_duration.cmp(&other.connect_duration)
     }
 }
