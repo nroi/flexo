@@ -235,7 +235,7 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     info!("Primary mirror: {:#?}", providers[0].uri);
     let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
     mirror_cache::store(&properties, &urls);
-    mirror_cache::store_download_providers(&properties, &providers);
+    let providers = mirror_cache::store_download_providers(&properties, providers);
 
     // Change the implementation so that mirror_config is accepted.
     // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
@@ -260,7 +260,7 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         Ok(mirror_urls) => {
             match mirror_cache::fetch_download_providers(mirror_config) {
                 Ok(download_providers) => {
-                    rate_providers_cached(mirror_urls, mirror_config, download_providers)
+                    rate_providers_cached(mirror_urls, mirror_config, download_providers.download_providers)
                 },
                 Err(e) => {
                     match e.kind() {
