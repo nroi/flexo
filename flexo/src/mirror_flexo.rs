@@ -42,6 +42,8 @@ const CURLE_OPERATION_TIMEDOUT: u32 = 28;
 
 const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 
+const MAX_REDIRECTIONS: u32 = 3;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BufferSizeExceeded,
@@ -350,7 +352,7 @@ impl Job for DownloadJob {
             },
         }
         channel.handle.follow_location(true).unwrap();
-        channel.handle.max_redirections(3).unwrap();
+        channel.handle.max_redirections(MAX_REDIRECTIONS).unwrap();
         match channel.progress_indicator() {
             None => {},
             Some(start) => {
