@@ -267,7 +267,8 @@ impl Job for DownloadJob {
             let entry = entry.expect("Error while reading directory entry");
             let key = OsString::from("user.content_length");
             if entry.file_type().is_file() {
-                let file = File::open(entry.path()).unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
+                let file = File::open(entry.path())
+                    .unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
                 let file_size = file.metadata().expect("Unable to fetch file metadata").len();
                 sum_size += file_size;
                 let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
@@ -318,7 +319,9 @@ impl Job for DownloadJob {
         hashmap
     }
 
-    fn serve_from_provider(self, mut channel: DownloadChannel, properties: MirrorConfig, resume_from: u64) -> JobResult<DownloadJob> {
+    fn serve_from_provider(self, mut channel: DownloadChannel,
+                           properties: MirrorConfig,
+                           resume_from: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         debug!("Fetch package from remote mirror: {}. Resume from byte {}", &url, resume_from);
         channel.handle.url(&url).unwrap();
