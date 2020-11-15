@@ -792,8 +792,9 @@ mod tests {
     impl Read for TooMuchDataReader {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             // Notice that we cause an error by writing the exact amount of the maximum header size,
-            // has received this exact amount of bytes, or if it has received more than 8192 bytes but the returned value
-            // is 8192 because that is the maximum buffer size. So we cautiously assume the latter case and return an error.
+            // has received this exact amount of bytes, or if it has received more than 8192 bytes but the returned
+            // value is 8192 because that is the maximum buffer size. So we cautiously assume the latter case and
+            // return an error.
             let too_much_data = [0; MAX_HEADER_SIZE + 1];
             buf[..too_much_data.len()].copy_from_slice(&too_much_data);
             Ok(MAX_HEADER_SIZE + 1)
@@ -815,8 +816,7 @@ mod tests {
             }
         }
     }
-    struct NoDelimiterReader {
-    }
+    struct NoDelimiterReader {}
     impl Read for NoDelimiterReader {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             let array: [u8; TEST_CHUNK_SIZE] = [b'a'; TEST_CHUNK_SIZE];
