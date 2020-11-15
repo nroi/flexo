@@ -269,7 +269,8 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                         Continue to run latency tests on all mirrors.");
                         }
                         e => {
-                            error!("Unable to fetch latency test results from file: {:?}", e);
+                            error!("Unable to fetch latency test results from file: {:?}. \
+                            Continue to run latency tests on all mirrors.", e);
                         }
                     }
                     rate_providers_uncached(mirror_urls,
