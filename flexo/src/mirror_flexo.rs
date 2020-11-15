@@ -588,8 +588,9 @@ impl Handler for DownloadState {
                     let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
-                    // the job state that stores the size the job should be started with. With the current implementation,
-                    // we assume that the header method is always called before anything is written to the file.
+                    // the job state that stores the size the job should be started with. With the current
+                    // implementation, we assume that the header method is always called before anything is written to
+                    // the file.
                     let size_written = self.job_state.job_resources.as_ref().unwrap().file_state.size_written;
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
@@ -723,13 +724,12 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
             return Err(ClientError::BufferSizeExceeded);
         }
         let size = match stream.read(&mut buf[size_read_all..]) {
-            Ok(s) if s > MAX_HEADER_SIZE => return Err(ClientError::BufferSizeExceeded),
-            Ok(s) if s > 0 => s,
-            Ok(_) => {
-                // we need this branch in case the socket is closed: Otherwise, we would read a size of 0
-                // indefinitely.
+            Ok(0) => {
+                // we need this branch in case the socket is closed: Otherwise, we would read a size of 0 indefinitely.
                 return Err(ClientError::SocketClosed);
             }
+            Ok(s) if s > MAX_HEADER_SIZE => return Err(ClientError::BufferSizeExceeded),
+            Ok(s) => s,
             Err(e) => {
                 let error = match e.kind() {
                     ErrorKind::TimedOut => ClientError::TimedOut,
