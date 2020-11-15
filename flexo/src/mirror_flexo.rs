@@ -450,14 +450,20 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn new_channel(self, properties: MirrorConfig,
+                   tx: Sender<FlexoProgress>,
+                   last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         Ok(DownloadChannel {
             handle: Easy2::new(download_state)
         })
     }
 
-    fn reuse_channel(self, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool, previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn reuse_channel(self,
+                     properties: MirrorConfig,
+                     tx: Sender<FlexoProgress>,
+                     last_chance: bool,
+                     previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         let mut handle = previous_channel.handle;
         handle.get_mut().replace(download_state);
