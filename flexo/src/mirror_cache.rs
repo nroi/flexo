@@ -10,14 +10,8 @@ use serde::{Serialize, Deserialize};
 
 const DEFAULT_LATENCY_TEST_RESULTS_FILE: &str = "/var/cache/flexo/state/latency_test_results.json";
 
-#[derive(Serialize)]
-struct TimestampedDownloadProviders<'a> {
-    timestamp: String,
-    download_providers: &'a Vec<DownloadProvider>,
-}
-
 #[derive(Deserialize, Serialize)]
-pub struct TimestampedDownloadProvidersOwned {
+pub struct TimestampedDownloadProviders {
     pub timestamp: String,
     pub download_providers: Vec<DownloadProvider>,
 }
@@ -45,7 +39,7 @@ pub fn store(properties: &MirrorConfig, mirrors: &[String]) {
 
 pub fn store_download_providers(properties: &MirrorConfig,
                                 download_providers: Vec<DownloadProvider>) -> Vec<DownloadProvider> {
-    let timestamped = TimestampedDownloadProvidersOwned {
+    let timestamped = TimestampedDownloadProviders {
         timestamp: format!("{}", chrono::Utc::now()),
         download_providers,
     };
@@ -64,9 +58,9 @@ pub fn fetch(properties: &MirrorConfig) -> Result<Vec<String>, std::io::Error> {
     Ok(contents.split('\n').map(|s| s.to_owned()).collect())
 }
 
-pub fn fetch_download_providers(properties: &MirrorConfig) -> Result<TimestampedDownloadProvidersOwned, io::Error> {
+pub fn fetch_download_providers(properties: &MirrorConfig) -> Result<TimestampedDownloadProviders, io::Error> {
     let file_path = latency_test_results_file(properties);
     let contents = std::fs::read_to_string(file_path)?;
-    let download_providers: TimestampedDownloadProvidersOwned = serde_json::from_str(&contents)?;
+    let download_providers: TimestampedDownloadProviders = serde_json::from_str(&contents)?;
     Ok(download_providers)
 }
