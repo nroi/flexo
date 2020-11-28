@@ -30,6 +30,9 @@ use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
 use std::io::ErrorKind;
+use crate::mirror_cache::TimestampedDownloadProviders;
+use chrono::{FixedOffset, ParseError, DateTime, Utc};
+use std::ops::Sub;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -242,7 +245,8 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     Ok(JobContext::new(providers, properties))
 }
 
-fn latency_tests_refresh_required(mirror_config: &MirrorConfig) -> bool {
+fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
+                                  download_providers: &TimestampedDownloadProviders) -> bool {
     let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
         Ok(d) => d,
         Err(e) => {
@@ -250,7 +254,14 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig) -> bool {
             return false;
         }
     };
-    let duration_since_last_check: chrono::Duration = todo!();
+    let last_check = match chrono::DateTime::parse_from_rfc2822(&download_providers.timestamp) {
+        Ok(dt) => dt.naive_utc(),
+        Err(e) => {
+            error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
+            return false;
+        }
+    };
+    let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }
 
