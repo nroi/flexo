@@ -242,8 +242,7 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     Ok(JobContext::new(providers, properties))
 }
 
-fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
-                                  ) -> bool {
+fn latency_tests_refresh_required(mirror_config: &MirrorConfig) -> bool {
     let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
         Ok(d) => d,
         Err(e) => {
