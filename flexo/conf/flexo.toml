@@ -79,12 +79,12 @@ mirrors_predefined = []
     # Instead of running the latency test against all mirrors from all
     # locations, we only choose mirrors at a location that scored well in the
     # previous latency test. For example: if num_mirrors is set to 3, and the
-    # fasted 3 mirrors from the previous latency test where located in Germany,
+    # fastest 3 mirrors from the previous latency test where located in Germany,
     # France and Switzerland, then we will choose 3 mirrors from those 3
     # locations in our next latency test.
     # Increasing this parameter will also increase the startup time of flexo
-    # (due to the number of latency tests), but it might also give you a faster
-    # mirror.
+    # (due to the increased number of latency tests), but it might also give you
+    # a faster mirror.
     num_mirrors = 8
     # Valid values for this setting include "sort" and "random".  After the
     # mirrors have been filtered according to your chosen criteria (e.g. ipv6
