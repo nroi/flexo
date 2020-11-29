@@ -273,8 +273,7 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                     rate_providers_uncached(mirror_urls,
                                             &mirror_config,
                                             CountryFilter::AllCountries,
-                                            Limit::NoLimit,
-                    )
+                                            Limit::NoLimit)
                 }
             }
         }
