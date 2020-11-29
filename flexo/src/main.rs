@@ -243,26 +243,6 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     Ok(JobContext::new(providers, properties))
 }
 
-fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
-                                  download_providers: &TimestampedDownloadProviders) -> bool {
-    let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
-        Ok(d) => d,
-        Err(e) => {
-            error!("Unable to convert duration: {:?}", e);
-            return false;
-        }
-    };
-    let last_check = match chrono::DateTime::parse_from_rfc2822(&download_providers.timestamp) {
-        Ok(dt) => dt.naive_utc(),
-        Err(e) => {
-            error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
-            return false;
-        }
-    };
-    let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
-    duration_since_last_check > refresh_latency_tests_after
-}
-
 fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
         Ok(mirror_urls) => {
@@ -312,6 +292,28 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         },
     }
 }
+
+fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
+                                  download_providers: &TimestampedDownloadProviders) -> bool {
+    let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("Unable to convert duration: {:?}", e);
+            return false;
+        }
+    };
+    let last_check = match chrono::DateTime::parse_from_rfc2822(&download_providers.timestamp) {
+        Ok(dt) => dt.naive_utc(),
+        Err(e) => {
+            error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
+            return false;
+        }
+    };
+    info!("The most recent latency test ran at {}", last_check);
+    let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
+    duration_since_last_check > refresh_latency_tests_after
+}
+
 
 fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
