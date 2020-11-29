@@ -48,6 +48,8 @@ pub fn store_download_providers(properties: &MirrorConfig,
     std::fs::write(file_path, serialized)
         .unwrap_or_else(|_| panic!("Unable to write file: {}", file_path));
 
+    // Return the providers so that ownership is given back to the caller. This way, we can avoid
+    // copying the providers.
     timestamped.download_providers
 }
 
