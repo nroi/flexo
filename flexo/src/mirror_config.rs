@@ -9,7 +9,7 @@ use std::time::Duration;
 
 static DEFAULT_JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
 
-static DEFAULT_REFRESH_AFTER_SECONDS: u64 = 86400;
+static DEFAULT_REFRESH_AFTER_SECONDS: u64 = 3600 * 24 * 14;
 
 #[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
