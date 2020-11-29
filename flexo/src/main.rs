@@ -275,14 +275,9 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         }
         Err(e) => {
             info!("Unable to fetch mirrors remotely: {:?}\nWill try to fetch them from cache.", e);
-            let mirrors = mirror_cache::fetch(&mirror_config).unwrap();
-            mirrors.iter().map(|url| {
-                DownloadProvider {
-                    uri: url.clone(),
-                    mirror_results: MirrorResults::default(),
-                    country: "unknown".to_owned(),
-                }
-            }).collect()
+            mirror_cache::fetch_download_providers(&mirror_config)
+                .unwrap()
+                .download_providers
         },
     }
 }

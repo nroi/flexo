@@ -45,13 +45,6 @@ pub fn store_download_providers(properties: &MirrorConfig,
     timestamped.download_providers
 }
 
-pub fn fetch(properties: &MirrorConfig) -> Result<Vec<String>, std::io::Error> {
-    // TODO see the previous comment about using the JSON file instead of the plaintext file:
-    // most likely, we won't need this function anymore.
-    let contents = std::fs::read_to_string(&properties.mirrorlist_fallback_file)?;
-    Ok(contents.split('\n').map(|s| s.to_owned()).collect())
-}
-
 pub fn fetch_download_providers(properties: &MirrorConfig) -> Result<TimestampedDownloadProviders, io::Error> {
     let file_path = latency_test_results_file(properties);
     let contents = std::fs::read_to_string(file_path)?;
