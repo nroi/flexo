@@ -101,3 +101,4 @@ mirrors_predefined = []
     # Mirros which exceed the timeout will not be considered further, regardless
     # of their score.
     timeout = 350
+    refresh_latency_tests_after = "8 days"

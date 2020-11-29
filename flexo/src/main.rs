@@ -303,7 +303,8 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
             return true;
         }
     };
-    info!("The most recent latency test ran at {}", last_check);
+    info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
+    duration of {:?}", last_check, refresh_latency_tests_after);
     let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }
