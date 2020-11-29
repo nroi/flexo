@@ -32,7 +32,7 @@ fn latency_test_results_file(properties: &MirrorConfig) -> &str {
 pub fn store_download_providers(properties: &MirrorConfig,
                                 download_providers: Vec<DownloadProvider>) -> Vec<DownloadProvider> {
     let timestamped = TimestampedDownloadProviders {
-        timestamp: format!("{}", chrono::Utc::now()),
+        timestamp: format!("{:?}", chrono::Utc::now()),
         download_providers,
     };
     let serialized = serde_json::to_string_pretty(&timestamped).unwrap();
