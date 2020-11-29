@@ -73,9 +73,18 @@ mirrors_predefined = []
     # https://www.archlinux.org/mirrors/status/ for an explanation of this
     # metric.
     max_score = 2.5
-    # The maximum number of mirrors to use and test for latency. Increasing this
-    # number will also increase the startup time of flexo (due to the number of
-    # latency tests), but it might also give you a faster mirror.
+    # When Flexo is started for the first time, latency tests run against *all*
+    # mirrors, so the num_mirrors setting is ignored. The test results gained
+    # from this first latency test are then used when Flexo is started again:
+    # Instead of running the latency test against all mirrors from all
+    # locations, we only choose mirrors at a location that scored well in the
+    # previous latency test. For example: if num_mirrors is set to 3, and the
+    # fasted 3 mirrors from the previous latency test where located in Germany,
+    # France and Switzerland, then we will choose 3 mirrors from those 3
+    # locations in our next latency test.
+    # Increasing this parameter will also increase the startup time of flexo
+    # (due to the number of latency tests), but it might also give you a faster
+    # mirror.
     num_mirrors = 8
     # Valid values for this setting include "sort" and "random".  After the
     # mirrors have been filtered according to your chosen criteria (e.g. ipv6
