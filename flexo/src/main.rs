@@ -296,7 +296,7 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
             return true;
         }
     };
-    let last_check = match chrono::DateTime::parse_from_rfc2822(&download_providers.timestamp) {
+    let last_check = match chrono::DateTime::parse_from_rfc3339(&download_providers.timestamp) {
         Ok(dt) => dt.naive_utc(),
         Err(e) => {
             error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
