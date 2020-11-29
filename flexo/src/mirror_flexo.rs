@@ -664,7 +664,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
 ) -> Vec<DownloadProvider> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
-    debug!("Mirrors will be filtered according to the following criteria: {:?}", mirrors_auto);
+    debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
     let filtered_mirror_urls_unlimited = mirror_urls
         .into_iter()
         .filter(|x| x.filter_predicate(&mirrors_auto))
@@ -673,7 +673,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
         Limit::NoLimit => filtered_mirror_urls_unlimited.collect(),
         Limit::Limit(l) => filtered_mirror_urls_unlimited.take(l).collect(),
     };
-    debug!("Running latency tests on the following mirrors: {:?}", filtered_mirror_urls);
+    debug!("Running latency tests on the following mirrors: {:#?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
     let timeout = Duration::from_millis(mirrors_auto.timeout);
     for mirror in filtered_mirror_urls.into_iter() {
