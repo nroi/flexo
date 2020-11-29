@@ -259,7 +259,6 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                                                   download_providers.download_providers)
                         }
                     }
-
                 },
                 Err(e) => {
                     match e.kind() {
