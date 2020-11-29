@@ -293,14 +293,14 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
         Ok(d) => d,
         Err(e) => {
             error!("Unable to convert duration: {:?}", e);
-            return false;
+            return true;
         }
     };
     let last_check = match chrono::DateTime::parse_from_rfc2822(&download_providers.timestamp) {
         Ok(dt) => dt.naive_utc(),
         Err(e) => {
             error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
-            return false;
+            return true;
         }
     };
     info!("The most recent latency test ran at {}", last_check);
