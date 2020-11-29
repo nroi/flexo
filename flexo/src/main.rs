@@ -31,8 +31,6 @@ use libc::off64_t;
 use tempfile::tempfile;
 use std::io::ErrorKind;
 use crate::mirror_cache::TimestampedDownloadProviders;
-use chrono::{FixedOffset, ParseError, DateTime, Utc};
-use std::ops::Sub;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -270,7 +268,16 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         Ok(mirror_urls) => {
             match mirror_cache::fetch_download_providers(mirror_config) {
                 Ok(download_providers) => {
-                    rate_providers_cached(mirror_urls, mirror_config, download_providers.download_providers)
+                    match latency_tests_refresh_required(mirror_config, &download_providers) {
+                        true => rate_providers_uncached(mirror_urls,
+                                                        &mirror_config,
+                                                        CountryFilter::AllCountries,
+                                                        Limit::NoLimit),
+                        false => rate_providers_cached(mirror_urls,
+                                                       mirror_config,
+                                                       download_providers.download_providers)
+                    }
+
                 },
                 Err(e) => {
                     match e.kind() {

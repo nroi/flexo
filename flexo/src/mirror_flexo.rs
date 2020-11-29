@@ -701,18 +701,26 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
 
 pub fn rate_providers_cached(mirror_urls: Vec<MirrorUrl>,
                              mirror_config: &MirrorConfig,
-                             cached_download_providers: Vec<DownloadProvider>,
+                             prev_rated_providers: Vec<DownloadProvider>,
 ) -> Vec<DownloadProvider> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
-    let countries = cached_download_providers.iter()
-        .take(mirrors_auto.num_mirrors)
-        .map(|m| m.country.clone())
-        .collect::<Vec<String>>();
-
-    let country_filter = CountryFilter::SelectedCountries(countries);
+    let country_filter = country_filter(&prev_rated_providers, mirrors_auto.num_mirrors);
     let limit = Limit::Limit(mirrors_auto.num_mirrors);
 
     rate_providers_uncached(mirror_urls, mirror_config, country_filter, limit)
+}
+
+fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
+    // If the user already ran a latency test, then we can restrict our latency tests to mirrors that are located at a
+    // country that scored well in the previous latency test. For example, for users located in Australia, we will
+    // not consider European mirrors because the previous latency test should have revealed that mirrors from
+    // Australia have better latency than mirrors from European countries.
+    let countries = prev_rated_providers.iter()
+        .take(num_mirrors)
+        .map(|m| m.country.clone())
+        .collect::<Vec<String>>();
+
+    CountryFilter::SelectedCountries(countries)
 }
 
 pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
