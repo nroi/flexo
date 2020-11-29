@@ -35,7 +35,7 @@ pub fn store_download_providers(properties: &MirrorConfig,
         timestamp: format!("{}", chrono::Utc::now()),
         download_providers,
     };
-    let serialized = serde_json::to_string(&timestamped).unwrap();
+    let serialized = serde_json::to_string_pretty(&timestamped).unwrap();
     let file_path = latency_test_results_file(properties);
     std::fs::write(file_path, serialized)
         .unwrap_or_else(|_| panic!("Unable to write file: {}", file_path));
