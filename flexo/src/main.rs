@@ -245,13 +245,19 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
             match mirror_cache::fetch_download_providers(mirror_config) {
                 Ok(download_providers) => {
                     match latency_tests_refresh_required(mirror_config, &download_providers) {
-                        true => rate_providers_uncached(mirror_urls,
-                                                        &mirror_config,
-                                                        CountryFilter::AllCountries,
-                                                        Limit::NoLimit),
-                        false => rate_providers_cached(mirror_urls,
-                                                       mirror_config,
-                                                       download_providers.download_providers)
+                        true => {
+                            info!("Continue to run latency test against all mirrors.");
+                            rate_providers_uncached(mirror_urls,
+                                                    &mirror_config,
+                                                    CountryFilter::AllCountries,
+                                                    Limit::NoLimit)
+                        },
+                        false => {
+                            info!("Continue to run latency test against a limited number of mirrors.");
+                            rate_providers_cached(mirror_urls,
+                                                  mirror_config,
+                                                  download_providers.download_providers)
+                        }
                     }
 
                 },
