@@ -29,14 +29,6 @@ fn latency_test_results_file(properties: &MirrorConfig) -> &str {
     }
 }
 
-pub fn store(properties: &MirrorConfig, mirrors: &[String]) {
-    // TODO reconsider if we still need this file: if we already store the result of our latency tests
-    // in JSON format, we most likely won't need this file anymore.
-    let data = mirrors.join("\n");
-    std::fs::write(&properties.mirrorlist_fallback_file, data)
-        .unwrap_or_else(|_| panic!("Unable to write file: {}", properties.mirrorlist_fallback_file));
-}
-
 pub fn store_download_providers(properties: &MirrorConfig,
                                 download_providers: Vec<DownloadProvider>) -> Vec<DownloadProvider> {
     let timestamped = TimestampedDownloadProviders {

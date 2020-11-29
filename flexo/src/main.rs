@@ -234,12 +234,8 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
         return Err(ProviderSelectionError::NoProviders)
     }
     info!("Primary mirror: {:#?}", providers[0].uri);
-    let urls: Vec<String> = providers.iter().map(|x| x.uri.to_string()).collect();
-    mirror_cache::store(&properties, &urls);
     let providers = mirror_cache::store_download_providers(&properties, providers);
-
-    // Change the implementation so that mirror_config is accepted.
-    // We need mirror_config so that we can access the port, so that the user may modify the port via the TOML file.
+    
     Ok(JobContext::new(providers, properties))
 }
 
