@@ -679,7 +679,11 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
     for mirror in filtered_mirror_urls.into_iter() {
         match mirror_fetch::measure_latency(&mirror.url, timeout) {
             Err(e) => {
-                warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
+                if e.code() == CURLE_OPERATION_TIMEDOUT {
+                    debug!("Skip mirror {} due to timeout.", mirror.url);
+                } else {
+                    warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
+                }
             }
             Ok(mirror_results) => {
                 mirrors_with_latencies.push((mirror, mirror_results));
