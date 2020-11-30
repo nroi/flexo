@@ -690,8 +690,8 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
             }
         }
     }
-    mirrors_with_latencies.sort_unstable_by_key(|(_, latency)| {
-        latency.total_time
+    mirrors_with_latencies.sort_unstable_by_key(|(_, mirror_result)| {
+        *mirror_result
     });
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
