@@ -5,8 +5,11 @@ extern crate serde;
 use std::fs;
 use serde::Deserialize;
 use flexo::Properties;
+use std::time::Duration;
 
 static DEFAULT_JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
+
+static DEFAULT_REFRESH_AFTER_SECONDS: u64 = 3600 * 24 * 14;
 
 #[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -78,6 +81,8 @@ impl Properties for MirrorConfig {}
 pub struct MirrorConfig {
     pub cache_directory: String,
     pub mirrorlist_fallback_file: String,
+    pub mirrorlist_latency_test_results_file: Option<String>,
+    pub refresh_latency_tests_after: Option<String>,
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
@@ -85,6 +90,21 @@ pub struct MirrorConfig {
     pub low_speed_time_secs: Option<u64>,
     pub max_speed_limit: Option<u64>,
     pub mirrors_auto: Option<MirrorsAutoConfig>,
+}
+
+impl MirrorConfig {
+    pub fn refresh_latency_tests_after(&self) -> Duration {
+        match &self.refresh_latency_tests_after {
+            None => Duration::from_secs(DEFAULT_REFRESH_AFTER_SECONDS),
+            Some(s) => match humantime::parse_duration(s) {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("Unable to parse duration {:?}: {:?}", s, e);
+                    Duration::from_secs(DEFAULT_REFRESH_AFTER_SECONDS)
+                }
+            }
+        }
+    }
 }
 
 fn mirror_config_from_toml() -> MirrorConfig {
@@ -139,12 +159,15 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
 fn mirror_config_from_env() -> MirrorConfig {
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
     let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
+    let mirrorlist_latency_test_results_file =
+        parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
     let low_speed_limit = parse_env_toml::<u32>("FLEXO_LOW_SPEED_LIMIT");
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
+    let refresh_latency_tests_after = parse_env_toml::<String>("FLEXO_REFRESH_LATENCY_TESTS_AFTER");
     let mirrors_auto = match mirror_selection_method {
         MirrorSelectionMethod::Auto => Some(mirrors_auto_config_from_env()),
         MirrorSelectionMethod::Predefined => None,
@@ -152,12 +175,14 @@ fn mirror_config_from_env() -> MirrorConfig {
     MirrorConfig {
         cache_directory,
         mirrorlist_fallback_file,
+        mirrorlist_latency_test_results_file,
         port,
         mirror_selection_method,
         mirrors_predefined,
         low_speed_limit,
         low_speed_time_secs,
         max_speed_limit,
+        refresh_latency_tests_after,
         mirrors_auto
     }
 }

@@ -9,7 +9,7 @@ export RUST_LOG=debug
 
 if [ "$FLEXO_TEST_MODE" = 'INTEGRATION_TEST' ]; then
   # Wait a moment until all servers have started.
-  sleep 3
+  sleep 8
 
   exec /usr/bin/integration-test-client
 else
