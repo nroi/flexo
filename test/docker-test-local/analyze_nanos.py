@@ -8,15 +8,17 @@ import datetime
 tolerance = .35
 
 prev = None
+prev_line = None
 
 for line in fileinput.input():
-    if re.match('^\d+$', line) is not None:
-        current = int(line)
+    if re.match('^\d+\.\d+ ', line) is not None:
+        current = float(line.split(' ')[0])
         if prev is not None:
-            diff = (current - prev) / 1_000_000_000
+            diff = current - prev
             if diff > tolerance:
                 timestamp = str(datetime.datetime.now())
                 print('>>> Threshold exceeded at ' + timestamp + ': ' + str(diff))
+                print(prev_line)
+                print(line)
         prev = current
-    else:
-        print(line, end='')
+        prev_line = line
