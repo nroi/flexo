@@ -58,6 +58,12 @@ services:
     container_name: flexo-server-mirror-stalling
     depends_on:
       - mirror-stalling-mock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7878/status || exit 1"]
+      interval: 1000ms
+      timeout: 500ms
+      retries: 5
+      start_period: 1s
   flexo-client:
     build: flexo-client
     container_name: flexo-client
