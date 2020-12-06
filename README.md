@@ -98,19 +98,29 @@ The [./docker-compose](test/docker-test-local/docker-compose) script may require
 without root privileges. Add your user to the docker group to do so. You may want to read
 the [wiki](https://wiki.archlinux.org/index.php/Docker) for more details on on the security
 implications of doing so.
+
 ```
-sudo gpasswd -a <user> docker
+gpasswd -a <user> docker
 ```
 
-Before submitting a PR, please make sure that all tests pass. We have two types
-of test cases:
+Furthermore, Docker BuildKit is required to run the integration tests inside docker, so make sure you have enabled it.
+One way to enable it is to modify your `~/.docker/config.json` to include the following:
+```json
+{
+    "experimental": "enabled"
+}
+```
+
+Make sure to restart the docker daemon after modifying this file.
+
+We have two types of test cases:
 1. Tests written in Rust: [integration_tests.rs](flexo/tests/integration_test.rs). These tests run quickly
 and they are fully deterministic (afaik). You can run them with `cargo`:
     ```
    cd flexo
    cargo test
     ```
-2. end-to-end tests written in bash using Docker: [flexo_test](test/docker-test-local/flexo-client/flexo_test).
+2. end-to-end tests using Docker.
 We try to avoid flaky test cases, but we cannot guarantee that all our docker test cases are deterministic,
 since their outcome depends on various factors outside of our control (e.g. how the scheduler runs OS processes,
 how TCP packets are assembled by the kernel's TCP stack, etc.).  

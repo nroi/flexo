@@ -1,6 +1,3 @@
-TODO flexo was originally intended to *extend* (rather than replace) cpcache. The document does not
-yet reflect this change.
-
 ## Terminology
 
 ### General terms
@@ -21,16 +18,11 @@ We use the term "remote mirror" (rather than just "mirror") to distinguish offic
 because flexo is also a kind of mirror.
 
 
-### flexo library terms
-Flexo is not meant to be a reusable library, it is only used by this particular program, called
-flexo, which is only meant to be used by another program, called
-[cpcache](https://github.com/nroi/cpcache).
+### Flexo Library Terms
 
-There are two reasons why we have created this library (as opposed to just using the curl library
-directly, without any additional abstractions in place):
-1. Flexo introduces a clear terminology which can be used to explain its purpose. 
-2. Flexo introduces an abstraction layer which makes it easier to test and debug
-the functionality it provides.
+We aim to implement a large chunk of the code as if it were a reusable library, even though we don't actually intend
+to use any of that code as a library. The main reason for doing so is to provide an abstraction layer that we can
+reason about without having to consider technical details related to protocols like TCP and HTTP.
 
 Since we have a one-to-one relationship between the entities used in [src/lib.rs](src/lib.rs) and
 the entities used in the production version, this document will always describe the two roles
@@ -48,9 +40,9 @@ A provider is required to complete an [order](#order).
 > https://mirror.yandex.ru/archlinux/
 
 #### Order
-The order is the missing information that we require to actually execute a [job](#job).
+The order is the information that we require to actually execute a [job](#job).
 
-> A job is the missing path that we mentioned above. For example, 
+> An order is the missing path that we mentioned above. For example, 
 > the relative path "community/os/x86_64/rustup-1.20.2-1-x86_64.pkg.tar.xz" in combination
 > with the provider https://mirror.yandex.ru/archlinux/ can be combined to
 > https://mirror.yandex.ru/archlinux/community/os/x86_64/rustup-1.20.2-1-x86_64.pkg.tar.xz,
