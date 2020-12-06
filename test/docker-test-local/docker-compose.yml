@@ -86,7 +86,11 @@ services:
     network_mode: "service:flexo-server"
     # Enable colorized output for our test cases.
     tty: true
-  nginx-test:
+  nginx-test-1:
+    image: nginx:1.19.1-alpine
+    ports:
+      - "8088:80"
+  nginx-test-2:
     image: nginx:1.19.1-alpine
     ports:
       - "8099:80"
