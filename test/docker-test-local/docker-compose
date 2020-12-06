@@ -20,4 +20,4 @@ tar -C .. -czvf flexo-client/integration-test-client.tar.gz \
     integration-test-client/Cargo.toml
 
 /usr/bin/docker-compose build || exit 1
-/usr/bin/docker-compose up --exit-code-from flexo-client
+/usr/bin/docker-compose up
