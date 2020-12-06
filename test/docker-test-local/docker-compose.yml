@@ -60,10 +60,17 @@ services:
       - mirror-stalling-mock
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:7878/status || exit 1"]
-      interval: 1000ms
-      timeout: 500ms
-      retries: 5
-      start_period: 1s
+      interval: 250ms
+      timeout: 200ms
+      retries: 1
+      start_period: 4s
+  flexo-server-mirror-stalling-standby:
+    build: flexo-server-mirror-stalling
+    container_name: flexo-server-mirror-stalling-standby
+    depends_on:
+      - mirror-stalling-mock
+    ports:
+      - "7878:7878"
   flexo-client:
     build: flexo-client
     container_name: flexo-client
@@ -79,3 +86,7 @@ services:
     network_mode: "service:flexo-server"
     # Enable colorized output for our test cases.
     tty: true
+  nginx-test:
+    image: nginx:1.19.1-alpine
+    ports:
+      - "8099:80"

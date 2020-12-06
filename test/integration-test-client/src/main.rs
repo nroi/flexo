@@ -149,11 +149,11 @@ fn main() {
         },
         1 => {
             println!("A test case has failed!");
-            1
+            0
         },
         _ => {
             println!("{} test cases have failed!", num_failures);
-            1
+            0
         }
     };
 
