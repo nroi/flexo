@@ -111,6 +111,6 @@ mirrors_predefined = []
     # just ["AU"].
     # Notice that this setting only kicks in when the latency tests are run: If
     # you change this setting, delete the file
-    # /var/cache/flexo/state/latency_test_results.json so that the previous
-    # results are discarded and the latency tests run again.
+    # /var/cache/flexo/state/latency_test_results.json and restart Flexo so
+    # that the previous results are discarded and the latency tests run again.
     allowed_countries = []
