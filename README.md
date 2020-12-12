@@ -52,11 +52,15 @@ is required for each file.
 
 The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self explanatory (open an issue in case you disagree).
-In most cases, you will want to leave all settings untouched, with one exception:
+In most cases, you will want to leave all settings untouched, with two exceptions:
 
-The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
+1. The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
 uncomment the setting and enter an appropriate value.
+
+2. The setting `allowed_countries` is set to the empty list by default, which means that at the first start and at
+   regular intervals, Flexo will run latency tests on all official mirrors from all continents. Add the ISO code
+   of your own country (and perhaps a few neighboring countries) to improve the startup time of Flexo.
 
 ## Attributes & Design Goals
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.

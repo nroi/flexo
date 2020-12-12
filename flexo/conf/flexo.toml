@@ -104,5 +104,13 @@ mirrors_predefined = []
     refresh_latency_tests_after = "8 days"
     # A list of 2-letter ISO country codes to restrict the selection to only
     # choose mirrors located at those countries. If this list is empty or
-    # commented, all locations are allowed.
+    # commented, the latency test will be run on mirrors from all locations.
+    # Ideally, you should include your own country and perhaps a few neighboring
+    # countries. For Example, users from Germany could set this to
+    # ["DE", "AT", "CH", "FR"], users from Australia should set this to
+    # just ["AU"].
+    # Notice that this setting only kicks in when the latency tests are run: If
+    # you change this setting, delete the file
+    # /var/cache/flexo/state/latency_test_results.json so that the previous
+    # results are discarded and the latency tests run again.
     allowed_countries = []
