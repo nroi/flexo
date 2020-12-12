@@ -73,6 +73,7 @@ pub struct MirrorsAutoConfig {
     pub num_mirrors: usize,
     pub mirrors_random_or_sort: MirrorsRandomOrSort,
     pub timeout: u64,
+    pub allowed_countries: Option<Vec<String>>,
 }
 
 impl Properties for MirrorConfig {}
@@ -141,6 +142,15 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
     let timeout = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_TIMEOUT").unwrap();
     let mirrors_status_json_endpoint = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT")
             .unwrap_or_else(|| DEFAULT_JSON_URI.to_owned());
+    let allowed_countries = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES")
+        .map(|country_list|
+            country_list
+                .split(",")
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_owned())
+                .collect::<Vec<String>>()
+        );
     let mirrors_blacklist =
         parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_AUTO_MIRRORS_BLACKLIST").unwrap_or_else(|| vec![]);
     MirrorsAutoConfig {
@@ -153,6 +163,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
         mirrors_random_or_sort,
         timeout,
         mirrors_blacklist,
+        allowed_countries,
     }
 }
 

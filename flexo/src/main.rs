@@ -30,7 +30,7 @@ use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
 use std::io::ErrorKind;
-use crate::mirror_cache::TimestampedDownloadProviders;
+use crate::mirror_cache::{TimestampedDownloadProviders, DemarshallError};
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -240,6 +240,14 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
 }
 
 fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    let country_codes = mirror_config.mirrors_auto.as_ref()
+        .map(|ma| ma.allowed_countries.clone())
+        .flatten();
+    let country_filter_uncached = match country_codes {
+        None => CountryFilter::AllCountries,
+        Some(v) if v.is_empty() => CountryFilter::AllCountries,
+        Some(v) => CountryFilter::SelectedCountries(v),
+    };
     match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
         Ok(mirror_urls) => {
             match mirror_cache::fetch_download_providers(mirror_config) {
@@ -249,7 +257,7 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                             info!("Continue to run latency test against all mirrors.");
                             rate_providers_uncached(mirror_urls,
                                                     &mirror_config,
-                                                    CountryFilter::AllCountries,
+                                                    country_filter_uncached,
                                                     Limit::NoLimit)
                         },
                         false => {
@@ -261,28 +269,39 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                     }
                 },
                 Err(e) => {
-                    match e.kind() {
-                        ErrorKind::NotFound => {
+                    match e {
+                        DemarshallError::IoError(e) if e.kind() == ErrorKind::NotFound => {
                             info!("No cached latency test results available. \
-                        Continue to run latency tests on all mirrors.");
+                            Continue to run latency tests on all mirrors.");
                         }
-                        e => {
+                        DemarshallError::VersionMismatch => {
+                            info!("Latency test results are currently stored in an outdated \
+                            format. This can happen if you have recently upgraded Flexo. Will \
+                            continue to re-run latency tests and store them in the new format.");
+                        }
+                        DemarshallError::SerdeError(e) => {
+                            info!("Unable to deserialize latency test results from file: {:?}. \
+                            This can happen if you have recently upgraded Flexo. Will continue to \
+                            re-run latency tests and store them in the new format.", e);
+                        }
+                        _ => {
                             error!("Unable to fetch latency test results from file: {:?}. \
                             Continue to run latency tests on all mirrors.", e);
                         }
-                    }
+                    };
                     rate_providers_uncached(mirror_urls,
                                             &mirror_config,
-                                            CountryFilter::AllCountries,
+                                            country_filter_uncached,
                                             Limit::NoLimit)
                 }
             }
         }
         Err(e) => {
             info!("Unable to fetch mirrors remotely: {:?}\nWill try to fetch them from cache.", e);
-            mirror_cache::fetch_download_providers(&mirror_config)
-                .unwrap()
-                .download_providers
+            match mirror_cache::fetch_download_providers(&mirror_config) {
+                Ok(v) => v.download_providers,
+                Err(e) => panic!("Unable to fetch mirrors from cache: {:?}", e),
+            }
         },
     }
 }
@@ -320,7 +339,7 @@ fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
             DownloadProvider {
                 uri,
                 mirror_results: default_mirror_result,
-                country: "Unknown".to_owned(),
+                country_code: "Unknown".to_owned(),
             }
         }).collect()
     }

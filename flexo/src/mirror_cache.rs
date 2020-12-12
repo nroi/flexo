@@ -10,8 +10,11 @@ use serde::{Serialize, Deserialize};
 
 const DEFAULT_LATENCY_TEST_RESULTS_FILE: &str = "/var/cache/flexo/state/latency_test_results.json";
 
+const TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION: u32 = 2;
+
 #[derive(Deserialize, Serialize)]
 pub struct TimestampedDownloadProviders {
+    pub version: Option<u32>,
     pub timestamp: String,
     pub download_providers: Vec<DownloadProvider>,
 }
@@ -32,6 +35,7 @@ fn latency_test_results_file(properties: &MirrorConfig) -> &str {
 pub fn store_download_providers(properties: &MirrorConfig,
                                 download_providers: Vec<DownloadProvider>) -> Vec<DownloadProvider> {
     let timestamped = TimestampedDownloadProviders {
+        version: Some(TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION),
         timestamp: format!("{:?}", chrono::Utc::now()),
         download_providers,
     };
@@ -45,9 +49,33 @@ pub fn store_download_providers(properties: &MirrorConfig,
     timestamped.download_providers
 }
 
-pub fn fetch_download_providers(properties: &MirrorConfig) -> Result<TimestampedDownloadProviders, io::Error> {
+#[derive(Debug)]
+pub enum DemarshallError {
+    VersionMismatch,
+    SerdeError(serde_json::Error),
+    IoError(io::Error)
+}
+
+impl From<io::Error> for DemarshallError {
+    fn from(e: io::Error) -> Self {
+        DemarshallError::IoError(e)
+    }
+}
+
+impl From<serde_json::Error> for DemarshallError {
+    fn from(e: serde_json::Error) -> Self {
+        DemarshallError::SerdeError(e)
+    }
+}
+
+pub fn fetch_download_providers(
+    properties: &MirrorConfig
+) -> Result<TimestampedDownloadProviders, DemarshallError> {
     let file_path = latency_test_results_file(properties);
     let contents = std::fs::read_to_string(file_path)?;
     let download_providers: TimestampedDownloadProviders = serde_json::from_str(&contents)?;
-    Ok(download_providers)
+    match download_providers.version {
+        Some(TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION) => Ok(download_providers),
+        _ => Err(DemarshallError::VersionMismatch),
+    }
 }

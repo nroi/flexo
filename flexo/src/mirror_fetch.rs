@@ -57,7 +57,8 @@ pub struct MirrorUrlOption {
     pub duration_avg: Option<f64>,
     pub duration_stddev: Option<f64>,
     pub score: Option<f64>,
-    pub country: Option<String>,
+    #[serde(default)]
+    pub country_code: Option<String>,
     pub ipv4: Option<bool>,
     pub ipv6: Option<bool>,
 }
@@ -71,7 +72,7 @@ impl MirrorUrlOption {
         let duration_avg = self.duration_avg?;
         let duration_stddev = self.duration_stddev?;
         let score = (self.score? * SCORE_SCALE as f64) as u64;
-        let country = self.country?;
+        let country_code = self.country_code?;
         let ipv4 = self.ipv4?;
         let ipv6 = self.ipv6?;
         Some(MirrorUrl {
@@ -83,7 +84,7 @@ impl MirrorUrlOption {
             duration_avg,
             duration_stddev,
             score,
-            country,
+            country_code,
             ipv4,
             ipv6
         })
@@ -100,7 +101,7 @@ pub struct MirrorUrl {
     pub duration_avg: f64,
     pub duration_stddev: f64,
     pub score: u64,
-    pub country: String,
+    pub country_code: String,
     pub ipv4: bool,
     pub ipv6: bool,
 }

@@ -73,6 +73,7 @@ pub struct ClientStatus {
     pub response_headers_sent: bool
 }
 
+#[derive(Debug)]
 pub enum CountryFilter {
     AllCountries,
     SelectedCountries(Vec<String>),
@@ -84,10 +85,12 @@ pub enum Limit {
 }
 
 impl CountryFilter {
-    fn includes_country(&self, country: &str) -> bool {
+    fn includes_country(&self, country_code: &str) -> bool {
         match self {
-            CountryFilter::AllCountries => true,
-            CountryFilter::SelectedCountries(countries) => countries.iter().any(|c| c == country)
+            CountryFilter::AllCountries =>
+                true,
+            CountryFilter::SelectedCountries(country_codes) =>
+                country_codes.iter().any(|c| c == country_code)
         }
     }
 }
@@ -133,7 +136,7 @@ impl GetRequest {
 pub struct DownloadProvider {
     pub uri: String,
     pub mirror_results: MirrorResults,
-    pub country: String,
+    pub country_code: String,
 }
 
 impl Provider for DownloadProvider {
@@ -664,10 +667,11 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
+    debug!("The following CountryFilter is applied: {:?}", country_filter);
     let filtered_mirror_urls_unlimited = mirror_urls
         .into_iter()
         .filter(|x| x.filter_predicate(&mirrors_auto))
-        .filter(|x| country_filter.includes_country(&x.country));
+        .filter(|x| country_filter.includes_country(&x.country_code));
     let filtered_mirror_urls: Vec<MirrorUrl> = match limit {
         Limit::NoLimit => filtered_mirror_urls_unlimited.collect(),
         Limit::Limit(l) => filtered_mirror_urls_unlimited.take(l).collect(),
@@ -697,7 +701,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
         DownloadProvider {
             uri: mirror.url,
             mirror_results,
-            country: mirror.country,
+            country_code: mirror.country_code,
         }
     }).collect()
 }
@@ -720,7 +724,7 @@ fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usi
     // Australia have better latency than mirrors from European countries.
     let countries = prev_rated_providers.iter()
         .take(num_mirrors)
-        .map(|m| m.country.clone())
+        .map(|m| m.country_code.clone())
         .collect::<Vec<String>>();
 
     CountryFilter::SelectedCountries(countries)

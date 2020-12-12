@@ -102,3 +102,7 @@ mirrors_predefined = []
     # of their score.
     timeout = 350
     refresh_latency_tests_after = "8 days"
+    # A list of 2-letter ISO country codes to restrict the selection to only
+    # choose mirrors located at those countries. If this list is empty or
+    # commented, all locations are allowed.
+    allowed_countries = []
