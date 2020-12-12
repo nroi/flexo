@@ -38,25 +38,30 @@ Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
 ```
 
 ## Features
-* Concurrent downloads: You can have multiple clients downloading files from flexo without one
-client having to wait.
-* Efficient bandwidth sharing for concurrent downloads: Flexo does not require a new connection to the remote
-mirror when the same file is downloaded by multiple clients. For instance, suppose a client starts downloading
-a given file. After 5 seconds have elapsed, 100MB have been downloaded. Now, a second client requests the same file. The second client will receive the first 100MB immediately from the local file system. Then, both clients continue to download
-the file, while only a single connection to the remote mirror exists. This means that your bandwidth is not split
-for the two clients, both clients will be able to download the file with the full download speed provided by your ISP.
-* Persistent connections: This is especially useful when many small files are downloaded, since no new TLS negotation
-is required for each file.
+
+* Concurrent downloads: You can have multiple clients downloading files from flexo without one client having to wait.
+* Efficient bandwidth sharing for concurrent downloads: Flexo does not require a new connection to the remote mirror
+  when the same file is downloaded by multiple clients. For instance, suppose a client starts downloading a given file.
+  After 5 seconds have elapsed, 100MB have been downloaded. Now, a second client requests the same file. The second
+  client will receive the first 100MB immediately from the local file system. Then, both clients continue to download
+  the file, while only a single connection to the remote mirror exists. This means that your bandwidth is not split for
+  the two clients, both clients will be able to download the file with the full download speed provided by your ISP.
+* Persistent connections: This is especially useful when many small files are downloaded, since no new TLS negotiation
+  is required for each file.
 
 ## Configuration
 
 The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self explanatory (open an issue in case you disagree).
-In most cases, you will want to leave all settings untouched, with one exception:
+In most cases, you will want to leave all settings untouched, with two exceptions:
 
-The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
+1. The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
 uncomment the setting and enter an appropriate value.
+
+2. The setting `allowed_countries` is set to the empty list by default, which means that at the first start and at
+   regular intervals, Flexo will run latency tests on all official mirrors from all continents. Add the ISO code
+   of your own country (and perhaps a few neighboring countries) to improve the startup time of Flexo.
 
 ## Attributes & Design Goals
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
@@ -66,12 +71,15 @@ mirror is too slow or causes other issues.
 
 ## Cleaning the package cache
 
-`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old packages. Install it if you haven't done so already:
+`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old
+packages. Install it if you haven't done so already:
 ```bash
 sudo pacman -S pacman-contrib
 ```
-Packages are stored in the directory specified by the `cache_directory` variable in `/etc/flexo/flexo.toml`. By default, it's `/var/cache/flexo`. Use `paccache` to clean up the subdirectories of this directory. For instance,
-the following will delete all packages except for the three most recent versions:
+
+Packages are stored in the directory specified by the `cache_directory` variable in `/etc/flexo/flexo.toml`. By default,
+it's `/var/cache/flexo`. Use `paccache` to clean up the subdirectories of this directory. For instance, the following
+will delete all packages except for the three most recent versions:
 
 ```bash
 paccache -r -k3  $(find /var/cache/flexo/pkg -type d -name x86_64 -printf "-c %p ")
