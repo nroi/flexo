@@ -257,7 +257,7 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                         true => {
                             info!("Continue to run latency test against all mirrors.");
                             rate_providers_uncached(mirror_urls,
-                                                    &mirror_config,
+                                                    mirror_config.mirrors_auto.as_ref().unwrap(),
                                                     country_filter_uncached,
                                                     Limit::NoLimit)
                         },
@@ -291,7 +291,7 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                         }
                     };
                     rate_providers_uncached(mirror_urls,
-                                            &mirror_config,
+                                            mirror_config.mirrors_auto.as_ref().unwrap(),
                                             country_filter_uncached,
                                             Limit::NoLimit)
                 }

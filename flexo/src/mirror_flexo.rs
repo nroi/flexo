@@ -1,6 +1,6 @@
 extern crate flexo;
 
-use crate::mirror_config::MirrorConfig;
+use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use crate::mirror_fetch;
 use crate::mirror_fetch::MirrorUrl;
 use crate::str_path::StrPath;
@@ -660,11 +660,10 @@ impl Channel for DownloadChannel {
 }
 
 pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
-                               mirror_config: &MirrorConfig,
+                               mirrors_auto: &MirrorsAutoConfig,
                                country_filter: CountryFilter,
                                limit: Limit
 ) -> Vec<DownloadProvider> {
-    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
     debug!("The following CountryFilter is applied: {:?}", country_filter);
@@ -714,7 +713,7 @@ pub fn rate_providers_cached(mirror_urls: Vec<MirrorUrl>,
     let country_filter = country_filter(&prev_rated_providers, mirrors_auto.num_mirrors);
     let limit = Limit::Limit(mirrors_auto.num_mirrors);
 
-    rate_providers_uncached(mirror_urls, mirror_config, country_filter, limit)
+    rate_providers_uncached(mirror_urls, mirror_config.mirrors_auto.as_ref().unwrap(), country_filter, limit)
 }
 
 fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
