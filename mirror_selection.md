@@ -16,7 +16,7 @@ Try the following modifications in your `/etc/flexo/flexo.toml` file in that ord
     Keep in mind that in some countries, no mirrors or very few mirrors are available, so in that case, make
     sure to include sufficiently many countries. Check out https://www.archlinux.org/mirrors/status/ to see
    how many mirrors are available in your country.
-3. Modify the `max_score` setting: This setting is just a very rough estimate of a mirror's performance,
+3. Modify the `max_score` setting: This score is just a very rough estimate of a mirror's performance,
    so it's possible that you're excluding too many sufficiently good mirrors if that setting is too low.
 4. Modify the `timeout` setting: The default value should be fine for most users, but if you happen to have a high
    latency connection towards most mirrors, this setting should be increased.
@@ -24,7 +24,7 @@ Try the following modifications in your `/etc/flexo/flexo.toml` file in that ord
 Keep in mind that, after editing this file, you need to remove the previously cached latency test results and restart
 Flexo before the changes take effect:
 ```bash
-# rm /var/cache/flexo/state/latency_test_results.json
-# systemctl restart flexo
+rm /var/cache/flexo/state/latency_test_results.json
+systemctl restart flexo
 ```
 
