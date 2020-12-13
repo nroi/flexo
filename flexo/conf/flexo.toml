@@ -67,8 +67,11 @@ mirrors_predefined = []
     ipv4 = true
     # mirrors must support IPv6. Notice that this setting does not force
     # connection establishment via IPv6, so having this setting enabled does not
-    # cause any issues on IPv4-only clients.
-    ipv6 = true
+    # cause any issues on IPv4-only clients, and having it disabled does not
+    # guarantee that connections will be established via IPv4.
+    # Setting this to true can yield small benefits if your ISP uses "Dual Stack Lite",
+    # and frequently has issues with IPv4 connections, but it will also exlude many mirrors.
+    ipv6 = false
     # The maximum score allowed from a mirror. See
     # https://www.archlinux.org/mirrors/status/ for an explanation of this
     # metric.
