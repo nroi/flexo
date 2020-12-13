@@ -256,10 +256,10 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                     match latency_tests_refresh_required(mirror_config, &download_providers) {
                         true => {
                             info!("Continue to run latency test against all mirrors.");
-                            rate_providers_uncached(mirror_urls,
-                                                    mirror_config.mirrors_auto.as_ref().unwrap(),
-                                                    country_filter_uncached,
-                                                    Limit::NoLimit)
+                            rate_providers_uncached_retry(mirror_urls,
+                                                          mirror_config.mirrors_auto.as_ref().unwrap().clone(),
+                                                          &country_filter_uncached,
+                                                          Limit::NoLimit)
                         },
                         false => {
                             info!("Continue to run latency test against a limited number of mirrors.");
@@ -290,10 +290,10 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
                             Continue to run latency tests on all mirrors.", e);
                         }
                     };
-                    rate_providers_uncached(mirror_urls,
-                                            mirror_config.mirrors_auto.as_ref().unwrap(),
-                                            country_filter_uncached,
-                                            Limit::NoLimit)
+                    rate_providers_uncached_retry(mirror_urls,
+                                                  mirror_config.mirrors_auto.as_ref().unwrap().clone(),
+                                                  &country_filter_uncached,
+                                                  Limit::NoLimit)
                 }
             }
         }

@@ -44,6 +44,8 @@ const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 
 const MAX_REDIRECTIONS: u32 = 3;
 
+const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BufferSizeExceeded,
@@ -79,6 +81,7 @@ pub enum CountryFilter {
     SelectedCountries(Vec<String>),
 }
 
+#[derive(Copy, Clone)]
 pub enum Limit {
     NoLimit,
     Limit(usize),
@@ -659,9 +662,35 @@ impl Channel for DownloadChannel {
     }
 }
 
+pub fn rate_providers_uncached_retry(mirror_urls: Vec<MirrorUrl>,
+                                     mirrors_auto: MirrorsAutoConfig,
+                                     country_filter: &CountryFilter,
+                                     limit: Limit
+) -> Vec<DownloadProvider> {
+    for i in 0..LATENCY_TEST_NUM_ATTEMPTS {
+        let mirrors_auto = match i {
+            0 => mirrors_auto.clone(),
+            _ => {
+                warn!("The previous latency test did not return any results. This may indicate that your settings \
+                in the [mirrors_auto] section are too restrictive. We will try to relax these settings and make \
+                a new attempt.");
+                let relaxed = mirrors_auto.relax();
+                debug!("The relaxed settings are: {:?}", relaxed);
+                relaxed
+            },
+        };
+        let providers = rate_providers_uncached(mirror_urls.clone(), &mirrors_auto, &country_filter, limit);
+        if !providers.is_empty() {
+            return providers;
+        }
+    }
+    error!("The latency test did not return any results.");
+    vec![]
+}
+
 pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
                                mirrors_auto: &MirrorsAutoConfig,
-                               country_filter: CountryFilter,
+                               country_filter: &CountryFilter,
                                limit: Limit
 ) -> Vec<DownloadProvider> {
     mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
@@ -713,7 +742,11 @@ pub fn rate_providers_cached(mirror_urls: Vec<MirrorUrl>,
     let country_filter = country_filter(&prev_rated_providers, mirrors_auto.num_mirrors);
     let limit = Limit::Limit(mirrors_auto.num_mirrors);
 
-    rate_providers_uncached(mirror_urls, mirror_config.mirrors_auto.as_ref().unwrap(), country_filter, limit)
+    rate_providers_uncached_retry(mirror_urls,
+                                  mirror_config.mirrors_auto.as_ref().unwrap().clone(),
+                                  &country_filter,
+                                  limit,
+    )
 }
 
 fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {

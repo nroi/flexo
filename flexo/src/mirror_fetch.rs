@@ -40,7 +40,7 @@ impl From<MirrorListOption> for MirrorList {
 }
 
 #[serde(rename_all = "lowercase")]
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MirrorProtocol {
     Http,
     Https,
@@ -91,7 +91,7 @@ impl MirrorUrlOption {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MirrorUrl {
     pub url: String,
     pub protocol: MirrorProtocol,

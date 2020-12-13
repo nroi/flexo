@@ -76,6 +76,15 @@ pub struct MirrorsAutoConfig {
     pub allowed_countries: Option<Vec<String>>,
 }
 
+impl MirrorsAutoConfig {
+    pub fn relax(&self) -> Self {
+        let mut relaxed = self.clone();
+        relaxed.max_score += 3.0;
+        relaxed.timeout += 100;
+        relaxed
+    }
+}
+
 impl Properties for MirrorConfig {}
 
 #[derive(Deserialize, Debug, Clone)]
