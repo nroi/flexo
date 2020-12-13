@@ -67,7 +67,9 @@ fn main() {
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = match initialize_job_context(properties.clone()) {
         Ok(jc) =>  Arc::new(Mutex::new(jc)),
         Err(ProviderSelectionError::NoProviders) => {
-            error!("Unable to find remote mirrors that match the selected criteria.");
+            error!("Unable to find remote mirrors that match the selected criteria. Please \
+            adapt your flexo.toml configuration file. See \
+            https://github.com/nroi/flexo/blob/master/mirror_selection.md for more information.");
             std::process::exit(1);
         }
     };
@@ -229,7 +231,6 @@ pub enum ProviderSelectionError {
 
 fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<DownloadJob>, ProviderSelectionError> {
     let providers: Vec<DownloadProvider> = rated_providers(&properties);
-    debug!("Mirror latency test results: {:#?}", providers);
     if providers.is_empty() {
         return Err(ProviderSelectionError::NoProviders)
     }
@@ -331,7 +332,9 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
 
 fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        fetch_auto(mirror_config)
+        let providers = fetch_auto(mirror_config);
+        debug!("Mirror latency test results: {:#?}", providers);
+        providers
     } else {
         let default_mirror_result: MirrorResults = Default::default();
         let mirrors_predefined = mirror_config.mirrors_predefined.clone();

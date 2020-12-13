@@ -63,6 +63,23 @@ uncomment the setting and enter an appropriate value.
    regular intervals, Flexo will run latency tests on all official mirrors from all continents. Add the ISO code
    of your own country (and perhaps a few neighboring countries) to improve the startup time of Flexo.
 
+## Troubleshooting
+
+If Flexo does not start at all or crashes, check the logs first:
+```bash
+journalctl --unit=flexo
+```
+If that does not help you, please open an issue that includes:
+1. An excerpt of that log, if Flexo has crashed or did not start.
+2. Your installation method (docker or AUR).
+3. The version you are using (either the output of `pacman -Qi flexo`, or the tag if you are using Docker).
+4. Your settings, if you have changed them
+   (either the `/etc/flexo/flexo.toml` file, or the environment variables if you use Docker).
+5. If the issue is related to the mirror selection, it might also help if you include the country you are located in
+and the `/var/cache/flexo/state/latency_test_results.json` file, if it exists.
+
+For issues related to the mirror selection, also see [this page](./mirror_selection.md) for more details.
+
 ## Attributes & Design Goals
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
 * Robust: Flexo includes certain functions to allow it to switch from one mirror to another if a
