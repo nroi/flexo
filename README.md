@@ -1,6 +1,4 @@
-# Flexo
-
- <img src="flexo_beard.svg" width="120">
+# Flexo <img src="flexo_beard.svg" width="50">
 
 Flexo is a central cache for pacman, the package manager of Arch Linux.
 
