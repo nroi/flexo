@@ -123,6 +123,7 @@ fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
     try_num_attempts(INITIAL_CONNECTIVITY_NUM_ATTEMPTS, || {
         let mut received = Vec::new();
         let mut easy = Easy::new();
+        easy.follow_location(true).unwrap();
         easy.url(&mirrors_auto.mirrors_status_json_endpoint)?;
         {
             let mut transfer = easy.transfer();
