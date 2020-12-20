@@ -160,7 +160,12 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
 
 pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, curl::Error> {
     let json = fetch_json(mirror_config)?;
-    let mirror_list_option: MirrorListOption = serde_json::from_str(&json).unwrap();
+    let mirror_list_option: MirrorListOption = match serde_json::from_str(&json) {
+        Ok(r) => r,
+        Err(e) => {
+            panic!("Failed to deserialize mirror list: {:?}", e);
+        }
+    };
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
     Ok(mirror_list.urls)
 }
