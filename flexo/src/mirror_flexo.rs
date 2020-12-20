@@ -717,7 +717,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
                     debug!("Skip mirror {} due to timeout.", mirror.url);
                 } else {
-                    warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
+                    debug!("Skip mirror {}: Latency test did not succeed: {:?}", mirror.url, e);
                 }
                 false
             }
