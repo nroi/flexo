@@ -1,6 +1,6 @@
 [package]
 name = "flexo"
-version = "1.0.11"
+version = "1.0.12"
 authors = ["Fabian Muscariello <nroi@mailbox.org>"]
 edition = "2018"
 
