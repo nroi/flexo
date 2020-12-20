@@ -183,6 +183,18 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, cu
     // any benefit for our use case (afaik), so this setting should not have any downsides.
     easy.http_version(HttpVersion::V11)?;
     easy.fail_on_error(true)?;
+    easy.header_function(move |header: &[u8]| {
+        // Exclude Cloudflare mirrors, because they mess up our latency results: Measuring the latency against a
+        // Cloudflare protected server usually yields excellent results, but these results are meaningless since
+        // Cloudflare uses caching: So the latency might have been low only because the request could be served
+        // from the cache, but we can't assume that every request will be a cache hit.
+        if header.to_ascii_lowercase().starts_with("server: cloudflare".as_bytes()) {
+            debug!("Remote mirror {} appears to use CloudFlare, this mirror will be ignored.", &url);
+            false
+        } else {
+            true
+        }
+    }).unwrap();
     easy.transfer().perform()?;
     Ok(MirrorResults {
         namelookup_duration: easy.namelookup_time()?,
