@@ -182,6 +182,7 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, cu
     // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
     // any benefit for our use case (afaik), so this setting should not have any downsides.
     easy.http_version(HttpVersion::V11)?;
+    easy.fail_on_error(true)?;
     easy.transfer().perform()?;
     Ok(MirrorResults {
         namelookup_duration: easy.namelookup_time()?,
