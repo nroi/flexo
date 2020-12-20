@@ -7,7 +7,7 @@ use serde::Deserialize;
 use flexo::Properties;
 use std::time::Duration;
 
-static DEFAULT_JSON_URI: &str = "https://www.archlinux.org/mirrors/status/json/";
+static DEFAULT_JSON_URI: &str = "https://archlinux.org/mirrors/status/json/";
 
 static DEFAULT_REFRESH_AFTER_SECONDS: u64 = 3600 * 24 * 14;
 

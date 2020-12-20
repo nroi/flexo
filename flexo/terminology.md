@@ -12,7 +12,7 @@ or some other kind of hardware like a laptop or a Raspberry Pi.
 The connection route between flexo and the remote mirror.
 
 #### remote mirror
-An official ArchLinux mirror listed in the JSON document: https://www.archlinux.org/mirrors/status/json/
+An official ArchLinux mirror listed in the JSON document: https://archlinux.org/mirrors/status/json/
 
 We use the term "remote mirror" (rather than just "mirror") to distinguish official mirrors from flexo,
 because flexo is also a kind of mirror.

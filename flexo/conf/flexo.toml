@@ -53,7 +53,7 @@ mirrors_predefined = []
 # Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]
     # The URI of the JSON endpoint that delivers information about all official mirrors.
-    mirrors_status_json_endpoint = "https://www.archlinux.org/mirrors/status/json/"
+    mirrors_status_json_endpoint = "https://archlinux.org/mirrors/status/json/"
     # The method to choose suitable mirrors automatically may not always work
     # perfectly. If one of the automatically chosen mirrors turns out to be slow or
     # unstable, add it to this list.
@@ -73,7 +73,7 @@ mirrors_predefined = []
     # and frequently has issues with IPv4 connections, but it will also exlude many mirrors.
     ipv6 = false
     # The maximum score allowed from a mirror. See
-    # https://www.archlinux.org/mirrors/status/ for an explanation of this
+    # https://archlinux.org/mirrors/status/ for an explanation of this
     # metric.
     max_score = 2.5
     # When Flexo is started for the first time, latency tests run against *all*
