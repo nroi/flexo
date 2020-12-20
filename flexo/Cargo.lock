@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "flexo"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "chrono",
  "crossbeam",
