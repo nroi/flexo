@@ -708,20 +708,32 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
     debug!("Running latency tests on the following mirrors: {:#?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
     let timeout = Duration::from_millis(mirrors_auto.timeout);
+    let mut num_successes = 0;
+    let mut num_failures = 0;
     for mirror in filtered_mirror_urls.into_iter() {
-        match mirror_fetch::measure_latency(&mirror.url, timeout) {
+        let is_success = match mirror_fetch::measure_latency(&mirror.url, timeout) {
             Err(e) => {
+                num_failures += 1;
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
                     debug!("Skip mirror {} due to timeout.", mirror.url);
                 } else {
                     warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
                 }
+                false
             }
             Ok(mirror_results) => {
                 mirrors_with_latencies.push((mirror, mirror_results));
+                true
             }
+        };
+        if is_success {
+            num_successes += 1;
+        } else {
+            num_failures += 1;
         }
     }
+    debug!("Ran latency test on {} mirrors with {} successes and {} failures.",
+           num_successes + num_failures, num_successes, num_failures);
     mirrors_with_latencies.sort_unstable_by_key(|(_, mirror_result)| {
         *mirror_result
     });
