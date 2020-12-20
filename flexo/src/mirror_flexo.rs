@@ -2,7 +2,7 @@ extern crate flexo;
 
 use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use crate::mirror_fetch;
-use crate::mirror_fetch::MirrorUrl;
+use crate::mirror_fetch::{MirrorUrl, MirrorProtocol};
 use crate::str_path::StrPath;
 
 
@@ -698,6 +698,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
     debug!("The following CountryFilter is applied: {:?}", country_filter);
     let filtered_mirror_urls_unlimited = mirror_urls
         .into_iter()
+        .filter(|x| x.protocol == MirrorProtocol::Http || x.protocol == MirrorProtocol::Https)
         .filter(|x| x.filter_predicate(&mirrors_auto))
         .filter(|x| country_filter.includes_country(&x.country_code));
     let filtered_mirror_urls: Vec<MirrorUrl> = match limit {
