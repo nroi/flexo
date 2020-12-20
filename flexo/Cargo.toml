@@ -1,6 +1,6 @@
 [package]
 name = "flexo"
-version = "1.0.9"
+version = "1.0.10"
 authors = ["Fabian Muscariello <nroi@mailbox.org>"]
 edition = "2018"
 
@@ -8,12 +8,12 @@ edition = "2018"
 
 [dependencies]
 curl = "0.4.34"
-libc = "0.2.80"
+libc = "0.2.81"
 http = "0.2"
 rand = "0.7.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.5.5"
+toml = "0.5.8"
 crossbeam = "0.7.3"
 httparse = "1.3.4"
 time = "0.1.3"
@@ -22,7 +22,7 @@ xattr = "0.2.2"
 log = "0.4.11"
 chrono = { version = "0.4", features = ["serde", "rustc-serialize"] }
 humantime = "2.0.1"
-env_logger = "0.7.1"
+env_logger = "0.8.2"
 
 [dev-dependencies]
 tempfile = "3.1.0"
