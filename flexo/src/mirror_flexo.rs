@@ -46,6 +46,9 @@ const MAX_REDIRECTIONS: u32 = 3;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
 
+const ERR_MSG_XATTR_SUPPORT: &str = "Unable to get extended file attributes. Please make sure that the path \
+set as cache_directory resides on a file system with support for extended attributes.";
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BufferSizeExceeded,
@@ -278,7 +281,7 @@ impl Job for DownloadJob {
                     .unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
                 let file_size = file.metadata().expect("Unable to fetch file metadata").len();
                 sum_size += file_size;
-                let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
+                let complete_size = match xattr::get(entry.path(), &key).expect(ERR_MSG_XATTR_SUPPORT) {
                     Some(value) => {
                         let result = String::from_utf8(value).map_err(FileAttrError::from)
                             .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
