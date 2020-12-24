@@ -440,10 +440,10 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
                 },
                 Err(e) => {
                     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
-                        debug!("Connection closed by client?");
+                        debug!("Broken Pipe or Connection reset. Connection closed by client?");
                         return;
                     } else {
-                        panic!("Unexpected error: {:?}", e);
+                        panic!("Failed to send payload: An unexpected I/O error has occurred: {:?}", e);
                     }
                 },
             }
