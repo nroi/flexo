@@ -101,13 +101,22 @@ impl CountryFilter {
     }
 }
 
-fn parse_range_header_value(s: &str) -> u64 {
+fn parse_range_header_value(s: &str) -> Result<u64, ClientError> {
     let s = s.to_lowercase();
     // We ignore everything after the - sign: We assume that pacman will never request only up to a certain size,
     // pacman will only skip the beginning of a file if the file has already been partially downloaded.
-    let range_start: &str = s.split('-').next().unwrap();
-    let range_start = range_start.replace("bytes=", "");
-    range_start.parse::<u64>().unwrap()
+    match s.split('-').next() {
+        None => {
+            debug!("Unable to read the range header from the HTTP request.");
+            Err(ClientError::InvalidHeader(ClientStatus {
+                response_headers_sent: false
+            }))
+        }
+        Some(range_start) => {
+            let range_start = range_start.replace("bytes=", "");
+            Ok(range_start.parse::<u64>().unwrap())
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -121,7 +130,10 @@ impl GetRequest {
         let range_header = request.headers
             .iter()
             .find(|h| h.name.to_lowercase() == "range");
-        let resume_from = range_header.map(|h| parse_range_header_value(std::str::from_utf8(h.value).unwrap()));
+        let resume_from = match range_header {
+            None => None,
+            Some(h) => Some(parse_range_header_value(std::str::from_utf8(h.value).unwrap())?),
+        };
         match request.method {
             Some("GET") => {},
             Some(_method) => {
