@@ -631,7 +631,8 @@ impl Handler for DownloadState {
                 // nothing to do, wait until this function is invoked again.
             }
             Err(e) => {
-                panic!("Error: {:?}", e)
+                error!("Unable to parse header: {:?}", e);
+                return false;
             }
         }
 
