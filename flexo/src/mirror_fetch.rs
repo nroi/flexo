@@ -4,6 +4,7 @@ use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use crate::MirrorResults;
+use crate::mirror_fetch::MirrorFetchError::{CurlError, DemarshallError};
 
 // If Flexo starts automatically with each system boot, it may happen that internet connectivity is not immediately
 // available. For this reason, more than one attempt is made to connect to the server, hoping that the client
@@ -45,6 +46,24 @@ pub enum MirrorProtocol {
     Http,
     Https,
     Rsync,
+}
+
+#[derive(Debug)]
+pub enum MirrorFetchError {
+    DemarshallError(serde_json::error::Error),
+    CurlError(curl::Error),
+}
+
+impl From<curl::Error> for MirrorFetchError {
+    fn from(error: curl::Error) -> Self {
+        CurlError(error)
+    }
+}
+
+impl From<serde_json::Error> for MirrorFetchError {
+    fn from(error: serde_json::Error) -> Self {
+        DemarshallError(error)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -159,14 +178,9 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
     }
 }
 
-pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, curl::Error> {
+pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, MirrorFetchError> {
     let json = fetch_json(mirror_config)?;
-    let mirror_list_option: MirrorListOption = match serde_json::from_str(&json) {
-        Ok(r) => r,
-        Err(e) => {
-            panic!("Failed to deserialize mirror list: {:?}", e);
-        }
-    };
+    let mirror_list_option: MirrorListOption = serde_json::from_str(&json)?;
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
     Ok(mirror_list.urls)
 }
