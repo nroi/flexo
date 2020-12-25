@@ -141,7 +141,7 @@ impl GetRequest {
     fn new(request: httparse::Request) -> Result<Self, ClientError> {
         let range_header = request.headers
             .iter()
-            .find(|h| h.name.to_lowercase() == "range");
+            .find(|h| h.name.eq_ignore_ascii_case("range"));
         let range_header_value = range_header.map(|h| {
             match str::from_utf8(h.value) {
                 Ok(v) => Ok(v),
