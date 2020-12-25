@@ -10,6 +10,7 @@ use flexo::*;
 use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
+use std::str;
 use crossbeam::crossbeam_channel::Sender;
 use curl::easy::{Easy2, Handler, WriteError, HttpVersion};
 use std::fs::OpenOptions;
@@ -78,6 +79,14 @@ pub struct ClientStatus {
     pub response_headers_sent: bool
 }
 
+impl ClientStatus {
+    pub fn no_response_headers_sent() -> Self {
+        ClientStatus {
+            response_headers_sent: false
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum CountryFilter {
     AllCountries,
@@ -108,13 +117,16 @@ fn parse_range_header_value(s: &str) -> Result<u64, ClientError> {
     match s.split('-').next() {
         None => {
             debug!("Unable to read the range header from the HTTP request.");
-            Err(ClientError::InvalidHeader(ClientStatus {
-                response_headers_sent: false
-            }))
+            Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()))
         }
         Some(range_start) => {
-            let range_start = range_start.replace("bytes=", "");
-            Ok(range_start.parse::<u64>().unwrap())
+            match range_start.replace("bytes=", "").parse::<u64>() {
+                Ok(v) => Ok(v),
+                Err(_) => {
+                    error!("Invalid range start submitted by client: {}", range_start);
+                    Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()))
+                }
+            }
         }
     }
 }
@@ -130,21 +142,41 @@ impl GetRequest {
         let range_header = request.headers
             .iter()
             .find(|h| h.name.to_lowercase() == "range");
-        let resume_from = match range_header {
+        let range_header_value = range_header.map(|h| {
+            match str::from_utf8(h.value) {
+                Ok(v) => Ok(v),
+                Err(_) => {
+                    error!("Unable to parse header value to UTF8");
+                    Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()))
+                }
+            }
+        });
+        let resume_from = match range_header_value {
             None => None,
-            Some(h) => Some(parse_range_header_value(std::str::from_utf8(h.value).unwrap())?),
+            Some(v) => {
+                Some(parse_range_header_value(v?)?)
+            }
         };
         match request.method {
             Some("GET") => {},
-            Some(_method) => {
-                let client_status = ClientStatus { response_headers_sent: false };
-                return Err(ClientError::UnsupportedHttpMethod(client_status));
+            Some(method) => {
+                error!("Unsupported HTTP method: {}", method);
+                return Err(ClientError::UnsupportedHttpMethod(ClientStatus::no_response_headers_sent()));
             },
-            None => panic!("Expected the request method to be set."),
+            None => {
+                error!("Expected the request method to be set.");
+                return Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()));
+            },
         }
-        let p = &request.path.unwrap()[1..]; // Skip the leading "/"
+        let path = match request.path {
+            None => {
+                let client_status = ClientStatus { response_headers_sent: false };
+                Err(ClientError::InvalidHeader(client_status))
+            }
+            Some(p) => Ok(&p[1..])  // Skip the leading "/"
+        };
         Ok(Self {
-            path: StrPath::new(p.to_owned()),
+            path: StrPath::new(path?.to_owned()),
             resume_from,
         })
     }
@@ -598,7 +630,7 @@ impl Handler for DownloadState {
                 if code == 200 || code == 206 {
                     let content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
-                            Some(std::str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
+                            Some(str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
                         } else {
                             None
                         }
