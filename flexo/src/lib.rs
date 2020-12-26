@@ -103,7 +103,7 @@ pub trait Provider where
 }
 
 pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
-    type S: std::cmp::Ord;
+    type S: std::cmp::Ord + core::marker::Copy;
     type JS;
     type C: Channel<J=Self>;
     type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash;
@@ -257,11 +257,13 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
         let (idx, _) = provider_stats.providers
             .iter()
-            .map(|x| (provider_failures.get(&x).unwrap_or(&0), provider_current_usages.get(&x).unwrap_or(&0), x.score()))
+            .map(|x| DynamicScore {
+                num_failures: *(provider_failures.get(&x).unwrap_or(&0)),
+                num_current_usages: *(provider_current_usages.get(&x).unwrap_or(&0)),
+                initial_score: x.score()
+            })
             .enumerate()
-            .min_by(|(_idx_x, (num_failures_x, num_usages_x, score_x)),
-                     (_idx_y, (num_failures_y, num_usages_y, score_y))|
-                (num_failures_x, num_usages_x, score_x).cmp(&(num_failures_y, num_usages_y, score_y)))
+            .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
             .unwrap();
 
         let provider = provider_stats.providers.remove(idx);
@@ -281,6 +283,14 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             }
         }
     }
+}
+
+/// A score that incorporates information that we have gained while using this provider.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+struct DynamicScore <S> where S: Ord {
+    num_failures: i32,
+    num_current_usages: i32,
+    initial_score: S,
 }
 
 pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
@@ -523,3 +533,34 @@ impl <J> JobContext<J> where J: Job {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
     }
 }
+
+#[test]
+fn test_no_failures_preferred() {
+    let s1 = DynamicScore {
+        num_failures: 2,
+        num_current_usages: 23,
+        initial_score: 0,
+    };
+    let s2 = DynamicScore {
+        num_failures: 0,
+        num_current_usages: 0,
+        initial_score: -1,
+    };
+    assert!(s2 < s1);
+}
+
+#[test]
+fn test_initial_score_lower_is_better() {
+    let s1 = DynamicScore {
+        num_failures: 0,
+        num_current_usages: 0,
+        initial_score: 0,
+    };
+    let s2 = DynamicScore {
+        num_failures: 0,
+        num_current_usages: 0,
+        initial_score: -1,
+    };
+    assert!(s2 < s1);
+}
+
