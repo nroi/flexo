@@ -210,7 +210,7 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, cu
         // Cloudflare protected server usually yields excellent results, but these results are meaningless since
         // Cloudflare uses caching: So the latency might have been low only because the request could be served
         // from the cache, but we can't assume that every request will be a cache hit.
-        if header.to_ascii_lowercase().starts_with("server: cloudflare".as_bytes()) {
+        if header.eq_ignore_ascii_case("server: cloudflare\r\n".as_bytes()) {
             debug!("Remote mirror {} appears to use CloudFlare, this mirror will be ignored.", &url);
             false
         } else {
