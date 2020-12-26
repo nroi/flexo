@@ -18,6 +18,7 @@ mod mirror_cache;
 mod mirror_flexo;
 mod str_path;
 
+use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::path;
 use std::path::Path;
@@ -106,9 +107,9 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
 ) -> Result<(), ClientError> {
     if !valid_path(&get_request.path.as_ref())  {
         info!("Invalid path: Serve 403");
-        serve_403_header(stream)
+        serve_403_header(stream)?
     } else if get_request.path.to_str() == "status" {
-        serve_200_ok_empty(stream)
+        serve_200_ok_empty(stream)?
     } else {
         let order = DownloadOrder {
             filepath: get_request.path,
@@ -122,7 +123,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                 let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
                 let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
                 let file: File = File::open(&path)?;
-                serve_from_growing_file(file, content_length, get_request.resume_from, stream);
+                serve_from_growing_file(file, content_length, get_request.resume_from, stream)?;
             }
             ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
                 // TODO this branch is also executed when the server returns 404.
@@ -132,32 +133,32 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         debug!("Received content length via channel: {}", content_length);
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
-                        serve_from_growing_file(file, content_length, get_request.resume_from, stream);
+                        serve_from_growing_file(file, content_length, get_request.resume_from, stream)?;
                     },
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
-                        serve_from_complete_file(file, get_request.resume_from, stream);
+                        serve_from_complete_file(file, get_request.resume_from, stream)?;
                     },
                     Err(ContentLengthError::Unavailable) => {
                         debug!("Will send 404 reply to client.");
-                        serve_404_header(stream);
+                        serve_404_header(stream)?;
                     },
                     Err(ContentLengthError::OrderError) => {
                         debug!("Will send 400 reply to client.");
-                        serve_400_header(stream);
+                        serve_400_header(stream)?;
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
                         eprintln!("Remote server has disconnected unexpectedly.");
-                        serve_500_header(stream);
+                        serve_500_header(stream)?;
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Timeout)) => {
                         // TODO we should not immediately return 500, and instead try another mirror.
                         // TODO the problem is that the entire logic about retrying other mirrors is
                         // inside lib.rs
                         error!("Timeout: Unable to obtain content length.");
-                        serve_500_header(stream);
+                        serve_500_header(stream)?;
                     },
                 }
             },
@@ -165,19 +166,23 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                 debug!("Serve file from cache.");
                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
                 let file: File = File::open(path).unwrap();
-                serve_from_complete_file(file, get_request.resume_from, stream);
+                serve_from_complete_file(file, get_request.resume_from, stream)?;
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
                 let uri_string = format!("{}/{}", p.uri, order.filepath.to_str());
-                serve_via_redirect(uri_string, stream);
+                serve_via_redirect(uri_string, stream)?;
             }
         }
     }
     Ok(())
 }
 
-fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: TcpStream, properties: MirrorConfig) -> Result<(), ClientError> {
+fn serve_client(
+    job_context: Arc<Mutex<JobContext<DownloadJob>>>,
+    mut stream: TcpStream,
+    properties: MirrorConfig
+) -> Result<(), ClientError> {
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
         debug!("Reading header from client.");
@@ -205,13 +210,13 @@ fn serve_client(job_context: Arc<Mutex<JobContext<DownloadJob>>>, mut stream: Tc
                     ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
                         error!("The client has used an HTTP method that is not supported by flexo.");
                         if !response_headers_sent {
-                            serve_400_header(&mut stream);
+                            serve_400_header(&mut stream)?;
                         }
                     },
                     ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
                         error!("The client has sent an invalid header");
                         if !response_headers_sent {
-                            serve_400_header(&mut stream);
+                            serve_400_header(&mut stream)?;
                         }
                     }
                     _ => {
@@ -420,17 +425,22 @@ fn content_length_from_path(path: &Path) -> Result<Option<u64>, FileAttrError> {
     }
 }
 
-fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Option<u64>, stream: &mut TcpStream) {
+fn serve_from_growing_file(
+    mut file: File,
+    content_length: u64,
+    resume_from: Option<u64>,
+    stream: &mut TcpStream
+) -> io::Result<()> {
     let header = match resume_from {
         None => reply_header_success(content_length, PayloadOrigin::RemoteMirror),
         Some(r) => reply_header_partial(content_length, r, PayloadOrigin::RemoteMirror)
     };
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())?;
     let resume_from = resume_from.unwrap_or(0);
     let mut client_received = resume_from;
     let complete_filesize = content_length + resume_from;
     while client_received < complete_filesize {
-        let filesize = file.metadata().unwrap().len();
+        let filesize = file.metadata()?.len();
         if filesize > client_received {
             // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
             let result = send_payload_and_flush(&mut file, filesize, client_received as i64, stream);
@@ -441,10 +451,10 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
                 Err(e) => {
                     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
                         debug!("Broken Pipe or Connection reset. Connection closed by client?");
-                        return;
                     } else {
-                        panic!("Failed to send payload: An unexpected I/O error has occurred: {:?}", e);
+                        error!("Failed to send payload: An unexpected I/O error has occurred: {:?}", e);
                     }
+                    return Err(e);
                 },
             }
         }
@@ -453,31 +463,32 @@ fn serve_from_growing_file(mut file: File, content_length: u64, resume_from: Opt
         }
     }
     debug!("File completely served from growing file.");
+    Ok(())
 }
 
-fn serve_404_header(stream: &mut TcpStream) {
+fn serve_404_header(stream: &mut TcpStream) -> io::Result<()> {
     let header = reply_header_not_found();
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())
 }
 
-fn serve_400_header(stream: &mut TcpStream) {
+fn serve_400_header(stream: &mut TcpStream) -> io::Result<()> {
     let header = reply_header_bad_request();
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())
 }
 
-fn serve_500_header(stream: &mut TcpStream) {
+fn serve_500_header(stream: &mut TcpStream) -> io::Result<()> {
     let header = reply_header_internal_server_error();
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())
 }
 
-fn serve_403_header(stream: &mut TcpStream) {
+fn serve_403_header(stream: &mut TcpStream) -> io::Result<()> {
     let header = reply_header_forbidden();
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())
 }
 
-fn serve_200_ok_empty(stream: &mut TcpStream) {
+fn serve_200_ok_empty(stream: &mut TcpStream) -> io::Result<()> {
     let header = reply_header_success(0, PayloadOrigin::NoPayload);
-    stream.write_all(header.as_bytes()).unwrap()
+    stream.write_all(header.as_bytes())
 }
 
 fn reply_header_success(content_length: u64, payload_origin: PayloadOrigin) -> String {
@@ -546,37 +557,45 @@ fn redirect_header(path: &str) -> String {
     header
 }
 
-fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &mut TcpStream) {
-    let filesize = file.metadata().unwrap().len();
+fn serve_from_complete_file(mut file: File, resume_from: Option<u64>, stream: &mut TcpStream) -> io::Result<i64> {
+    let filesize = file.metadata()?.len();
     let content_length = filesize - resume_from.unwrap_or(0);
     let header = match resume_from {
         None => reply_header_success(content_length, PayloadOrigin::Cache),
         Some(r) => reply_header_partial(content_length, r, PayloadOrigin::Cache)
     };
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())?;
     let bytes_sent = resume_from.unwrap_or(0) as i64;
-    match send_payload_and_flush(&mut file, filesize, bytes_sent, stream) {
+    let result = send_payload_and_flush(&mut file, filesize, bytes_sent, stream);
+    match &result {
         Ok(s) => debug!("{} bytes have been transmitted to the client.", s),
         Err(e) => warn!("Error while sending payload: {:?}", e),
     }
+    result
 }
 
-fn serve_via_redirect(uri: String, stream: &mut TcpStream) {
+fn serve_via_redirect(uri: String, stream: &mut TcpStream) -> io::Result<()> {
     let header = redirect_header(&uri);
-    stream.write_all(header.as_bytes()).unwrap();
+    stream.write_all(header.as_bytes())
 }
 
-fn send_payload_and_flush(mut source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut TcpStream) -> Result<i64, std::io::Error> {
+fn send_payload_and_flush(
+    mut source: &mut File,
+    filesize: u64,
+    bytes_sent: i64,
+    receiver: &mut TcpStream
+) -> io::Result<i64> {
     let result = send_payload(&mut source, filesize, bytes_sent, receiver);
     // Enabling and then disabling the nodelay option results in a flush.
     // For some reason, receiver.flush() does not have this effect.
-    receiver.set_nodelay(true).unwrap();
-    receiver.set_nodelay(false).unwrap();
+    receiver.set_nodelay(true)?;
+    receiver.set_nodelay(false)?;
 
     result
 }
 
-fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut T) -> Result<i64, std::io::Error> where T: AsRawFd {
+fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: &mut T) -> io::Result<i64>
+    where T: AsRawFd {
     let fd = source.as_raw_fd();
     let sfd = receiver.as_raw_fd();
     let size = unsafe {
