@@ -81,12 +81,6 @@ pub trait Provider where
     type J: Job;
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: <<Self as Provider>::J as Job>::O) -> Self::J;
 
-    /// returns an identifier that remains unchanged throughout the lifetime of the program.
-    /// the intention is that while some properties of the provider change (e.g., its score),
-    /// we still need to be able to recognize: Although those two Providers are not equal (p1 != p2),
-    /// they actually refer to the same provider (p1.identifier() = p2.identifier()).
-    fn identifier(&self) -> &<<Self as Provider>::J as Job>::PI;
-
     fn initial_score(&self) -> <<Self as Provider>::J as Job>::S;
 
     /// A short description which will be used in log messages.

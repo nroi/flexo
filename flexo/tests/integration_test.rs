@@ -44,14 +44,6 @@ impl Provider for DummyProvider {
         }
     }
 
-    fn identifier(&self) -> &i32 {
-        match self {
-            DummyProvider::Success(DummyProviderItem { identifier, score: _ }) => identifier,
-            DummyProvider::Failure(DummyProviderItem { identifier, score: _ }) => identifier,
-            DummyProvider::PartialCompletion(DummyProviderItem { identifier, score: _ }) => identifier,
-        }
-    }
-
     fn initial_score(&self) -> i32 {
         match self {
             DummyProvider::Success(p) => p.score,

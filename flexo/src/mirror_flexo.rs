@@ -204,10 +204,6 @@ impl Provider for DownloadProvider {
         }
     }
 
-    fn identifier(&self) -> &String {
-        &self.uri
-    }
-
     fn initial_score(&self) -> MirrorResults {
         self.mirror_results
     }
