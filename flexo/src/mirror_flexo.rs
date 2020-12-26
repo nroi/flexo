@@ -224,6 +224,9 @@ pub struct MirrorResults {
 
 impl Ord for MirrorResults {
     fn cmp(&self, other: &Self) -> Ordering {
+        // namelookup_duration is excluded for performance comparisons, because DNS lookups are usually
+        // cached, so we can assume that slow DNS lookups usually will not affect the latency experienced
+        // by the user.
         let self_latency = self.total_time - self.namelookup_duration;
         let other_latency = other.total_time - other.namelookup_duration;
         self_latency.cmp(&other_latency)
