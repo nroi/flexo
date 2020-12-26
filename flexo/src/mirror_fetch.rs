@@ -3,8 +3,9 @@ use serde::Deserialize;
 use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
+use std::str;
 use crate::MirrorResults;
-use crate::mirror_fetch::MirrorFetchError::{CurlError, DemarshallError};
+use crate::mirror_fetch::MirrorFetchError::{CurlError, DemarshallError, Utf8Error};
 
 // If Flexo starts automatically with each system boot, it may happen that internet connectivity is not immediately
 // available. For this reason, more than one attempt is made to connect to the server, hoping that the client
@@ -52,6 +53,7 @@ pub enum MirrorProtocol {
 pub enum MirrorFetchError {
     DemarshallError(serde_json::error::Error),
     CurlError(curl::Error),
+    Utf8Error(str::Utf8Error),
 }
 
 impl From<curl::Error> for MirrorFetchError {
@@ -63,6 +65,12 @@ impl From<curl::Error> for MirrorFetchError {
 impl From<serde_json::Error> for MirrorFetchError {
     fn from(error: serde_json::Error) -> Self {
         DemarshallError(error)
+    }
+}
+
+impl From<str::Utf8Error> for MirrorFetchError {
+    fn from(error: str::Utf8Error) -> Self {
+        Utf8Error(error)
     }
 }
 
@@ -136,7 +144,7 @@ impl MirrorUrl {
     }
 }
 
-fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
+fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, MirrorFetchError> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     debug!("Fetch json from {:?}", &mirrors_auto.mirrors_status_json_endpoint);
     try_num_attempts(INITIAL_CONNECTIVITY_NUM_ATTEMPTS, || {
@@ -152,7 +160,7 @@ fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
             })?;
             transfer.perform()?
         }
-        Ok(std::str::from_utf8(received.as_slice()).unwrap().to_owned())
+        Ok(str::from_utf8(received.as_slice())?.to_owned())
     })
 }
 
