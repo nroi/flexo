@@ -82,11 +82,12 @@ pub trait Provider where
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: <<Self as Provider>::J as Job>::O) -> Self::J;
 
     /// returns an identifier that remains unchanged throughout the lifetime of the program.
-    /// the intention is that while some properties of the provider change (i.e., its score),
+    /// the intention is that while some properties of the provider change (e.g., its score),
     /// we still need to be able to recognize: Although those two Providers are not equal (p1 != p2),
-    /// they actually refer to the same provider (p1.identity() = p2.identity()).
+    /// they actually refer to the same provider (p1.identifier() = p2.identifier()).
     fn identifier(&self) -> &<<Self as Provider>::J as Job>::PI;
-    fn score(&self) -> <<Self as Provider>::J as Job>::S;
+
+    fn initial_score(&self) -> <<Self as Provider>::J as Job>::S;
 
     /// A short description which will be used in log messages.
     fn description(&self) -> String;
@@ -260,7 +261,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             .map(|x| DynamicScore {
                 num_failures: *(provider_failures.get(&x).unwrap_or(&0)),
                 num_current_usages: *(provider_current_usages.get(&x).unwrap_or(&0)),
-                initial_score: x.score()
+                initial_score: x.initial_score()
             })
             .enumerate()
             .min_by_key(|(_idx, dynamic_score)| *dynamic_score)

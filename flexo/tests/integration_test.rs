@@ -52,7 +52,7 @@ impl Provider for DummyProvider {
         }
     }
 
-    fn score(&self) -> i32 {
+    fn initial_score(&self) -> i32 {
         match self {
             DummyProvider::Success(p) => p.score,
             DummyProvider::Failure(p) => p.score,

@@ -208,7 +208,7 @@ impl Provider for DownloadProvider {
         &self.uri
     }
 
-    fn score(&self) -> MirrorResults {
+    fn initial_score(&self) -> MirrorResults {
         self.mirror_results
     }
 
