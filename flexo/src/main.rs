@@ -451,8 +451,8 @@ fn serve_from_growing_file(
             // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
             let result = send_payload_and_flush(&mut file, filesize, client_received as i64, stream);
             match result {
-                Ok(_) => {
-                    client_received = result.unwrap() as u64;
+                Ok(size) => {
+                    client_received = size as u64;
                 },
                 Err(e) => {
                     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
