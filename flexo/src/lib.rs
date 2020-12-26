@@ -255,12 +255,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> (<<Self as Order>::J as Job>::P, bool) {
         let provider_failures = provider_stats.provider_failures.lock().unwrap();
         let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
-        let (idx, (_, _, _, _)) = provider_stats.providers
+        let (idx, _) = provider_stats.providers
             .iter()
-            .map(|x| (provider_failures.get(&x).unwrap_or(&0), provider_current_usages.get(&x).unwrap_or(&0), x.score(), x))
+            .map(|x| (provider_failures.get(&x).unwrap_or(&0), provider_current_usages.get(&x).unwrap_or(&0), x.score()))
             .enumerate()
-            .min_by(|(_idx_x, (num_failures_x, num_usages_x, score_x, _x)),
-                     (_idx_y, (num_failures_y, num_usages_y, score_y, _y))|
+            .min_by(|(_idx_x, (num_failures_x, num_usages_x, score_x)),
+                     (_idx_y, (num_failures_y, num_usages_y, score_y))|
                 (num_failures_x, num_usages_x, score_x).cmp(&(num_failures_y, num_usages_y, score_y)))
             .unwrap();
 
