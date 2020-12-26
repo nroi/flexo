@@ -741,7 +741,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
                                country_filter: &CountryFilter,
                                limit: Limit
 ) -> Vec<DownloadProvider> {
-    mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+    mirror_urls.sort_by(|a, b| a.score.cmp(&b.score));
     debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
     debug!("The following CountryFilter is applied: {:?}", country_filter);
     let filtered_mirror_urls_unlimited = mirror_urls
