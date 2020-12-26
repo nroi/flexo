@@ -165,7 +165,13 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             ScheduleOutcome::Cached => {
                 debug!("Serve file from cache.");
                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                let file: File = File::open(path).unwrap();
+                let file: File = match File::open(&path) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        error!("Unable to open file {:?}: {:?}", &path, e);
+                        return Err(ClientError::from(e));
+                    }
+                };
                 serve_from_complete_file(file, get_request.resume_from, stream)?;
             },
             ScheduleOutcome::Uncacheable(p) => {
