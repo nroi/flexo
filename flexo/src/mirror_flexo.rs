@@ -822,7 +822,7 @@ fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usi
     CountryFilter::SelectedCountries(countries)
 }
 
-pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
+pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
     let mut buf = [0; MAX_HEADER_SIZE + 1];
     let mut size_read_all = 0;
 
@@ -830,7 +830,7 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
         if size_read_all >= MAX_HEADER_SIZE {
             return Err(ClientError::BufferSizeExceeded);
         }
-        let size = match stream.read(&mut buf[size_read_all..]) {
+        let size = match client_stream.read(&mut buf[size_read_all..]) {
             Ok(0) => {
                 // we need this branch in case the socket is closed: Otherwise, we would read a size of 0 indefinitely.
                 return Err(ClientError::SocketClosed);
