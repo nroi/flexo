@@ -3,8 +3,9 @@
 Flexo is a central cache for pacman, the package manager of Arch Linux.
 
 ## ⚠ Important announcement: Changes required in your config file ⚠
-Please edit your `/etc/flexo/flexo.toml` file and update the value of `mirrors_status_json_endpoint` to `"https://archlinux.org/mirrors/status/json/"`.
-If you have installed Flexo prior to 2020-12-20, then your configuration file still includes the obsolete value `https://www.archlinux.org/mirrors/status/` (notice the www).
+If you have installed Flexo prior to 2020-12-20, please edit your `/etc/flexo/flexo.toml` file and update the value of `mirrors_status_json_endpoint` to `"https://archlinux.org/mirrors/status/json/"`.
+The URL has changed from `https://www.archlinux.org/mirrors/status/json/` to `https://archlinux.org/mirrors/status/json/` (notice the lack of www), so make
+sure your TOML file includes the new URL.
 
 **Flexo will crash eventually if you don't update your `/etc/flexo/flexo.toml` file**.
 
