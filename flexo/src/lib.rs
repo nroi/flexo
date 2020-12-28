@@ -195,9 +195,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             debug!("Attempt to establish new connection");
             let channel_result = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let result = match channel_result {
-                Ok((c, ce)) => {
-                    let _ = tx.send(FlexoMessage::ChannelEstablished(ce));
-                    job.serve_from_provider(c, properties.clone(), cached_size)
+                Ok((channel, channel_establishment)) => {
+                    let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
+                    job.serve_from_provider(channel, properties.clone(), cached_size)
                 }
                 Err(e) => {
                     warn!("Error while attempting to establish a new connection: {:?}", e);
