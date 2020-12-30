@@ -5,7 +5,7 @@ import sys
 import re
 import datetime
 
-tolerance = .35
+tolerance = .20
 
 prev = None
 prev_line = None
