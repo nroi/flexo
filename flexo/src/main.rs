@@ -192,8 +192,7 @@ fn serve_client(
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
         debug!("Reading header from client.");
-        let result = read_client_header(&mut client_stream);
-        match result {
+        match read_client_header(&mut client_stream) {
             Ok(get_request) => {
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
