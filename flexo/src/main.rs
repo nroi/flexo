@@ -176,7 +176,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
-                let uri_string = format!("{}/{}", p.uri, order.filepath.to_str());
+                let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
                 serve_via_redirect(uri_string, client_stream)?;
             }
         }
