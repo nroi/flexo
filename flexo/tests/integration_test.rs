@@ -296,7 +296,7 @@ fn second_provider_success_after_first_provider_failure() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone(), p2.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    match job_context.try_schedule(DummyOrder::Success(0), None) {
+    match job_context.try_schedule(DummyOrder::Success(0), None)
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _ }) => {
             // wait for the job to complete.
             join_handle.join().unwrap();

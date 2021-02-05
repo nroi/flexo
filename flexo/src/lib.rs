@@ -101,7 +101,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type S: std::cmp::Ord + core::marker::Copy;
     type JS;
     type C: Channel<J=Self>;
-    type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash;
+    type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug;
     type P: Provider<J=Self>;
     type E: std::fmt::Debug;
     type PI: std::cmp::Eq;
@@ -161,6 +161,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
     fn is_cacheable(&self) -> bool;
 
+    /// If this order can only be served by a custom provider, the identifier of the required provider is returned.
+    fn custom_provider(&self) -> Option<<<Self as Order>::J as Job>::P>;
+
     fn try_until_success(
         self,
         provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
@@ -175,8 +178,10 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            let (provider, is_last_provider) =
-                self.select_provider(provider_stats);
+            let (provider, is_last_provider) = match self.custom_provider() {
+                None => self.select_provider(provider_stats),
+                Some(p) => (p, true),
+            };
             debug!("selected provider: {:?}", &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
@@ -399,35 +404,55 @@ impl <J> JobContext<J> where J: Job {
         }
     }
 
-    fn best_provider(&self) -> J::P {
-        // Providers are assumed to be sorted in ascending order from best to worst.
-        let providers: Vec<J::P> = self.providers.lock().unwrap().to_vec();
-        providers[0].clone()
+    fn best_provider(&self, order: &J::O) -> J::P {
+        match order.custom_provider() {
+            None => {
+                // no custom provider is required to fulfil this order: We can just choose the best provider
+                // among all available providers.
+                // Providers are assumed to be sorted in ascending order from best to worst.
+                let providers: Vec<J::P> = self.providers.lock().unwrap().to_vec();
+                providers[0].clone()
+            }
+            Some(p) => {
+                // This is a "special order" that needs to be served by a custom provider.
+                // Speaking in Arch Linux terminology: This is a request that must be served
+                // from a custom repository / unofficial repository.
+                p
+            }
+        }
     }
 
     /// Schedule the order, or return info on why scheduling this order is not possible or not necessary.
     pub fn try_schedule(&mut self, order: J::O, resume_from: Option<u64>) -> ScheduleOutcome<J> {
         if !order.is_cacheable() {
-            return ScheduleOutcome::Uncacheable(self.best_provider());
+            return ScheduleOutcome::Uncacheable(self.best_provider(&order));
         }
         let resume_from = resume_from.unwrap_or(0);
+        warn!(">>> check if order {:?} is cached", &order);
         let cached_size: u64 = {
             let mut order_states = self.order_states.lock().unwrap();
             let cached_size = match order_states.get(&order) {
                 None if resume_from > 0 => {
                     // Cannot serve this order from cache: See issue #7
-                    return ScheduleOutcome::Uncacheable(self.best_provider());
-                }
-                None => 0,
+                    error!(">>> 1");
+                    return ScheduleOutcome::Uncacheable(self.best_provider(&order));
+                },
+                None => 0, // TODO this right here.
                 Some(OrderState::Cached(CachedItem { cached_size, .. } )) if cached_size < &resume_from => {
+                    error!(">>> 3");
                     // Cannot serve this order from cache: See issue #7
-                    return ScheduleOutcome::Uncacheable(self.best_provider());
+                    return ScheduleOutcome::Uncacheable(self.best_provider(&order));
                 },
                 Some(OrderState::Cached(CachedItem { complete_size: Some(c), cached_size } )) if c == cached_size => {
+                    error!(">>> 4");
                     return ScheduleOutcome::Cached;
                 },
-                Some(OrderState::Cached(CachedItem { cached_size, .. } )) => *cached_size,
+                Some(OrderState::Cached(CachedItem { cached_size, .. } )) => {
+                    error!(">>> 5");
+                    *cached_size
+                },
                 Some(OrderState::InProgress) => {
+                    error!(">>> 6");
                     debug!("order {:?} already in progress: nothing to do.", &order);
                     return ScheduleOutcome::AlreadyInProgress;
                 }
@@ -493,8 +518,8 @@ impl <J> JobContext<J> where J: Job {
                         complete_size: Some(complete_job.size as u64),
                         cached_size: complete_job.size as u64,
                     };
-                    let order_state = OrderState::Cached(cached_item);
-                    order_states.lock().unwrap().insert(order_cloned.clone(), order_state);
+                    warn!(">>> mark order {:?} as cached", &order_cloned);
+                    order_states.lock().unwrap().insert(order_cloned.clone(), OrderState::Cached(cached_item));
                     JobOutcome::Success(complete_job.provider.clone())
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {

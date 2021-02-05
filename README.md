@@ -93,6 +93,57 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 mirror is too slow or causes other issues.
 * Simple: Users should not require more than a few minutes to set up flexo and understand what it does.
 
+## Using Unofficial User Repositories
+
+If you are using [unofficial user repositories](https://wiki.archlinux.org/index.php/Unofficial_user_repositories)
+and you want Flexo to cache packages from those repositories, modify your `/etc/pacman.conf` as follows:
+
+```
+[<repo-name>]
+Server = http://<flexo-host>:<flexo-port>/custom_repo/<repo-name>/<path>
+```
+
+and add an entry to your `/etc/flexo/flexo/toml` *before* The `[mirrors_auto]` section as follows:
+```toml
+[[custom_repo]]
+    name = "<repo-name>"
+    url = "https://<repo-url-without-path>"
+```
+
+For example, suppose you want to add two unofficial repositories: archzfs and eschwartz. Your `/etc/pacman.conf`
+should include the following two entries:
+
+```
+[archzfs]
+Server = http://localhost:7878/custom_repo/archzfs/$repo/$arch
+
+[eschwartz]
+Server = http://localhost:7878/custom_repo/eschwartz/~eschwartz/repo/$arch
+```
+
+and your `/etc/flexo/flexo.toml` should include these two entries *before* the `[mirrors_auto]` section:
+
+```toml
+[[custom_repo]]
+    name = "archzfs"
+    url = "https://archzfs.com"
+
+[[custom_repo]]
+    name = "eschwartz"
+    url = "https://pkgbuild.com"
+```
+
+Next, create the required directory:
+
+```bash
+mkdir /var/cache/flexo/pkg/and/so/on
+```
+
+TODO:
+* files downloaded from a custom repo are not served via cache.
+* 
+* directories need to be manually created by the user.
+
 ## Cleaning the package cache
 
 `paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old

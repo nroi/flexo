@@ -173,7 +173,7 @@ impl GetRequest {
                 let client_status = ClientStatus { response_headers_sent: false };
                 Err(ClientError::InvalidHeader(client_status))
             }
-            Some(p) => Ok(&p[1..])  // Skip the leading "/"
+            Some(p) => Ok(p)
         };
         Ok(Self {
             path: StrPath::new(path?.to_owned()),
@@ -185,6 +185,7 @@ impl GetRequest {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
     pub uri: String,
+    pub name: String,
     pub mirror_results: MirrorResults,
     pub country_code: String,
 }
@@ -356,14 +357,15 @@ impl Job for DownloadJob {
                 };
                 let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
                 let order = DownloadOrder {
-                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned())
+                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned()),
+                    custom_provider: None,
                 };
                 let cached_item = CachedItem {
                     cached_size: file_size,
                     complete_size,
                 };
-                let state = OrderState::Cached(cached_item);
-                hashmap.insert(order, state);
+                error!(">>> order is cached: {:?}", &order);
+                hashmap.insert(order, OrderState::Cached(cached_item));
             }
         }
         let size_formatted = size_to_human_readable(sum_size);
@@ -466,6 +468,7 @@ impl Job for DownloadJob {
     }
 
     fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
+        warn!(">>> create path from {:?} and {:?}", &properties.cache_directory, &order.filepath);
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
         info!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
@@ -496,6 +499,9 @@ impl Job for DownloadJob {
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
     pub filepath: StrPath,
+    // TODO this won't work: If two orders have the same filepath and different custom_providers,
+    // then we won't find cached orders in our hashmap.
+    pub custom_provider: Option<DownloadProvider>,
 }
 
 impl Order for DownloadOrder {
@@ -525,6 +531,10 @@ impl Order for DownloadOrder {
 
     fn is_cacheable(&self) -> bool {
         !(self.filepath.to_str().ends_with(".db") || self.filepath.to_str().ends_with(".sig"))
+    }
+
+    fn custom_provider(&self) -> Option<DownloadProvider> {
+        self.custom_provider.clone()
     }
 }
 
@@ -660,8 +670,7 @@ impl Handler for DownloadState {
                     // download anything we already have available in cache.
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    let message: FlexoProgress = FlexoProgress::Completed;
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::Completed);
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     info!("Hoping that another provider can fulfil this request…");
@@ -786,7 +795,8 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
         DownloadProvider {
-            uri: mirror.url,
+            uri: mirror.url.clone(),
+            name: mirror.url,
             mirror_results,
             country_code: mirror.country_code,
         }

@@ -96,10 +96,17 @@ pub struct MirrorConfig {
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
+    pub custom_repo: Option<Vec<CustomRepo>>,
     pub low_speed_limit: Option<u32>,
     pub low_speed_time_secs: Option<u64>,
     pub max_speed_limit: Option<u64>,
     pub mirrors_auto: Option<MirrorsAutoConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CustomRepo {
+    pub name: String,
+    pub url: String,
 }
 
 impl MirrorConfig {
@@ -196,6 +203,8 @@ fn mirror_config_from_env() -> MirrorConfig {
         MirrorSelectionMethod::Auto => Some(mirrors_auto_config_from_env()),
         MirrorSelectionMethod::Predefined => None,
     };
+    // TODO read the custom repos from the environment variables.
+    let custom_repo = None;
     MirrorConfig {
         cache_directory,
         mirrorlist_fallback_file,
@@ -203,6 +212,7 @@ fn mirror_config_from_env() -> MirrorConfig {
         port,
         mirror_selection_method,
         mirrors_predefined,
+        custom_repo,
         low_speed_limit,
         low_speed_time_secs,
         max_speed_limit,
