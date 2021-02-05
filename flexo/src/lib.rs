@@ -159,7 +159,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                    channel: <<Self as Order>::J as Job>::C,
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
-    /// Returns true if this order can be served from cache, false otherwise.
     fn is_cacheable(&self) -> bool;
 
     fn try_until_success(
