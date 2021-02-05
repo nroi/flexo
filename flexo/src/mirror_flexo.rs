@@ -660,7 +660,6 @@ impl Handler for DownloadState {
                     // download anything we already have available in cache.
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    error!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Completed;
                     let _ = self.job_state.tx.send(message);
                 } else if !job_resources.last_chance {
