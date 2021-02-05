@@ -173,7 +173,7 @@ impl GetRequest {
                 let client_status = ClientStatus { response_headers_sent: false };
                 Err(ClientError::InvalidHeader(client_status))
             }
-            Some(p) => Ok(&p[1..])  // Skip the leading "/"
+            Some(p) => Ok(p)
         };
         Ok(Self {
             path: StrPath::new(path?.to_owned()),
@@ -185,6 +185,7 @@ impl GetRequest {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
     pub uri: String,
+    pub name: String,
     pub mirror_results: MirrorResults,
     pub country_code: String,
 }
@@ -356,14 +357,13 @@ impl Job for DownloadJob {
                 };
                 let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
                 let order = DownloadOrder {
-                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned())
+                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned()),
                 };
                 let cached_item = CachedItem {
                     cached_size: file_size,
                     complete_size,
                 };
-                let state = OrderState::Cached(cached_item);
-                hashmap.insert(order, state);
+                hashmap.insert(order, OrderState::Cached(cached_item));
             }
         }
         let size_formatted = size_to_human_readable(sum_size);
@@ -660,8 +660,7 @@ impl Handler for DownloadState {
                     // download anything we already have available in cache.
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    let message: FlexoProgress = FlexoProgress::Completed;
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::Completed);
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     info!("Hoping that another provider can fulfil this request…");
@@ -786,7 +785,8 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
         DownloadProvider {
-            uri: mirror.url,
+            uri: mirror.url.clone(),
+            name: mirror.url,
             mirror_results,
             country_code: mirror.country_code,
         }

@@ -39,6 +39,10 @@ A provider is required to complete an [order](#order).
 > For instance, 
 > https://mirror.yandex.ru/archlinux/
 
+#### custom provider
+The usual scenario is that an order can be served by any arbitrary provider.
+However, in some cases, the order can only be served by one provider.
+
 #### Order
 The order is the information that we require to actually execute a [job](#job).
 
