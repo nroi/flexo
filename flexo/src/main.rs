@@ -197,42 +197,68 @@ fn serve_client(
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
                     Ok(()) => info!("Request served: {:?}", &request_path.to_str()),
-                    Err(e) => error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e),
+                    Err(e) => {
+                        error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e);
+                        handle_client_error(&mut client_stream, e)?;
+                    },
                 }
             }
             Err(e) => {
-                match e {
-                    ClientError::SocketClosed => {
-                        debug!("Socket closed by client.");
-                    }
-                    ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
-                        debug!("Socket closed by client.");
-                    }
-                    ClientError::TimedOut => {
-                        debug!("Connection client-to-server has timed out. New connection required \
-                        for subsequent requests from the client.");
-                    }
-                    ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
-                        error!("The client has used an HTTP method that is not supported by flexo.");
-                        if !response_headers_sent {
-                            serve_400_header(&mut client_stream)?;
-                        }
-                    },
-                    ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
-                        error!("The client has sent an invalid header");
-                        if !response_headers_sent {
-                            serve_400_header(&mut client_stream)?;
-                        }
-                    }
-                    _ => {
-                        eprintln!("Unable to read header: {:?}", e);
-                    }
-                }
-                let _ = client_stream.shutdown(std::net::Shutdown::Both);
-                return Err(e);
+                handle_client_error(&mut client_stream, e)?;
             }
         };
     }
+}
+
+/// Returns Ok if it is save to continue serving requests to this client, or Err otherwise.
+fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientError) -> Result<(), ClientError> {
+    let result = match client_error {
+        ClientError::SocketClosed => {
+            debug!("Socket closed by client.");
+            Err(client_error)
+        }
+        ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
+            debug!("Socket closed by client.");
+            Err(client_error)
+        }
+        ClientError::TimedOut => {
+            debug!("Connection client-to-server has timed out. New connection required \
+                        for subsequent requests from the client.");
+            Err(client_error)
+        }
+        ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
+            error!("The client has used an HTTP method that is not supported by flexo.");
+            if !response_headers_sent {
+                serve_400_header(&mut client_stream)?;
+            }
+            Ok(())
+        },
+        ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
+            error!("The client has sent an invalid header");
+            if !response_headers_sent {
+                serve_400_header(&mut client_stream)?;
+            }
+            Ok(())
+        }
+        ClientError::IoError(error_kind) => {
+            error!("Input/Output Error: {:?}", error_kind);
+            Err(client_error)
+        }
+        _ => {
+            eprintln!("Unable to read header: {:?}", &client_error);
+            Err(client_error)
+        }
+    };
+    match result {
+        Err(ref e) => {
+            warn!("Closing TCP socket due to error: {:?}", e);
+            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+        },
+        Ok(()) => {
+            // nothing to do.
+        }
+    }
+    result
 }
 
 pub enum ProviderSelectionError {
