@@ -4,11 +4,9 @@ extern crate rand;
 use flexo::*;
 use std::collections::HashMap;
 use crossbeam::crossbeam_channel::{Sender, Receiver};
-use std::collections::hash_map::RandomState;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
 static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
-static EXPECT_CACHED: &str = "Expected the job to be in cache";
 static ORDER_PANIC: &str = "this order results in a panic!";
 static EXPECT_SUCCESS: &str = "Expected the job to be completed successfully";
 static EXPECT_FAILURE: &str = "Expected the job to fail, but it completed successfully";
@@ -98,8 +96,8 @@ impl Job for DummyJob {
         self.properties
     }
 
-    fn initialize_cache(_properties: Self::PR) -> HashMap<Self::O, OrderState, RandomState> {
-        HashMap::new()
+    fn cache_state(_order: &Self::O, _properties: &Self::PR) -> Option<CachedItem> {
+        None
     }
 
     fn serve_from_provider(self, channel: DummyChannel, _properties: DummyProperties, _cached_size: u64) -> JobResult<DummyJob> {
@@ -571,20 +569,4 @@ fn read_progress() {
         _ => panic!(EXPECT_SCHEDULED),
     };
     assert_eq!(result, FlexoProgress::Progress(0));
-}
-
-#[test]
-fn order_previously_completed_from_cache() {
-    // A previously completed order can be fetched from the local cache, there is no need to communicate with
-    // a provider.
-    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
-    let order = DummyOrder::Success(1);
-    let providers = vec![p1.clone()];
-    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result = job_context.try_schedule(order, None);
-    wait_until_job_completed(result);
-    match job_context.try_schedule(order, None) {
-        ScheduleOutcome::Cached => {},
-        _ => panic!(EXPECT_CACHED),
-    }
 }

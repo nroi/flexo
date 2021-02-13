@@ -59,6 +59,7 @@ fn main() {
     }));
 
     let properties = mirror_config::load_config();
+    initialize_cache(&properties);
     match properties.low_speed_limit {
         None => {},
         Some(limit) => {
@@ -163,7 +164,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                 }
             },
             ScheduleOutcome::Cached => {
-                debug!("Serve file from cache.");
+                debug!("Cache hit for request #{:?}", &order.filepath);
                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
                 let file: File = match File::open(&path) {
                     Ok(f) => f,
@@ -251,7 +252,13 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
     };
     match result {
         Err(ref e) => {
-            warn!("Closing TCP socket due to error: {:?}", e);
+            // TODO perhaps there is a more elegant way: We want to print a warning when
+            // an error has occurred, but this particular type of error is harmless, so we
+            // don't want to log it. It would be better if this "error" is not returned as an
+            // error in the first place.
+            if e != &ClientError::SocketClosed {
+                warn!("Closing TCP socket due to error: {:?}", e);
+            }
             let _ = client_stream.shutdown(std::net::Shutdown::Both);
         },
         Ok(()) => {
