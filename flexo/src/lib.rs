@@ -358,7 +358,7 @@ pub enum ScheduleOutcome<J> where J: Job {
     Scheduled(ScheduledItem<J>),
     /// The order is already available in the cache.
     Cached,
-    /// the order cannot be served from cache
+    /// the order cannot be cached
     Uncacheable(J::P),
 }
 
