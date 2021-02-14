@@ -360,7 +360,7 @@ impl Job for DownloadJob {
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
-                info!("{} replied with status code {}.", self.provider.description(), response_code);
+                debug!("{} replied with status code {}.", self.provider.description(), response_code);
                 if response_code >= 200 && response_code < 300 {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
@@ -413,7 +413,7 @@ impl Job for DownloadJob {
 
     fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        info!("Attempt to create file: {:?}", path);
+        debug!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
         if f.is_err() {
             warn!("Unable to create file: {:?}", f);
@@ -618,7 +618,7 @@ impl Handler for DownloadState {
             }
         }
         if job_resources.file_state.size_written == 0 {
-            info!("Starting to transfer body to file {}", self.job_state.order.filepath.to_str());
+            debug!("Begin to transfer body to file {}", self.job_state.order.filepath.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write(data) {

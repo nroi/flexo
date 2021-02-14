@@ -105,12 +105,14 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                  client_stream: &mut TcpStream,
                  properties: MirrorConfig,
                  get_request: GetRequest,
-) -> Result<(), ClientError> {
+) -> Result<PayloadOrigin, ClientError> {
     if !valid_path(&get_request.path.as_ref())  {
         info!("Invalid path: Serve 403");
-        serve_403_header(client_stream)?
+        serve_403_header(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
     } else if get_request.path.to_str() == "status" {
-        serve_200_ok_empty(client_stream)?
+        serve_200_ok_empty(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
     } else {
         let order = DownloadOrder {
             filepath: get_request.path,
@@ -125,6 +127,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                 let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
                 let file: File = File::open(&path)?;
                 serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
+                Ok(PayloadOrigin::RemoteMirror)
             }
             ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
                 // TODO this branch is also executed when the server returns 404.
@@ -135,24 +138,29 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
                         serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
+                        Ok(PayloadOrigin::RemoteMirror)
                     },
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
                         serve_from_complete_file(file, get_request.resume_from, client_stream)?;
+                        Ok(PayloadOrigin::Cache)
                     },
                     Err(ContentLengthError::Unavailable) => {
                         debug!("Will send 404 reply to client.");
                         serve_404_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                     Err(ContentLengthError::OrderError) => {
                         debug!("Will send 400 reply to client.");
                         serve_400_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
                         eprintln!("Remote server has disconnected unexpectedly.");
                         serve_500_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Timeout)) => {
                         // TODO we should not immediately return 500, and instead try another mirror.
@@ -160,11 +168,12 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         // inside lib.rs
                         error!("Timeout: Unable to obtain content length.");
                         serve_500_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                 }
             },
             ScheduleOutcome::Cached => {
-                debug!("Cache hit for request #{:?}", &order.filepath);
+                debug!("Cache hit for request {:?}", &order.filepath);
                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
                 let file: File = match File::open(&path) {
                     Ok(f) => f,
@@ -174,15 +183,16 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                     }
                 };
                 serve_from_complete_file(file, get_request.resume_from, client_stream)?;
+                Ok(PayloadOrigin::Cache)
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
                 let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
                 serve_via_redirect(uri_string, client_stream)?;
+                Ok(PayloadOrigin::NoPayload)
             }
         }
     }
-    Ok(())
 }
 
 fn serve_client(
@@ -197,7 +207,14 @@ fn serve_client(
             Ok(get_request) => {
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
-                    Ok(()) => info!("Request served: {:?}", &request_path.to_str()),
+                    Ok(payload_origin) => {
+                        let payload_origin_human_readable = match payload_origin {
+                            PayloadOrigin::Cache => "CACHE HIT",
+                            PayloadOrigin::RemoteMirror => "CACHE MISS",
+                            PayloadOrigin::NoPayload => "NO PAYLOAD",
+                        };
+                        info!("Request served [{}]: {:?}", payload_origin_human_readable, &request_path.to_str())
+                    },
                     Err(e) => {
                         error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e);
                         handle_client_error(&mut client_stream, e)?;
