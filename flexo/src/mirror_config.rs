@@ -120,7 +120,11 @@ impl MirrorConfig {
 fn mirror_config_from_toml() -> MirrorConfig {
     let config_contents = fs::read_to_string(CONFIG_FILE)
         .unwrap_or_else(|_| panic!("Unable to read file: {}", CONFIG_FILE));
-    toml::from_str(&config_contents).unwrap()
+    match toml::from_str(&config_contents) {
+        Ok(v) => v,
+        Err(e) => panic!(format!("Unable to parse file {}: {:?}\nPlease make sure that the file contains \
+        valid TOML syntax and that all required attributes are set.", CONFIG_FILE, e))
+    }
 }
 
 #[derive(Deserialize)]

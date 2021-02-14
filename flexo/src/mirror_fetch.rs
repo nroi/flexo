@@ -3,7 +3,9 @@ use serde::Deserialize;
 use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
+use std::str;
 use crate::MirrorResults;
+use crate::mirror_fetch::MirrorFetchError::{CurlError, DemarshallError, Utf8Error};
 
 // If Flexo starts automatically with each system boot, it may happen that internet connectivity is not immediately
 // available. For this reason, more than one attempt is made to connect to the server, hoping that the client
@@ -45,6 +47,31 @@ pub enum MirrorProtocol {
     Http,
     Https,
     Rsync,
+}
+
+#[derive(Debug)]
+pub enum MirrorFetchError {
+    DemarshallError(serde_json::error::Error),
+    CurlError(curl::Error),
+    Utf8Error(str::Utf8Error),
+}
+
+impl From<curl::Error> for MirrorFetchError {
+    fn from(error: curl::Error) -> Self {
+        CurlError(error)
+    }
+}
+
+impl From<serde_json::Error> for MirrorFetchError {
+    fn from(error: serde_json::Error) -> Self {
+        DemarshallError(error)
+    }
+}
+
+impl From<str::Utf8Error> for MirrorFetchError {
+    fn from(error: str::Utf8Error) -> Self {
+        Utf8Error(error)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -117,7 +144,7 @@ impl MirrorUrl {
     }
 }
 
-fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
+fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, MirrorFetchError> {
     let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
     debug!("Fetch json from {:?}", &mirrors_auto.mirrors_status_json_endpoint);
     try_num_attempts(INITIAL_CONNECTIVITY_NUM_ATTEMPTS, || {
@@ -133,7 +160,7 @@ fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, curl::Error> {
             })?;
             transfer.perform()?
         }
-        Ok(std::str::from_utf8(received.as_slice()).unwrap().to_owned())
+        Ok(str::from_utf8(received.as_slice())?.to_owned())
     })
 }
 
@@ -159,14 +186,9 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
     }
 }
 
-pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, curl::Error> {
+pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, MirrorFetchError> {
     let json = fetch_json(mirror_config)?;
-    let mirror_list_option: MirrorListOption = match serde_json::from_str(&json) {
-        Ok(r) => r,
-        Err(e) => {
-            panic!("Failed to deserialize mirror list: {:?}", e);
-        }
-    };
+    let mirror_list_option: MirrorListOption = serde_json::from_str(&json)?;
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
     Ok(mirror_list.urls)
 }
@@ -188,7 +210,7 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, cu
         // Cloudflare protected server usually yields excellent results, but these results are meaningless since
         // Cloudflare uses caching: So the latency might have been low only because the request could be served
         // from the cache, but we can't assume that every request will be a cache hit.
-        if header.to_ascii_lowercase().starts_with("server: cloudflare".as_bytes()) {
+        if header.eq_ignore_ascii_case("server: cloudflare\r\n".as_bytes()) {
             debug!("Remote mirror {} appears to use CloudFlare, this mirror will be ignored.", &url);
             false
         } else {

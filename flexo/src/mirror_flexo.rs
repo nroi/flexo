@@ -10,13 +10,11 @@ use flexo::*;
 use std::fs::File;
 use std::time::Duration;
 use std::cmp::Ordering;
+use std::str;
 use crossbeam::crossbeam_channel::Sender;
 use curl::easy::{Easy2, Handler, WriteError, HttpVersion};
 use std::fs::OpenOptions;
 use std::io::BufWriter;
-use std::collections::hash_map::RandomState;
-use std::collections::HashMap;
-use walkdir::WalkDir;
 use std::ffi::OsString;
 use httparse::{Status, Header};
 use std::io::{Read, ErrorKind, Write};
@@ -24,6 +22,7 @@ use std::path::Path;
 use std::string::FromUtf8Error;
 use std::num::ParseIntError;
 use serde::{Serialize, Deserialize};
+use walkdir::WalkDir;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -45,6 +44,9 @@ const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 const MAX_REDIRECTIONS: u32 = 3;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
+
+const ERR_MSG_XATTR_SUPPORT: &str = "Unable to get extended file attributes. Please make sure that the path \
+set as cache_directory resides on a file system with support for extended attributes.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -75,6 +77,14 @@ pub struct ClientStatus {
     pub response_headers_sent: bool
 }
 
+impl ClientStatus {
+    pub fn no_response_headers_sent() -> Self {
+        ClientStatus {
+            response_headers_sent: false
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum CountryFilter {
     AllCountries,
@@ -98,13 +108,25 @@ impl CountryFilter {
     }
 }
 
-fn parse_range_header_value(s: &str) -> u64 {
+fn parse_range_header_value(s: &str) -> Result<u64, ClientError> {
     let s = s.to_lowercase();
     // We ignore everything after the - sign: We assume that pacman will never request only up to a certain size,
     // pacman will only skip the beginning of a file if the file has already been partially downloaded.
-    let range_start: &str = s.split('-').next().unwrap();
-    let range_start = range_start.replace("bytes=", "");
-    range_start.parse::<u64>().unwrap()
+    match s.split('-').next() {
+        None => {
+            debug!("Unable to read the range header from the HTTP request.");
+            Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()))
+        }
+        Some(range_start) => {
+            match range_start.replace("bytes=", "").parse::<u64>() {
+                Ok(v) => Ok(v),
+                Err(_) => {
+                    error!("Invalid range start submitted by client: {}", range_start);
+                    Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()))
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -117,19 +139,42 @@ impl GetRequest {
     fn new(request: httparse::Request) -> Result<Self, ClientError> {
         let range_header = request.headers
             .iter()
-            .find(|h| h.name.to_lowercase() == "range");
-        let resume_from = range_header.map(|h| parse_range_header_value(std::str::from_utf8(h.value).unwrap()));
+            .find(|h| h.name.eq_ignore_ascii_case("range"));
+        let range_header_value = range_header.map(|h| {
+            match str::from_utf8(h.value) {
+                Ok(v) => Ok(v),
+                Err(_) => {
+                    error!("Unable to parse header value to UTF8");
+                    Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()))
+                }
+            }
+        });
+        let resume_from = match range_header_value {
+            None => None,
+            Some(v) => {
+                Some(parse_range_header_value(v?)?)
+            }
+        };
         match request.method {
             Some("GET") => {},
-            Some(_method) => {
-                let client_status = ClientStatus { response_headers_sent: false };
-                return Err(ClientError::UnsupportedHttpMethod(client_status));
+            Some(method) => {
+                error!("Unsupported HTTP method: {}", method);
+                return Err(ClientError::UnsupportedHttpMethod(ClientStatus::no_response_headers_sent()));
             },
-            None => panic!("Expected the request method to be set."),
+            None => {
+                error!("Expected the request method to be set.");
+                return Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()));
+            },
         }
-        let p = &request.path.unwrap()[1..]; // Skip the leading "/"
+        let path = match request.path {
+            None => {
+                let client_status = ClientStatus { response_headers_sent: false };
+                Err(ClientError::InvalidHeader(client_status))
+            }
+            Some(p) => Ok(&p[1..])  // Skip the leading "/"
+        };
         Ok(Self {
-            path: StrPath::new(p.to_owned()),
+            path: StrPath::new(path?.to_owned()),
             resume_from,
         })
     }
@@ -157,11 +202,7 @@ impl Provider for DownloadProvider {
         }
     }
 
-    fn identifier(&self) -> &String {
-        &self.uri
-    }
-
-    fn score(&self) -> MirrorResults {
+    fn initial_score(&self) -> MirrorResults {
         self.mirror_results
     }
 
@@ -181,6 +222,9 @@ pub struct MirrorResults {
 
 impl Ord for MirrorResults {
     fn cmp(&self, other: &Self) -> Ordering {
+        // namelookup_duration is excluded for performance comparisons, because DNS lookups are usually
+        // cached, so we can assume that slow DNS lookups usually will not affect the latency experienced
+        // by the user.
         let self_latency = self.total_time - self.namelookup_duration;
         let other_latency = other.total_time - other.namelookup_duration;
         self_latency.cmp(&other_latency)
@@ -267,63 +311,11 @@ impl Job for DownloadJob {
         self.properties.clone()
     }
 
-    fn initialize_cache(properties: Self::PR) -> HashMap<DownloadOrder, OrderState, RandomState> {
-        let mut hashmap: HashMap<Self::O, OrderState> = HashMap::new();
-        let mut sum_size = 0;
-        for entry in WalkDir::new(&properties.cache_directory) {
-            let entry = entry.expect("Error while reading directory entry");
-            let key = OsString::from("user.content_length");
-            if entry.file_type().is_file() {
-                let file = File::open(entry.path())
-                    .unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
-                let file_size = file.metadata().expect("Unable to fetch file metadata").len();
-                sum_size += file_size;
-                let complete_size = match xattr::get(entry.path(), &key).expect("Unable to get extended file attributes") {
-                    Some(value) => {
-                        let result = String::from_utf8(value).map_err(FileAttrError::from)
-                            .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
-                        match result {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                error!("Unable to read extended attribute user.content_length from file {:?}: {:?}",
-                                       entry.path(), e);
-                                None
-                            },
-                        }
-                    },
-                    None => {
-                        // Flexo sets the extended attributes for all files, but this file lacks this attribute:
-                        // We assume that this mostly happens when the user copies files into the directory used
-                        // by flexo, and we further assume that users will do this only if this file is complete.
-                        // Therefore, we can set the content length attribute of this file to the file size.
-                        debug!("Set content length for file: #{:?}", entry.path());
-                        let value = file_size.to_string();
-                        match xattr::set(entry.path(), &key, &value.as_bytes()) {
-                            Ok(()) => {},
-                            Err(e) => {
-                                error!("Unable to set extended file attributes for {:?}: {:?}. Please make sure that \
-                                flexo has write permissions for this file.", entry.path(), e)
-                            },
-                        }
-                        Some(file_size)
-                    },
-                };
-                let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
-                let order = DownloadOrder {
-                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned())
-                };
-                let cached_item = CachedItem {
-                    cached_size: file_size,
-                    complete_size,
-                };
-                let state = OrderState::Cached(cached_item);
-                hashmap.insert(order, state);
-            }
-        }
-        let size_formatted = size_to_human_readable(sum_size);
-        info!("Retrieved {} files with a total size of {} from local file system.", hashmap.len(), size_formatted);
-
-        hashmap
+    // TODO find a better function name than "cache_state": This function does not only return something,
+    // it also has side effects.
+    fn cache_state(order: &Self::O, properties: &Self::PR) -> Option<CachedItem> {
+        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+        cache_state_from_path(&path)
     }
 
     fn serve_from_provider(self, mut channel: DownloadChannel,
@@ -368,7 +360,7 @@ impl Job for DownloadJob {
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
-                info!("{} replied with status code {}.", self.provider.description(), response_code);
+                debug!("{} replied with status code {}.", self.provider.description(), response_code);
                 if response_code >= 200 && response_code < 300 {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
@@ -421,7 +413,7 @@ impl Job for DownloadJob {
 
     fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        info!("Attempt to create file: {:?}", path);
+        debug!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
         if f.is_err() {
             warn!("Unable to create file: {:?}", f);
@@ -444,6 +436,82 @@ impl Job for DownloadJob {
         };
         Ok(download_job_resources)
     }
+}
+
+pub fn initialize_cache(mirror_config: &MirrorConfig) {
+    let mut sum_size = 0;
+    let mut count_cache_items = 0;
+    for entry in WalkDir::new(&mirror_config.cache_directory) {
+        let entry = entry.expect("Error while reading directory entry");
+        if entry.file_type().is_file() {
+            match cache_state_from_path(entry.path()) {
+                None => {
+                    // This should happen only in extremely unlikely circumstances, e.g. when the file is
+                    // deleted shortly after this function started executing.
+                }
+                Some(CachedItem { cached_size, .. }) => {
+                    sum_size += cached_size;
+                    count_cache_items += 1;
+                }
+            }
+        }
+    }
+    let size_formatted = size_to_human_readable(sum_size);
+    info!("Retrieved {} files with a total size of {} from local file system.", count_cache_items, size_formatted);
+}
+
+fn cache_state_from_path(path: &Path) -> Option<CachedItem> {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            // The requested file is not cached, yet.
+            return None;
+        }
+        Err(e) => {
+            // TODO this can be made more resilient: For example, suppose that a single file in the cache directory
+            // has the wrong read permissions set, so that flexo cannot access it. If the user attempts to download
+            // multiple files, including this file, then we should return 500 only for this particular file, instead
+            // of just crashing the entire thread.
+            panic!("Unexpected I/O error occurred: {:?}", e);
+        }
+    };
+    let key = OsString::from("user.content_length");
+    let file_size = file.metadata().expect("Unable to fetch file metadata").len();
+    let complete_size = match xattr::get(path, &key).expect(ERR_MSG_XATTR_SUPPORT) {
+        Some(value) => {
+            let result = String::from_utf8(value).map_err(FileAttrError::from)
+                .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
+            match result {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    error!("Unable to read extended attribute user.content_length from file {:?}: {:?}", path, e);
+                    None
+                },
+            }
+        },
+        None => {
+            // Flexo sets the extended attributes for all files, but this file lacks this attribute:
+            // We assume that this mostly happens when the user copies files into the directory used
+            // by flexo, and we further assume that users will do this only if this file is complete.
+            // Therefore, we can set the content length attribute of this file to the file size.
+            let value = file_size.to_string();
+            match xattr::set(path, &key, &value.as_bytes()) {
+                Ok(()) => {
+                    info!("The file {:?} used to lack the content-length attribute, \
+                    this attribute has now been set to {}.", path, value);
+                },
+                Err(e) => {
+                    error!("Unable to set extended file attributes for {:?}: {:?}. Please make sure that \
+                                flexo has write permissions for this file.", path, e)
+                },
+            }
+            Some(file_size)
+        },
+    };
+    Some(CachedItem {
+        cached_size: file_size,
+        complete_size,
+    })
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -550,7 +618,7 @@ impl Handler for DownloadState {
             }
         }
         if job_resources.file_state.size_written == 0 {
-            info!("Starting to transfer body to file {}", self.job_state.order.filepath.to_str());
+            debug!("Begin to transfer body to file {}", self.job_state.order.filepath.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write(data) {
@@ -583,7 +651,7 @@ impl Handler for DownloadState {
                 if code == 200 || code == 206 {
                     let content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
-                            Some(std::str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
+                            Some(str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
                         } else {
                             None
                         }
@@ -614,7 +682,6 @@ impl Handler for DownloadState {
                     // download anything we already have available in cache.
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    error!("All providers have been unable to fulfil this request.");
                     let message: FlexoProgress = FlexoProgress::Completed;
                     let _ = self.job_state.tx.send(message);
                 } else if !job_resources.last_chance {
@@ -631,7 +698,8 @@ impl Handler for DownloadState {
                 // nothing to do, wait until this function is invoked again.
             }
             Err(e) => {
-                panic!("Error: {:?}", e)
+                error!("Unable to parse header: {:?}", e);
+                return false;
             }
         }
 
@@ -693,7 +761,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
                                country_filter: &CountryFilter,
                                limit: Limit
 ) -> Vec<DownloadProvider> {
-    mirror_urls.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+    mirror_urls.sort_by(|a, b| a.score.cmp(&b.score));
     debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
     debug!("The following CountryFilter is applied: {:?}", country_filter);
     let filtered_mirror_urls_unlimited = mirror_urls
@@ -717,7 +785,7 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
                     debug!("Skip mirror {} due to timeout.", mirror.url);
                 } else {
-                    warn!("Error during latency test of mirror {}: {:?}", mirror.url, e);
+                    debug!("Skip mirror {}: Latency test did not succeed: {:?}", mirror.url, e);
                 }
                 false
             }
@@ -775,7 +843,7 @@ fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usi
     CountryFilter::SelectedCountries(countries)
 }
 
-pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
+pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
     let mut buf = [0; MAX_HEADER_SIZE + 1];
     let mut size_read_all = 0;
 
@@ -783,7 +851,7 @@ pub fn read_client_header<T>(stream: &mut T) -> Result<GetRequest, ClientError> 
         if size_read_all >= MAX_HEADER_SIZE {
             return Err(ClientError::BufferSizeExceeded);
         }
-        let size = match stream.read(&mut buf[size_read_all..]) {
+        let size = match client_stream.read(&mut buf[size_read_all..]) {
             Ok(0) => {
                 // we need this branch in case the socket is closed: Otherwise, we would read a size of 0 indefinitely.
                 return Err(ClientError::SocketClosed);
