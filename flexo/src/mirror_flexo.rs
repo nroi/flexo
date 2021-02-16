@@ -15,8 +15,6 @@ use crossbeam::crossbeam_channel::Sender;
 use curl::easy::{Easy2, Handler, WriteError, HttpVersion};
 use std::fs::OpenOptions;
 use std::io::BufWriter;
-use std::collections::hash_map::RandomState;
-use std::collections::HashMap;
 use walkdir::WalkDir;
 use std::ffi::OsString;
 use httparse::{Status, Header};
@@ -314,62 +312,11 @@ impl Job for DownloadJob {
         self.properties.clone()
     }
 
-    fn initialize_cache(properties: Self::PR) -> HashMap<DownloadOrder, OrderState, RandomState> {
-        let mut hashmap: HashMap<Self::O, OrderState> = HashMap::new();
-        let mut sum_size = 0;
-        for entry in WalkDir::new(&properties.cache_directory) {
-            let entry = entry.expect("Error while reading directory entry");
-            let key = OsString::from("user.content_length");
-            if entry.file_type().is_file() {
-                let file = File::open(entry.path())
-                    .unwrap_or_else(|_| panic!("Unable to open file {:?}", entry.path()));
-                let file_size = file.metadata().expect("Unable to fetch file metadata").len();
-                sum_size += file_size;
-                let complete_size = match xattr::get(entry.path(), &key).expect(ERR_MSG_XATTR_SUPPORT) {
-                    Some(value) => {
-                        let result = String::from_utf8(value).map_err(FileAttrError::from)
-                            .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
-                        match result {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                error!("Unable to read extended attribute user.content_length from file {:?}: {:?}",
-                                       entry.path(), e);
-                                None
-                            },
-                        }
-                    },
-                    None => {
-                        // Flexo sets the extended attributes for all files, but this file lacks this attribute:
-                        // We assume that this mostly happens when the user copies files into the directory used
-                        // by flexo, and we further assume that users will do this only if this file is complete.
-                        // Therefore, we can set the content length attribute of this file to the file size.
-                        debug!("Set content length for file: #{:?}", entry.path());
-                        let value = file_size.to_string();
-                        match xattr::set(entry.path(), &key, &value.as_bytes()) {
-                            Ok(()) => {},
-                            Err(e) => {
-                                error!("Unable to set extended file attributes for {:?}: {:?}. Please make sure that \
-                                flexo has write permissions for this file.", entry.path(), e)
-                            },
-                        }
-                        Some(file_size)
-                    },
-                };
-                let sub_path = entry.path().strip_prefix(&properties.cache_directory).unwrap();
-                let order = DownloadOrder {
-                    filepath: StrPath::new(sub_path.to_str().unwrap().to_owned()),
-                };
-                let cached_item = CachedItem {
-                    cached_size: file_size,
-                    complete_size,
-                };
-                hashmap.insert(order, OrderState::Cached(cached_item));
-            }
-        }
-        let size_formatted = size_to_human_readable(sum_size);
-        info!("Retrieved {} files with a total size of {} from local file system.", hashmap.len(), size_formatted);
-
-        hashmap
+    // TODO find a better function name than "cache_state": This function does not only return something,
+    // it also has side effects.
+    fn cache_state(order: &Self::O, properties: &Self::PR) -> Option<CachedItem> {
+        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+        cache_state_from_path(&path)
     }
 
     fn serve_from_provider(self, mut channel: DownloadChannel,
@@ -414,7 +361,7 @@ impl Job for DownloadJob {
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
-                info!("{} replied with status code {}.", self.provider.description(), response_code);
+                debug!("{} replied with status code {}.", self.provider.description(), response_code);
                 if response_code >= 200 && response_code < 300 {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
@@ -467,7 +414,7 @@ impl Job for DownloadJob {
 
     fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        info!("Attempt to create file: {:?}", path);
+        debug!("Attempt to create file: {:?}", path);
         let f = OpenOptions::new().create(true).append(true).open(path);
         if f.is_err() {
             warn!("Unable to create file: {:?}", f);
@@ -490,6 +437,82 @@ impl Job for DownloadJob {
         };
         Ok(download_job_resources)
     }
+}
+
+pub fn initialize_cache(mirror_config: &MirrorConfig) {
+    let mut sum_size = 0;
+    let mut count_cache_items = 0;
+    for entry in WalkDir::new(&mirror_config.cache_directory) {
+        let entry = entry.expect("Error while reading directory entry");
+        if entry.file_type().is_file() {
+            match cache_state_from_path(entry.path()) {
+                None => {
+                    // This should happen only in extremely unlikely circumstances, e.g. when the file is
+                    // deleted shortly after this function started executing.
+                }
+                Some(CachedItem { cached_size, .. }) => {
+                    sum_size += cached_size;
+                    count_cache_items += 1;
+                }
+            }
+        }
+    }
+    let size_formatted = size_to_human_readable(sum_size);
+    info!("Retrieved {} files with a total size of {} from local file system.", count_cache_items, size_formatted);
+}
+
+fn cache_state_from_path(path: &Path) -> Option<CachedItem> {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            // The requested file is not cached, yet.
+            return None;
+        }
+        Err(e) => {
+            // TODO this can be made more resilient: For example, suppose that a single file in the cache directory
+            // has the wrong read permissions set, so that flexo cannot access it. If the user attempts to download
+            // multiple files, including this file, then we should return 500 only for this particular file, instead
+            // of just crashing the entire thread.
+            panic!("Unexpected I/O error occurred: {:?}", e);
+        }
+    };
+    let key = OsString::from("user.content_length");
+    let file_size = file.metadata().expect("Unable to fetch file metadata").len();
+    let complete_size = match xattr::get(path, &key).expect(ERR_MSG_XATTR_SUPPORT) {
+        Some(value) => {
+            let result = String::from_utf8(value).map_err(FileAttrError::from)
+                .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
+            match result {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    error!("Unable to read extended attribute user.content_length from file {:?}: {:?}", path, e);
+                    None
+                },
+            }
+        },
+        None => {
+            // Flexo sets the extended attributes for all files, but this file lacks this attribute:
+            // We assume that this mostly happens when the user copies files into the directory used
+            // by flexo, and we further assume that users will do this only if this file is complete.
+            // Therefore, we can set the content length attribute of this file to the file size.
+            let value = file_size.to_string();
+            match xattr::set(path, &key, &value.as_bytes()) {
+                Ok(()) => {
+                    info!("The file {:?} used to lack the content-length attribute, \
+                    this attribute has now been set to {}.", path, value);
+                },
+                Err(e) => {
+                    error!("Unable to set extended file attributes for {:?}: {:?}. Please make sure that \
+                                flexo has write permissions for this file.", path, e)
+                },
+            }
+            Some(file_size)
+        },
+    };
+    Some(CachedItem {
+        cached_size: file_size,
+        complete_size,
+    })
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -596,7 +619,7 @@ impl Handler for DownloadState {
             }
         }
         if job_resources.file_state.size_written == 0 {
-            info!("Starting to transfer body to file {}", self.job_state.order.filepath.to_str());
+            debug!("Begin to transfer body to file {}", self.job_state.order.filepath.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write(data) {

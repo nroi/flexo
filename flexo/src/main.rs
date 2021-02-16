@@ -60,6 +60,7 @@ fn main() {
     }));
 
     let properties = mirror_config::load_config();
+    initialize_cache(&properties);
     match properties.low_speed_limit {
         None => {},
         Some(limit) => {
@@ -105,14 +106,16 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                  client_stream: &mut TcpStream,
                  properties: MirrorConfig,
                  get_request: GetRequest,
-) -> Result<(), ClientError> {
+) -> Result<PayloadOrigin, ClientError> {
     let (custom_provider, get_request) =
         custom_provider_from_request(get_request, &properties.custom_repo.unwrap_or(vec![]));
     if !valid_path(&get_request.path.as_ref())  {
         info!("Invalid path: Serve 403");
-        serve_403_header(client_stream)?
+        serve_403_header(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
     } else if get_request.path.to_str() == "status" {
-        serve_200_ok_empty(client_stream)?
+        serve_200_ok_empty(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
     } else {
         let order = DownloadOrder {
             filepath: get_request.path,
@@ -127,6 +130,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                 let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
                 let file: File = File::open(&path)?;
                 serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
+                Ok(PayloadOrigin::RemoteMirror)
             }
             ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
                 // TODO this branch is also executed when the server returns 404.
@@ -137,24 +141,29 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
                         serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
+                        Ok(PayloadOrigin::RemoteMirror)
                     },
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
                         serve_from_complete_file(file, get_request.resume_from, client_stream)?;
+                        Ok(PayloadOrigin::Cache)
                     },
                     Err(ContentLengthError::Unavailable) => {
                         debug!("Will send 404 reply to client.");
                         serve_404_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                     Err(ContentLengthError::OrderError) => {
                         debug!("Will send 400 reply to client.");
                         serve_400_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
                         eprintln!("Remote server has disconnected unexpectedly.");
                         serve_500_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Timeout)) => {
                         // TODO we should not immediately return 500, and instead try another mirror.
@@ -162,11 +171,12 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         // inside lib.rs
                         error!("Timeout: Unable to obtain content length.");
                         serve_500_header(client_stream)?;
+                        Ok(PayloadOrigin::NoPayload)
                     },
                 }
             },
             ScheduleOutcome::Cached => {
-                debug!("Serve file from cache.");
+                debug!("Cache hit for request {:?}", &order.filepath);
                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
                 let file: File = match File::open(&path) {
                     Ok(f) => f,
@@ -176,15 +186,16 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                     }
                 };
                 serve_from_complete_file(file, get_request.resume_from, client_stream)?;
+                Ok(PayloadOrigin::Cache)
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
                 let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
                 serve_via_redirect(uri_string, client_stream)?;
+                Ok(PayloadOrigin::NoPayload)
             }
         }
     }
-    Ok(())
 }
 
 fn serve_client(
@@ -199,40 +210,22 @@ fn serve_client(
             Ok(get_request) => {
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
-                    Ok(()) => info!("Request served: {:?}", &request_path.to_str()),
-                    Err(e) => error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e),
+                    Ok(payload_origin) => {
+                        let payload_origin_human_readable = match payload_origin {
+                            PayloadOrigin::Cache => "CACHE HIT",
+                            PayloadOrigin::RemoteMirror => "CACHE MISS",
+                            PayloadOrigin::NoPayload => "NO PAYLOAD",
+                        };
+                        info!("Request served [{}]: {:?}", payload_origin_human_readable, &request_path.to_str())
+                    },
+                    Err(e) => {
+                        error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e);
+                        handle_client_error(&mut client_stream, e)?;
+                    },
                 }
             }
             Err(e) => {
-                match e {
-                    ClientError::SocketClosed => {
-                        debug!("Socket closed by client.");
-                    }
-                    ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
-                        debug!("Socket closed by client.");
-                    }
-                    ClientError::TimedOut => {
-                        debug!("Connection client-to-server has timed out. New connection required \
-                        for subsequent requests from the client.");
-                    }
-                    ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
-                        error!("The client has used an HTTP method that is not supported by flexo.");
-                        if !response_headers_sent {
-                            serve_400_header(&mut client_stream)?;
-                        }
-                    },
-                    ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
-                        error!("The client has sent an invalid header");
-                        if !response_headers_sent {
-                            serve_400_header(&mut client_stream)?;
-                        }
-                    }
-                    _ => {
-                        eprintln!("Unable to read header: {:?}", e);
-                    }
-                }
-                let _ = client_stream.shutdown(std::net::Shutdown::Both);
-                return Err(e);
+                handle_client_error(&mut client_stream, e)?;
             }
         };
     }
@@ -269,9 +262,66 @@ fn custom_provider_from_request(get_request: GetRequest,
     }
 }
 
+/// Returns Ok if it is save to continue serving requests to this client, or Err otherwise.
+fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientError) -> Result<(), ClientError> {
+    let result = match client_error {
+        ClientError::SocketClosed => {
+            debug!("Socket closed by client.");
+            Err(client_error)
+        }
+        ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
+            debug!("Socket closed by client.");
+            Err(client_error)
+        }
+        ClientError::TimedOut => {
+            debug!("Connection client-to-server has timed out. New connection required \
+                        for subsequent requests from the client.");
+            Err(client_error)
+        }
+        ClientError::UnsupportedHttpMethod(ClientStatus { response_headers_sent }) => {
+            error!("The client has used an HTTP method that is not supported by flexo.");
+            if !response_headers_sent {
+                serve_400_header(&mut client_stream)?;
+            }
+            Ok(())
+        },
+        ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
+            error!("The client has sent an invalid header");
+            if !response_headers_sent {
+                serve_400_header(&mut client_stream)?;
+            }
+            Ok(())
+        }
+        ClientError::IoError(error_kind) => {
+            error!("Input/Output Error: {:?}", error_kind);
+            Err(client_error)
+        }
+        _ => {
+            eprintln!("Unable to read header: {:?}", &client_error);
+            Err(client_error)
+        }
+    };
+    match result {
+        Err(ref e) => {
+            // TODO perhaps there is a more elegant way: We want to print a warning when
+            // an error has occurred, but this particular type of error is harmless, so we
+            // don't want to log it. It would be better if this "error" is not returned as an
+            // error in the first place.
+            if e != &ClientError::SocketClosed {
+                warn!("Closing TCP socket due to error: {:?}", e);
+            }
+            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+        },
+        Ok(()) => {
+            // nothing to do.
+        }
+    }
+    result
+}
+
 fn repo_name_from_get_request(get_request: &GetRequest) -> Option<(String, StrPath)> {
     let mut component_iterator = get_request.path.as_ref().components();
-    if  component_iterator.next()?.as_os_str().to_str()? == "custom_repo" {
+    if component_iterator.next()?.as_os_str().to_str()? == "custom_repo" {
         let repo_name = component_iterator.next()?.as_os_str().to_str()?.to_owned();
         let path_without_repo_prefix = component_iterator.collect::<PathBuf>();
         let path = StrPath::from_path_buf(path_without_repo_prefix)?;

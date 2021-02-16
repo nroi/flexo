@@ -1,6 +1,6 @@
 #[macro_use] extern crate log;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
@@ -111,7 +111,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
     fn properties(&self)-> Self::PR;
-    fn initialize_cache(properties: Self::PR) -> HashMap<Self::O, OrderState>;
+    fn cache_state(order: &<Self as Job>::O, properties: &Self::PR) -> Option<CachedItem>;
     fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
     fn acquire_resources(order: &Self::O, properties: &Self::PR, last_chance: bool) -> std::io::Result<Self::JS>;
@@ -344,10 +344,10 @@ pub enum OrderState {
 
 /// The context in which a job is executed, including all stateful information required by the job.
 /// This context is meant to be initialized once during the program's lifecycle.
-pub struct JobContext<J> where J: Job, {
+pub struct JobContext<J> where J: Job {
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
-    order_states: Arc<Mutex<HashMap<J::O, OrderState>>>,
+    orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
     providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
@@ -367,7 +367,7 @@ pub enum ScheduleOutcome<J> where J: Job {
     Scheduled(ScheduledItem<J>),
     /// The order is already available in the cache.
     Cached,
-    /// the order cannot be served from cache
+    /// the order cannot be cached
     Uncacheable(J::P),
 }
 
@@ -388,19 +388,18 @@ pub enum FlexoProgress {
     OrderError,
 }
 
-
 impl <J> JobContext<J> where J: Job {
     pub fn new(initial_providers: Vec<J::P>, properties: J::PR) -> Self {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
-        let order_states: Arc<Mutex<HashMap<J::O, OrderState>>> = Arc::new(Mutex::new(J::initialize_cache(properties.clone())));
+        let orders_in_progress: Arc<Mutex<HashSet<J::O>>> = Arc::new(Mutex::new(HashSet::new()));
         let providers_in_use: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let provider_records: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
         let thread_mutexes: Vec<Arc<Mutex<i32>>> = Vec::new();
         Self {
             providers,
             channels,
-            order_states,
+            orders_in_progress,
             provider_failures: provider_records,
             providers_in_use,
             panic_monitor: thread_mutexes,
@@ -439,29 +438,29 @@ impl <J> JobContext<J> where J: Job {
         }
         let resume_from = resume_from.unwrap_or(0);
         let cached_size: u64 = {
-            let mut order_states = self.order_states.lock().unwrap();
-            let cached_size = match order_states.get(&order) {
-                None if resume_from > 0 => {
-                    // Cannot serve this order from cache: See issue #7
-                    return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
-                },
-                None => 0,
-                Some(OrderState::Cached(CachedItem { cached_size, .. } )) if cached_size < &resume_from => {
-                    // Cannot serve this order from cache: See issue #7
-                    return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
-                },
-                Some(OrderState::Cached(CachedItem { complete_size: Some(c), cached_size } )) if c == cached_size => {
-                    return ScheduleOutcome::Cached;
-                },
-                Some(OrderState::Cached(CachedItem { cached_size, .. } )) => {
-                    *cached_size
-                },
-                Some(OrderState::InProgress) => {
-                    debug!("order {:?} already in progress: nothing to do.", &order);
-                    return ScheduleOutcome::AlreadyInProgress;
+            let mut orders_in_progress = self.orders_in_progress.lock().unwrap();
+            let cached_size = if orders_in_progress.contains(&order) {
+                debug!("order {:?} already in progress: nothing to do.", &order);
+                return ScheduleOutcome::AlreadyInProgress;
+            } else {
+                let result = J::cache_state(&order, &self.properties);
+                match result {
+                    None if resume_from > 0 => {
+                        // Cannot store this order in cache: See issue #7
+                        return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
+                    },
+                    None => 0,
+                    Some(CachedItem { cached_size, .. } ) if cached_size < resume_from => {
+                        // Cannot serve this order from cache: See issue #7
+                        return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
+                    },
+                    Some(CachedItem { complete_size: Some(c), cached_size }) if c == cached_size => {
+                        return ScheduleOutcome::Cached;
+                    },
+                    Some(CachedItem { cached_size, .. } ) => cached_size,
                 }
             };
-            order_states.insert(order.clone(), OrderState::InProgress);
+            orders_in_progress.insert(order.clone());
             cached_size
         };
         self.schedule(order, custom_provider, cached_size)
@@ -492,7 +491,7 @@ impl <J> JobContext<J> where J: Job {
         let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
         let provider_failures_cloned = Arc::clone(&self.provider_failures);
         let providers_in_use_cloned = Arc::clone(&self.providers_in_use);
-        let order_states = Arc::clone(&self.order_states);
+        let order_states = Arc::clone(&self.orders_in_progress);
         let order_cloned = order.clone();
         let properties = self.properties.clone();
 
@@ -519,11 +518,6 @@ impl <J> JobContext<J> where J: Job {
                     complete_job.channel.job_state().release_job_resources();
                     let mut channels_cloned = channels_cloned.lock().unwrap();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
-                    let cached_item = CachedItem {
-                        complete_size: Some(complete_job.size as u64),
-                        cached_size: complete_job.size as u64,
-                    };
-                    order_states.lock().unwrap().insert(order_cloned.clone(), OrderState::Cached(cached_item));
                     JobOutcome::Success(complete_job.provider.clone())
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
