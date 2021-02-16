@@ -357,7 +357,7 @@ impl Job for DownloadJob {
                 channel.handle.resume_from(start).unwrap();
             }
         }
-        info!("Start download from {}", self.provider.description());
+        debug!("Start download from {}", self.provider.description());
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();

@@ -120,14 +120,14 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(channel) => {
-                info!("Attempt to reuse previous connection from {}", &self.provider().description());
+                debug!("Attempt to reuse previous connection from {}", &self.provider().description());
                 let result = self.order().reuse_channel(self.properties(), tx, last_chance, channel);
                 result.map(|new_channel| {
                     (new_channel, ChannelEstablishment::ExistingChannel)
                 })
             }
             None => {
-                info!("Establish a new connection to {:?}", &self.provider().description());
+                debug!("Establish a new connection to {:?}", &self.provider().description());
                 let channel = self.order().new_channel(self.properties(), tx, last_chance);
                 channel.map(|c| {
                     (c, ChannelEstablishment::NewChannel)
