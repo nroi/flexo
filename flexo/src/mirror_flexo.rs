@@ -192,7 +192,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri = format!("{}/{}", self.uri, order.filepath.to_str());
+        let uri = uri_from_components(&self.uri, order.filepath.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -888,6 +888,10 @@ pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, Client
             }
         }
     }
+}
+
+pub fn uri_from_components(prefix: &str, suffix: &str) -> String {
+    format!("{}/{}", prefix.trim_end_matches("/"), suffix.trim_start_matches("/"))
 }
 
 pub fn size_to_human_readable(size_in_bytes: u64) -> String {
