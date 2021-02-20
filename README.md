@@ -1,23 +1,15 @@
 # Flexo <img src="flexo_beard.svg" width="50">
 
-Flexo is a central cache for pacman, the package manager of Arch Linux.
-
-## ⚠ Important announcement: Changes required in your config file ⚠
-If you have installed Flexo prior to 2020-12-20, please edit your `/etc/flexo/flexo.toml` file and update the value of `mirrors_status_json_endpoint` to `"https://archlinux.org/mirrors/status/json/"`.
-The URL has changed from `https://www.archlinux.org/mirrors/status/json/` to `https://archlinux.org/mirrors/status/json/` (notice the lack of www), so make
-sure your TOML file includes the new URL.
-
-**Flexo will crash eventually if you don't update your `/etc/flexo/flexo.toml` file**.
+Flexo is a caching proxy for pacman, the package manager of Arch Linux.
 
 ## Why should I use it?
 
-* If you're bothered by slow mirrors: Flexo runs a performance test during startup to make it
-less likely that you end up with a slow, outdated or unreliable mirror. It can also transparently
-switch from one mirror to another if a mirror turns out to be too slow.
+* If you're bothered by slow mirrors: Instead of manually maintaining a `mirrorlist`, Flexo automatically chooses
+a low-latency mirror for you and switches to another mirror if the selected mirror turns out to be slow.
 * If you have multiple machines running ArchLinux, and you don't want each machine to download
 and store the packages: You can just set flexo as your new ArchLinux mirror so that no file needs
-to be downloaded more than once.
-* If you run ArchLinux inside docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just install Flexo on the host and run this command on the docker container:
+to be downloaded more often than once.
+* If you run ArchLinux inside Docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just install Flexo on the host and run this command on the Docker container:
     ````
     echo 'Server = http://172.17.0.1:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     ````
@@ -46,7 +38,7 @@ Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
 
 ## Features
 
-* Concurrent downloads: You can have multiple clients downloading files from flexo without one client having to wait.
+* Concurrent downloads: You can have multiple clients downloading files from Flexo without one client having to wait.
 * Efficient bandwidth sharing for concurrent downloads: Flexo does not require a new connection to the remote mirror
   when the same file is downloaded by multiple clients. For instance, suppose a client starts downloading a given file.
   After 5 seconds have elapsed, 100MB have been downloaded. Now, a second client requests the same file. The second
@@ -60,7 +52,7 @@ Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
 
 The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self explanatory (open an issue in case you disagree).
-In most cases, you will want to leave all settings untouched, with two exceptions:
+In most cases, you will want to leave all settings unchanged, with two exceptions:
 
 1. The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
@@ -78,7 +70,7 @@ journalctl --unit=flexo
 ```
 If that does not help you, please open an issue that includes:
 1. An excerpt of that log, if Flexo has crashed or did not start.
-2. Your installation method (docker or AUR).
+2. Your installation method (Docker or AUR).
 3. The version you are using (either the output of `pacman -Qi flexo`, or the tag if you are using Docker).
 4. Your settings, if you have changed them
    (either the `/etc/flexo/flexo.toml` file, or the environment variables if you use Docker).
@@ -89,9 +81,28 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 
 ## Attributes & Design Goals
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
-* Robust: Flexo includes certain functions to allow it to switch from one mirror to another if a
+* Robust: As long as *most* mirrors work fine, Flexo should be able to handle the download process
+  without the client noticing any issues or interruptions, even if remote mirrors are slow or connections
+  are unexpectedly dropped.
 mirror is too slow or causes other issues.
 * Simple: Users should not require more than a few minutes to set up flexo and understand what it does.
+
+
+## Cleaning the package cache
+
+`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old
+packages. Install it, if you haven't done so already:
+```bash
+sudo pacman -S pacman-contrib
+```
+
+Packages are stored in the directory specified by the `cache_directory` variable in `/etc/flexo/flexo.toml`. By default,
+it's `/var/cache/flexo`. Use `paccache` to clean up the subdirectories of this directory. For instance, the following
+will delete all packages except for the three most recent versions:
+
+```bash
+paccache -r -k3  $(find /var/cache/flexo/pkg -type d -name x86_64 -printf "-c %p ")
+```
 
 ## Using Unofficial User Repositories
 
@@ -103,15 +114,22 @@ and you want Flexo to cache packages from those repositories, modify your `/etc/
 Server = http://<flexo-host>:<flexo-port>/custom_repo/<repo-name>/<path>
 ```
 
-and add an entry to your `/etc/flexo/flexo/toml` *before* The `[mirrors_auto]` section as follows:
+and add a corresponding entry to your `/etc/flexo/flexo/toml` *before* The `[mirrors_auto]` section as follows:
 ```toml
 [[custom_repo]]
     name = "<repo-name>"
     url = "https://<repo-url-without-path>"
 ```
 
-For example, suppose you want to add two unofficial repositories: archzfs and eschwartz. Your `/etc/pacman.conf`
-should include the following two entries:
+If you use Docker, the custom repo is configured via environment variables instead of the TOML file. Set the
+`FLEXO_CUSTOM_REPO` to `<repo-name>@https://<repo-url-without-path>`. If you use more than one custom repo,
+separate them with a single space:
+```bash
+FLEXO_CUSTOM_REPO="<repo-1-name>@https://<repo-1-url-without-path> <repo-2-name>@https://<repo-2-url-without-path>"
+```
+
+For example, suppose you want to add two unofficial repositories: archzfs and eschwartz. Add the following entries
+in your `/etc/pacman.conf`:
 
 ```
 [archzfs]
@@ -121,7 +139,8 @@ Server = http://localhost:7878/custom_repo/archzfs/$repo/$arch
 Server = http://localhost:7878/custom_repo/eschwartz/~eschwartz/repo/$arch
 ```
 
-and your `/etc/flexo/flexo.toml` should include these two entries *before* the `[mirrors_auto]` section:
+And the following two entries in your `/etc/flexo/flexo.toml` (make sure to add them *before*
+the `[mirrors_auto]` section):
 
 ```toml
 [[custom_repo]]
@@ -133,31 +152,9 @@ and your `/etc/flexo/flexo.toml` should include these two entries *before* the `
     url = "https://pkgbuild.com"
 ```
 
-Next, create the required directory:
-
+Alternatively, if you use Docker, set the environment variable:
 ```bash
-mkdir /var/cache/flexo/pkg/and/so/on
-```
-
-TODO:
-* files downloaded from a custom repo are not served via cache.
-* 
-* directories need to be manually created by the user.
-
-## Cleaning the package cache
-
-`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old
-packages. Install it if you haven't done so already:
-```bash
-sudo pacman -S pacman-contrib
-```
-
-Packages are stored in the directory specified by the `cache_directory` variable in `/etc/flexo/flexo.toml`. By default,
-it's `/var/cache/flexo`. Use `paccache` to clean up the subdirectories of this directory. For instance, the following
-will delete all packages except for the three most recent versions:
-
-```bash
-paccache -r -k3  $(find /var/cache/flexo/pkg -type d -name x86_64 -printf "-c %p ")
+FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ```
 
 ## Contribute
@@ -177,8 +174,8 @@ The following packages are required to build and test flexo:
 pacman -S rustup docker docker-compose curl
 ```
 
-The [./docker-compose](test/docker-test-local/docker-compose) script may require you to be able to use docker
-without root privileges. Add your user to the docker group to do so. You may want to read
+The [./docker-compose](test/docker-test-local/docker-compose) script may require you to be able to use Docker
+without root privileges. Add your user to the Docker group to do so. You may want to read
 the [wiki](https://wiki.archlinux.org/index.php/Docker) for more details on on the security
 implications of doing so.
 
@@ -186,7 +183,7 @@ implications of doing so.
 gpasswd -a <user> docker
 ```
 
-Furthermore, Docker BuildKit is required to run the integration tests inside docker, so make sure you have enabled it.
+Furthermore, Docker BuildKit is required to run the integration tests inside Docker, so make sure you have enabled it.
 One way to enable it is to modify your `~/.docker/config.json` to include the following:
 ```json
 {
@@ -194,7 +191,7 @@ One way to enable it is to modify your `~/.docker/config.json` to include the fo
 }
 ```
 
-Make sure to restart the docker daemon after modifying this file.
+Make sure to restart the Docker daemon after modifying this file.
 
 We have two types of test cases:
 1. Tests written in Rust: [integration_tests.rs](flexo/tests/integration_test.rs). These tests run quickly
@@ -204,7 +201,7 @@ and they are fully deterministic (afaik). You can run them with `cargo`:
    cargo test
     ```
 2. end-to-end tests using Docker.
-We try to avoid flaky test cases, but we cannot guarantee that all our docker test cases are deterministic,
+We try to avoid flaky test cases, but we cannot guarantee that all our Docker test cases are deterministic,
 since their outcome depends on various factors outside of our control (e.g. how the scheduler runs OS processes,
 how TCP packets are assembled by the kernel's TCP stack, etc.).  
 As a result, a failing end-to-end
