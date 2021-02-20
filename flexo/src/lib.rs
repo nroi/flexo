@@ -101,7 +101,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type S: std::cmp::Ord + core::marker::Copy;
     type JS;
     type C: Channel<J=Self>;
-    type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash;
+    type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug;
     type P: Provider<J=Self>;
     type E: std::fmt::Debug;
     type PI: std::cmp::Eq;
@@ -120,14 +120,14 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(channel) => {
-                info!("Attempt to reuse previous connection from {}", &self.provider().description());
+                debug!("Attempt to reuse previous connection from {}", &self.provider().description());
                 let result = self.order().reuse_channel(self.properties(), tx, last_chance, channel);
                 result.map(|new_channel| {
                     (new_channel, ChannelEstablishment::ExistingChannel)
                 })
             }
             None => {
-                info!("Establish a new connection to {:?}", &self.provider().description());
+                debug!("Establish a new connection to {:?}", &self.provider().description());
                 let channel = self.order().new_channel(self.properties(), tx, last_chance);
                 channel.map(|c| {
                     (c, ChannelEstablishment::NewChannel)
@@ -164,6 +164,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     fn try_until_success(
         self,
         provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
+        custom_provider: Option<<<Self as Order>::J as Job>::P>,
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
         tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
@@ -175,17 +176,19 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            let (provider, is_last_provider) =
-                self.select_provider(provider_stats);
+            let (provider, is_last_provider) = match custom_provider.clone() { // TODO don't clone…
+                Some(p) => (p, true),
+                None => self.select_provider(provider_stats, custom_provider.clone()), // TODO don't clone…
+            };
             debug!("selected provider: {:?}", &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
-                debug!("Obtain lock on provider_current_usages…");
+                debug!("Acquire lock on provider_current_usages…");
                 let mut provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
-                debug!("Got lock on provider_current_usages.");
+                debug!("Successfully acquired lock on provider_current_usages.");
                 let value = provider_current_usages.entry(provider.clone()).or_insert(0);
                 *value += 1;
             }
@@ -246,22 +249,28 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     fn select_provider(
         &self,
         provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
+        custom_provider: Option<<<Self as Order>::J as Job>::P>,
     ) -> (<<Self as Order>::J as Job>::P, bool) {
-        let provider_failures = provider_stats.provider_failures.lock().unwrap();
-        let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
-        let (idx, _) = provider_stats.providers
-            .iter()
-            .map(|x| DynamicScore {
-                num_failures: *(provider_failures.get(&x).unwrap_or(&0)),
-                num_current_usages: *(provider_current_usages.get(&x).unwrap_or(&0)),
-                initial_score: x.initial_score()
-            })
-            .enumerate()
-            .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
-            .unwrap();
+        match custom_provider {
+            Some(p) => (p, true),
+            None => {
+                let provider_failures = provider_stats.provider_failures.lock().unwrap();
+                let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
+                let (idx, _) = provider_stats.providers
+                    .iter()
+                    .map(|x| DynamicScore {
+                        num_failures: *(provider_failures.get(&x).unwrap_or(&0)),
+                        num_current_usages: *(provider_current_usages.get(&x).unwrap_or(&0)),
+                        initial_score: x.initial_score()
+                    })
+                    .enumerate()
+                    .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
+                    .unwrap();
 
-        let provider = provider_stats.providers.remove(idx);
-        (provider, provider_stats.providers.is_empty())
+                let provider = provider_stats.providers.remove(idx);
+                (provider, provider_stats.providers.is_empty())
+            }
+        }
     }
 
     fn pardon(punished_providers: Vec<<<Self as Order>::J as Job>::P>,
@@ -398,16 +407,34 @@ impl <J> JobContext<J> where J: Job {
         }
     }
 
-    fn best_provider(&self) -> J::P {
-        // Providers are assumed to be sorted in ascending order from best to worst.
-        let providers: Vec<J::P> = self.providers.lock().unwrap().to_vec();
-        providers[0].clone()
+    fn best_provider(&self, custom_provider: Option<J::P>) -> J::P {
+        // TODO this looks awkward.
+        match custom_provider {
+            None => {
+                // no custom provider is required to fulfil this order: We can just choose the best provider
+                // among all available providers.
+                // Providers are assumed to be sorted in ascending order from best to worst.
+                let providers: Vec<J::P> = self.providers.lock().unwrap().to_vec();
+                providers[0].clone()
+            }
+            Some(p) => {
+                // This is a "special order" that needs to be served by a custom provider.
+                // Speaking in Arch Linux terminology: This is a request that must be served
+                // from a custom repository / unofficial repository.
+                p
+            }
+        }
     }
 
     /// Schedule the order, or return info on why scheduling this order is not possible or not necessary.
-    pub fn try_schedule(&mut self, order: J::O, resume_from: Option<u64>) -> ScheduleOutcome<J> {
+    pub fn try_schedule(
+        &mut self,
+        order: J::O,
+        custom_provider: Option<J::P>,
+        resume_from: Option<u64>
+    ) -> ScheduleOutcome<J> {
         if !order.is_cacheable() {
-            return ScheduleOutcome::Uncacheable(self.best_provider());
+            return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
         }
         let resume_from = resume_from.unwrap_or(0);
         let cached_size: u64 = {
@@ -420,12 +447,12 @@ impl <J> JobContext<J> where J: Job {
                 match result {
                     None if resume_from > 0 => {
                         // Cannot store this order in cache: See issue #7
-                        return ScheduleOutcome::Uncacheable(self.best_provider());
+                        return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
                     },
                     None => 0,
                     Some(CachedItem { cached_size, .. } ) if cached_size < resume_from => {
                         // Cannot serve this order from cache: See issue #7
-                        return ScheduleOutcome::Uncacheable(self.best_provider());
+                        return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
                     },
                     Some(CachedItem { complete_size: Some(c), cached_size }) if c == cached_size => {
                         return ScheduleOutcome::Cached;
@@ -436,13 +463,11 @@ impl <J> JobContext<J> where J: Job {
             orders_in_progress.insert(order.clone());
             cached_size
         };
-
-        self.orders_in_progress.lock().unwrap().insert(order.clone());
-        self.schedule(order, cached_size)
+        self.schedule(order, custom_provider, cached_size)
     }
 
     /// Schedules the job so that the order will be fetched from the provider.
-    fn schedule(&mut self, order: J::O, cached_size: u64) -> ScheduleOutcome<J> {
+    fn schedule(&mut self, order: J::O, custom_provider: Option<J::P>, cached_size: u64) -> ScheduleOutcome<J> {
         let mutex = Arc::new(Mutex::new(0));
         let mutex_cloned = Arc::clone(&mutex);
         self.panic_monitor = self.panic_monitor.drain(..).filter(|mutex| {
@@ -480,6 +505,7 @@ impl <J> JobContext<J> where J: Job {
             let order: <J as Job>::O = order.clone();
             let result = order.try_until_success(
                 &mut provider_stats,
+                custom_provider,
                 channels_cloned.clone(),
                 tx,
                 tx_progress,

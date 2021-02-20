@@ -1,28 +1,29 @@
 extern crate flexo;
 
-use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
-use crate::mirror_fetch;
-use crate::mirror_fetch::{MirrorUrl, MirrorProtocol};
-use crate::str_path::StrPath;
-
-
-use flexo::*;
-use std::fs::File;
-use std::time::Duration;
+use std::{fs, str};
 use std::cmp::Ordering;
-use std::str;
-use crossbeam::crossbeam_channel::Sender;
-use curl::easy::{Easy2, Handler, WriteError, HttpVersion};
+use std::ffi::OsString;
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
-use std::ffi::OsString;
-use httparse::{Status, Header};
-use std::io::{Read, ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
+use std::num::ParseIntError;
 use std::path::Path;
 use std::string::FromUtf8Error;
-use std::num::ParseIntError;
-use serde::{Serialize, Deserialize};
+use std::time::Duration;
+
+use crossbeam::crossbeam_channel::Sender;
+use curl::easy::{Easy2, Handler, HttpVersion, WriteError};
+use httparse::{Header, Status};
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
+
+use flexo::*;
+
+use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
+use crate::mirror_fetch;
+use crate::mirror_fetch::{MirrorProtocol, MirrorUrl};
+use crate::str_path::StrPath;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -171,7 +172,7 @@ impl GetRequest {
                 let client_status = ClientStatus { response_headers_sent: false };
                 Err(ClientError::InvalidHeader(client_status))
             }
-            Some(p) => Ok(&p[1..])  // Skip the leading "/"
+            Some(p) => Ok(p)
         };
         Ok(Self {
             path: StrPath::new(path?.to_owned()),
@@ -183,6 +184,7 @@ impl GetRequest {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadProvider {
     pub uri: String,
+    pub name: String,
     pub mirror_results: MirrorResults,
     pub country_code: String,
 }
@@ -191,7 +193,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri = format!("{}/{}", self.uri, order.filepath.to_str());
+        let uri = uri_from_components(&self.uri, order.filepath.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -322,7 +324,7 @@ impl Job for DownloadJob {
                            properties: MirrorConfig,
                            resume_from: u64) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
-        debug!("Fetch package from remote mirror: {}. Resume from byte {}", &url, resume_from);
+        debug!("Fetch package from remote mirror: {}. Resume from byte {}.", &url, resume_from);
         channel.handle.url(&url).unwrap();
         channel.handle.resume_from(resume_from).unwrap();
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
@@ -356,7 +358,7 @@ impl Job for DownloadJob {
                 channel.handle.resume_from(start).unwrap();
             }
         }
-        info!("Start download from {}", self.provider.description());
+        debug!("Start download from {}", self.provider.description());
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
@@ -413,12 +415,26 @@ impl Job for DownloadJob {
 
     fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        debug!("Attempt to create file: {:?}", path);
-        let f = OpenOptions::new().create(true).append(true).open(path);
-        if f.is_err() {
-            warn!("Unable to create file: {:?}", f);
-        }
-        let f = f?;
+        debug!("Attempt to create file: {:?}", &path);
+        let f = match OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Unable to create file: {:?}", e);
+                if e.kind() == ErrorKind::NotFound {
+                    let parent = match path.parent() {
+                        None => {
+                            return Err(std::io::Error::from(ErrorKind::InvalidData));
+                        }
+                        Some(p) => p
+                    };
+                    info!("The directory {:?} will be created.", &parent);
+                    fs::create_dir_all(parent)?;
+                    OpenOptions::new().create(true).append(true).open(&path)?
+                } else {
+                    Err(e)?
+                }
+            }
+        };
         let size_written = f.metadata()?.len();
         let buf_writer = BufWriter::new(f);
         let header_state = HeaderState {
@@ -682,8 +698,7 @@ impl Handler for DownloadState {
                     // download anything we already have available in cache.
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    let message: FlexoProgress = FlexoProgress::Completed;
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::Completed);
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     info!("Hoping that another provider can fulfil this request…");
@@ -808,7 +823,8 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
 
     mirrors_with_latencies.into_iter().map(|(mirror, mirror_results)| {
         DownloadProvider {
-            uri: mirror.url,
+            uri: mirror.url.clone(),
+            name: mirror.url,
             mirror_results,
             country_code: mirror.country_code,
         }
@@ -889,6 +905,10 @@ pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, Client
     }
 }
 
+pub fn uri_from_components(prefix: &str, suffix: &str) -> String {
+    format!("{}/{}", prefix.trim_end_matches("/"), suffix.trim_start_matches("/"))
+}
+
 pub fn size_to_human_readable(size_in_bytes: u64) -> String {
     let exponent = ((size_in_bytes as f64).log2() / 10.0) as u32;
     let (unit, too_large) = match exponent {
@@ -913,8 +933,9 @@ pub fn size_to_human_readable(size_in_bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Error;
+
+    use super::*;
 
     struct TooMuchDataReader {}
     impl Read for TooMuchDataReader {

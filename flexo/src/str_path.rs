@@ -14,10 +14,20 @@ impl std::convert::AsRef<std::path::Path> for StrPath {
 
 impl StrPath {
     pub fn new(s: String) -> Self {
+        let s = if s.starts_with("/") {
+            s[1..].to_owned()
+        } else {
+            s
+        };
         StrPath {
             path_buf: Path::new(&s).to_path_buf(),
             inner: s,
         }
+    }
+
+    pub fn from_path_buf(path_buf: PathBuf) -> Option<Self> {
+        let inner = path_buf.to_str().unwrap().to_owned();
+        Some(StrPath::new(inner))
     }
 
     pub fn to_str(&self) -> &str {

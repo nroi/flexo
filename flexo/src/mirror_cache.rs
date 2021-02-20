@@ -10,13 +10,19 @@ use serde::{Serialize, Deserialize};
 
 const DEFAULT_LATENCY_TEST_RESULTS_FILE: &str = "/var/cache/flexo/state/latency_test_results.json";
 
-const TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION: u32 = 2;
+// Bump this version if a non-backwards compatible change has occurred.
+const TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION: u32 = 3;
 
 #[derive(Deserialize, Serialize)]
 pub struct TimestampedDownloadProviders {
     pub version: Option<u32>,
     pub timestamp: String,
     pub download_providers: Vec<DownloadProvider>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct VersionOnly {
+    pub version: Option<u32>,
 }
 
 fn latency_test_results_file(properties: &MirrorConfig) -> &str {
@@ -73,9 +79,11 @@ pub fn fetch_download_providers(
 ) -> Result<TimestampedDownloadProviders, DemarshallError> {
     let file_path = latency_test_results_file(properties);
     let contents = std::fs::read_to_string(file_path)?;
-    let download_providers: TimestampedDownloadProviders = serde_json::from_str(&contents)?;
-    match download_providers.version {
-        Some(TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION) => Ok(download_providers),
+    match serde_json::from_str::<VersionOnly>(&contents)? {
+        VersionOnly { version: Some(TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION) } => {
+            Ok(serde_json::from_str::<TimestampedDownloadProviders>(&contents)?)
+        },
         _ => Err(DemarshallError::VersionMismatch),
+
     }
 }

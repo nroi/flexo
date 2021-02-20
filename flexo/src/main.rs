@@ -7,7 +7,7 @@ extern crate flexo;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use flexo::*;
-use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig};
+use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig, CustomRepo};
 use crossbeam::crossbeam_channel::Receiver;
 use mirror_flexo::*;
 use std::os::unix::io::AsRawFd;
@@ -21,7 +21,7 @@ mod str_path;
 use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::path;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs::File;
 use crossbeam::crossbeam_channel::RecvTimeoutError;
 use std::ffi::OsString;
@@ -32,6 +32,7 @@ use libc::off64_t;
 use tempfile::tempfile;
 use std::io::ErrorKind;
 use crate::mirror_cache::{TimestampedDownloadProviders, DemarshallError};
+use crate::str_path::StrPath;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -59,6 +60,7 @@ fn main() {
     }));
 
     let properties = mirror_config::load_config();
+    debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
     initialize_cache(&properties);
     match properties.low_speed_limit {
         None => {},
@@ -106,6 +108,8 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                  properties: MirrorConfig,
                  get_request: GetRequest,
 ) -> Result<PayloadOrigin, ClientError> {
+    let (custom_provider, get_request) =
+        custom_provider_from_request(get_request, &properties.custom_repo.unwrap_or(vec![]));
     if !valid_path(&get_request.path.as_ref())  {
         info!("Invalid path: Serve 403");
         serve_403_header(client_stream)?;
@@ -118,7 +122,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             filepath: get_request.path,
         };
         debug!("Attempt to schedule new job");
-        let result = job_context.lock().unwrap().try_schedule(order.clone(), get_request.resume_from);
+        let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, get_request.resume_from);
         match result {
             ScheduleOutcome::AlreadyInProgress => {
                 debug!("Job is already in progress");
@@ -187,7 +191,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
             },
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
-                let uri_string = format!("{}{}", p.uri, order.filepath.to_str());
+                let uri_string = uri_from_components(&p.uri, order.filepath.to_str());
                 serve_via_redirect(uri_string, client_stream)?;
                 Ok(PayloadOrigin::NoPayload)
             }
@@ -225,6 +229,37 @@ fn serve_client(
                 handle_client_error(&mut client_stream, e)?;
             }
         };
+    }
+}
+
+/// Returns the custom provider, if a custom provider needs to be used, and the GetRequest. The GetRequest
+/// is adapted to the returned custom provider, or returned unchanged if no custom provider needs to
+/// be used.
+fn custom_provider_from_request(get_request: GetRequest,
+                                custom_repos: &Vec<CustomRepo>) -> (Option<DownloadProvider>, GetRequest) {
+    match repo_name_from_get_request(&get_request) {
+        None => (None, get_request),
+        Some((repo_name, path)) => {
+            let custom_repo = match custom_repos.iter().find(|r| r.name == repo_name) {
+                None => {
+                    warn!("A custom repo named {} is required to serve the GET request, \
+                but no custom repo with that name was found.", repo_name);
+                    return (None, get_request);
+                }
+                Some(r) => r
+            };
+            let provider = DownloadProvider {
+                uri: custom_repo.url.clone(),
+                name: custom_repo.name.clone(),
+                mirror_results: Default::default(),
+                country_code: "Unknown".to_string(),
+            };
+            let new_get_request = GetRequest {
+                resume_from: get_request.resume_from,
+                path,
+            };
+            (Some(provider), new_get_request)
+        }
     }
 }
 
@@ -285,6 +320,19 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
     result
 }
 
+fn repo_name_from_get_request(get_request: &GetRequest) -> Option<(String, StrPath)> {
+    let mut component_iterator = get_request.path.as_ref().components();
+    if component_iterator.next()?.as_os_str().to_str()? == "custom_repo" {
+        let repo_name = component_iterator.next()?.as_os_str().to_str()?.to_owned();
+        let path_without_repo_prefix = component_iterator.collect::<PathBuf>();
+        let path = StrPath::from_path_buf(path_without_repo_prefix)?;
+        info!("Request {:?} will be served via unofficial repository {:?}", get_request.path.to_str(), &repo_name);
+        Some((repo_name, path))
+    } else {
+        None
+    }
+}
+
 pub enum ProviderSelectionError {
     NoProviders,
 }
@@ -296,7 +344,7 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     }
     info!("Primary mirror: {:#?}", providers[0].uri);
     let providers = mirror_cache::store_download_providers(&properties, providers);
-    
+
     Ok(JobContext::new(providers, properties))
 }
 
@@ -384,7 +432,7 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
         }
     };
     info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
-    duration of {:?}", last_check, refresh_latency_tests_after);
+    duration of: {:?}", last_check, refresh_latency_tests_after);
     let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }
@@ -400,7 +448,8 @@ fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         let mirrors_predefined = mirror_config.mirrors_predefined.clone();
         mirrors_predefined.into_iter().map(|uri| {
             DownloadProvider {
-                uri,
+                uri: uri.clone(),
+                name: uri,
                 mirror_results: default_mirror_result,
                 country_code: "Unknown".to_owned(),
             }
@@ -682,3 +731,31 @@ fn test_filesize_exceeds_sendfile_count() {
     let size = send_payload(&mut source, filesize, 0, &mut receiver).unwrap();
     assert_eq!(size, (MAX_SENDFILE_COUNT * 3) as i64);
 }
+
+#[test]
+fn custom_provider_from_request_test() {
+    let request = GetRequest {
+        resume_from: None,
+        path: StrPath::new("/custom_repo/archzfs/foo/bar/baz".to_owned()),
+    };
+    let custom_repo = CustomRepo {
+        name: "archzfs".to_owned(),
+        url: "https://archzfs.com".to_owned(),
+    };
+    let repos = vec![custom_repo];
+    let (provider, new_get_request) = custom_provider_from_request(request, &repos);
+    let expected_provider = DownloadProvider {
+        uri: "https://archzfs.com".to_owned(),
+        name: "archzfs".to_owned(),
+        mirror_results: Default::default(),
+        country_code: "Unknown".to_string()
+    };
+    let expected_get_request = GetRequest {
+        resume_from: None,
+        path: StrPath::new("/foo/bar/baz".to_owned()),
+    };
+
+    assert_eq!(provider, Some(expected_provider));
+    assert_eq!(new_get_request, expected_get_request);
+}
+

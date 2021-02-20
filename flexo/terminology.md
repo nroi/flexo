@@ -39,6 +39,12 @@ A provider is required to complete an [order](#order).
 > For instance, 
 > https://mirror.yandex.ru/archlinux/
 
+#### Custom Provider
+The usual scenario is that we have a list of providers, and an order can be served by any arbitrary provider from that
+list. However, in some cases, the order can only be served by one specific provider.
+> A Custom Provider is an [Unofficial Arch Linux User Repository](https://wiki.archlinux.org/index.php/Unofficial_user_repositories),
+> for example, `http://repo.archlinux.fr`.
+ 
 #### Order
 The order is the information that we require to actually execute a [job](#job).
 

@@ -9,11 +9,12 @@ cache_directory = "/var/cache/flexo/pkg"
 # hoping that this will increase the download speed.
 # For example, if your ISP provides 100 MBit per second, you might assume that
 # mirrors are too slow if they do not utilize at least 80% of your bandwidth,
-# so set this value to 80 MBit per second  = 10 MiB per second = 1024 * 1024 * 10 = 10485760
+# so set this value to 80 MBit per second  = 10 Megabytes per second
+# = 10 * 1000000 = 10000000
 # Commenting this line will disable this feature.
-# low_speed_limit = 128000
+# low_speed_limit = 10000000
 
-# The mirror will be switched if the downloaded speed has fallen below low_speed_limit
+# The mirror will be switched if the download speed has fallen below low_speed_limit
 # for the given amount of seconds.
 low_speed_time_secs = 3
 
@@ -49,6 +50,16 @@ mirror_selection_method = "auto"
 # Mirrors in this list should NOT include the $repo/os/$arch suffix, so you should add
 # something like "http://archlinux.mirror.org/" or "https://mirror.org/archlinux/".
 mirrors_predefined = []
+
+# If you use any custom repos, add them here. Notice that the URL does *not* include the $repo/$arch part.
+# You can list multiple repos by just adding multiple [[custom_repo]] entries.
+# Also adapt your pacman.conf to an entry like the following:
+# [archzfs]
+# Server = http://localhost:7878/custom_repo/archzfs/$repo/os/$arch
+#
+# [[custom_repo]]
+#     name = "archzfs"
+#     url = "https://archzfs.com"
 
 # Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]

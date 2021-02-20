@@ -96,10 +96,17 @@ pub struct MirrorConfig {
     pub port: u16,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
+    pub custom_repo: Option<Vec<CustomRepo>>,
     pub low_speed_limit: Option<u32>,
     pub low_speed_time_secs: Option<u64>,
     pub max_speed_limit: Option<u64>,
     pub mirrors_auto: Option<MirrorsAutoConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CustomRepo {
+    pub name: String,
+    pub url: String,
 }
 
 impl MirrorConfig {
@@ -107,7 +114,10 @@ impl MirrorConfig {
         match &self.refresh_latency_tests_after {
             None => Duration::from_secs(DEFAULT_REFRESH_AFTER_SECONDS),
             Some(s) => match humantime::parse_duration(s) {
-                Ok(d) => d,
+                Ok(d) => {
+                    debug!("Latency tests will be refreshed after {:?}", &d);
+                    d
+                },
                 Err(e) => {
                     error!("Unable to parse duration {:?}: {:?}", s, e);
                     Duration::from_secs(DEFAULT_REFRESH_AFTER_SECONDS)
@@ -183,8 +193,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
 fn mirror_config_from_env() -> MirrorConfig {
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
     let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
-    let mirrorlist_latency_test_results_file =
-        parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
+    let mirrorlist_latency_test_results_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
@@ -192,6 +201,9 @@ fn mirror_config_from_env() -> MirrorConfig {
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
     let refresh_latency_tests_after = parse_env_toml::<String>("FLEXO_REFRESH_LATENCY_TESTS_AFTER");
+    let custom_repo_env = parse_env_toml::<String>("FLEXO_CUSTOM_REPO");
+    let custom_repo = custom_repos_from_env(custom_repo_env);
+
     let mirrors_auto = match mirror_selection_method {
         MirrorSelectionMethod::Auto => Some(mirrors_auto_config_from_env()),
         MirrorSelectionMethod::Predefined => None,
@@ -203,11 +215,38 @@ fn mirror_config_from_env() -> MirrorConfig {
         port,
         mirror_selection_method,
         mirrors_predefined,
+        custom_repo,
         low_speed_limit,
         low_speed_time_secs,
         max_speed_limit,
         refresh_latency_tests_after,
         mirrors_auto
+    }
+}
+
+fn custom_repos_from_env(maybe_env: Option<String>) -> Option<Vec<CustomRepo>> {
+    match maybe_env {
+        None => None,
+        Some(cr) => {
+            cr.split(" ").map(|s| {
+                split_once(s, "@").map(|(name, url)| {
+                    CustomRepo {
+                        name: name.to_owned(),
+                        url: url.to_owned(),
+                    }
+                })
+            }).collect()
+        }
+    }
+}
+
+// FIXME replace with split_once from the stdlib once it is stable.
+pub fn split_once<'a>(s: &'a str, delimiter: &'a str) -> Option<(&'a str, &'a str)> {
+    let v = s.splitn(2, delimiter).collect::<Vec<&str>>();
+    if v.len() == 2 {
+        Some((v[0], v[1]))
+    } else {
+        None
     }
 }
 
