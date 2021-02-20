@@ -107,29 +107,10 @@ paccache -r -k3  $(find /var/cache/flexo/pkg -type d -name x86_64 -printf "-c %p
 ## Using Unofficial User Repositories
 
 If you are using [unofficial user repositories](https://wiki.archlinux.org/index.php/Unofficial_user_repositories)
-and you want Flexo to cache packages from those repositories, modify your `/etc/pacman.conf` as follows:
-
-```
-[<repo-name>]
-Server = http://<flexo-host>:<flexo-port>/custom_repo/<repo-name>/<path>
-```
-
-and add a corresponding entry to your `/etc/flexo/flexo/toml` *before* The `[mirrors_auto]` section as follows:
-```toml
-[[custom_repo]]
-    name = "<repo-name>"
-    url = "https://<repo-url-without-path>"
-```
-
-If you use Docker, the custom repo is configured via environment variables instead of the TOML file. Set the
-`FLEXO_CUSTOM_REPO` to `<repo-name>@https://<repo-url-without-path>`. If you use more than one custom repo,
-separate them with a single space:
-```bash
-FLEXO_CUSTOM_REPO="<repo-1-name>@https://<repo-1-url-without-path> <repo-2-name>@https://<repo-2-url-without-path>"
-```
-
-For example, suppose you want to add two unofficial repositories: archzfs and eschwartz. Add the following entries
-in your `/etc/pacman.conf`:
+and you want Flexo to cache packages from those repositories, both `pacman.conf` and `flexo.toml`
+need to include the custom repository. For example, suppose that Flexo is running on localhost, port 7878,
+and you want to add two custom repositories: archzfs and eschwartz. First, adapt your `/etc/pacman.conf` to include
+both repositories. Notice that path must start with `custom_repo/<repo-name>`:
 
 ```
 [archzfs]
@@ -138,21 +119,23 @@ Server = http://localhost:7878/custom_repo/archzfs/$repo/$arch
 [eschwartz]
 Server = http://localhost:7878/custom_repo/eschwartz/~eschwartz/repo/$arch
 ```
-
-And the following two entries in your `/etc/flexo/flexo.toml` (make sure to add them *before*
-the `[mirrors_auto]` section):
+Next, add the corresponding entries to your `/etc/flexo/flexo/toml` before the `[mirrors_auto]` section:
 
 ```toml
 [[custom_repo]]
-    name = "archzfs"
-    url = "https://archzfs.com"
+name = "archzfs"
+url = "https://archzfs.com"
 
 [[custom_repo]]
-    name = "eschwartz"
-    url = "https://pkgbuild.com"
+name = "eschwartz"
+url = "https://pkgbuild.com"
 ```
 
-Alternatively, if you use Docker, set the environment variable:
+Notice that the names (in this case `archzfs` and `eschwartz`) must match the path component right after
+the `/custom_repo` in `pacman.conf`: So if your `pacman.conf` includes a repo with the path `/custom_repo/foo`,
+then your `flexo.toml` must include a matching `[[custom_repo]]` entry with `name = "foo"`.
+
+Alternatively, if you use Docker, set the environment variable instead of modifying the `flexo.toml` file:
 ```bash
 FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ```
