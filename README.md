@@ -110,7 +110,7 @@ If you are using [unofficial user repositories](https://wiki.archlinux.org/index
 and you want Flexo to cache packages from those repositories, both `pacman.conf` and `flexo.toml`
 need to include the custom repository. For example, suppose that Flexo is running on localhost, port 7878,
 and you want to add two custom repositories: archzfs and eschwartz. First, adapt your `/etc/pacman.conf` to include
-both repositories. Notice that path must start with `custom_repo/<repo-name>`:
+both repositories. Notice that the path must start with `custom_repo/<repo-name>`:
 
 ```
 [archzfs]
