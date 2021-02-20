@@ -193,8 +193,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
 fn mirror_config_from_env() -> MirrorConfig {
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
     let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
-    let mirrorlist_latency_test_results_file =
-        parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
+    let mirrorlist_latency_test_results_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();

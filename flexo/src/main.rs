@@ -60,6 +60,7 @@ fn main() {
     }));
 
     let properties = mirror_config::load_config();
+    debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
     initialize_cache(&properties);
     match properties.low_speed_limit {
         None => {},
@@ -431,7 +432,7 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
         }
     };
     info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
-    duration of {:?}", last_check, refresh_latency_tests_after);
+    duration of: {:?}", last_check, refresh_latency_tests_after);
     let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }

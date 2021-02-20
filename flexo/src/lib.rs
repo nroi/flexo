@@ -186,9 +186,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
-                debug!("Obtain lock on provider_current_usages…");
+                debug!("Acquire lock on provider_current_usages…");
                 let mut provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
-                debug!("Got lock on provider_current_usages.");
+                debug!("Successfully acquired lock on provider_current_usages.");
                 let value = provider_current_usages.entry(provider.clone()).or_insert(0);
                 *value += 1;
             }
