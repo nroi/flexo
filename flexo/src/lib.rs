@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
 use std::collections::hash_map::Entry;
-use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver};
+use crossbeam::channel::{Sender, Receiver, unbounded};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 

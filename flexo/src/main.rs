@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use flexo::*;
 use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig, CustomRepo};
-use crossbeam::crossbeam_channel::Receiver;
+use crossbeam::channel::Receiver;
 use mirror_flexo::*;
 use std::os::unix::io::AsRawFd;
 
@@ -23,7 +23,7 @@ use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::path;
 use std::path::{Path, PathBuf};
 use std::fs::File;
-use crossbeam::crossbeam_channel::RecvTimeoutError;
+use crossbeam::channel::RecvTimeoutError;
 use std::ffi::OsString;
 
 use libc::off64_t;

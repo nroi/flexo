@@ -12,7 +12,7 @@ use std::path::Path;
 use std::string::FromUtf8Error;
 use std::time::Duration;
 
-use crossbeam::crossbeam_channel::Sender;
+use crossbeam::channel::Sender;
 use curl::easy::{Easy2, Handler, HttpVersion, WriteError};
 use httparse::{Header, Status};
 use serde::{Deserialize, Serialize};

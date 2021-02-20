@@ -3,7 +3,7 @@ extern crate rand;
 
 use flexo::*;
 use std::collections::HashMap;
-use crossbeam::crossbeam_channel::{Sender, Receiver};
+use crossbeam::channel::{Sender, Receiver};
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
 static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
