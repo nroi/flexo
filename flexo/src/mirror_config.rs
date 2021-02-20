@@ -202,12 +202,13 @@ fn mirror_config_from_env() -> MirrorConfig {
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
     let refresh_latency_tests_after = parse_env_toml::<String>("FLEXO_REFRESH_LATENCY_TESTS_AFTER");
+    let custom_repo_env = parse_env_toml::<String>("FLEXO_CUSTOM_REPO");
+    let custom_repo = custom_repos_from_env(custom_repo_env);
+
     let mirrors_auto = match mirror_selection_method {
         MirrorSelectionMethod::Auto => Some(mirrors_auto_config_from_env()),
         MirrorSelectionMethod::Predefined => None,
     };
-    // TODO read the custom repos from the environment variables.
-    let custom_repo = None;
     MirrorConfig {
         cache_directory,
         mirrorlist_fallback_file,
@@ -221,6 +222,32 @@ fn mirror_config_from_env() -> MirrorConfig {
         max_speed_limit,
         refresh_latency_tests_after,
         mirrors_auto
+    }
+}
+
+fn custom_repos_from_env(maybe_env: Option<String>) -> Option<Vec<CustomRepo>> {
+    match maybe_env {
+        None => None,
+        Some(cr) => {
+            cr.split(" ").map(|s| {
+                split_once(s, "@").map(|(name, url)| {
+                    CustomRepo {
+                        name: name.to_owned(),
+                        url: url.to_owned(),
+                    }
+                })
+            }).collect()
+        }
+    }
+}
+
+// FIXME replace with split_once from the stdlib once it is stable.
+pub fn split_once<'a>(s: &'a str, delimiter: &'a str) -> Option<(&'a str, &'a str)> {
+    let v = s.splitn(2, delimiter).collect::<Vec<&str>>();
+    if v.len() == 2 {
+        Some((v[0], v[1]))
+    } else {
+        None
     }
 }
 
