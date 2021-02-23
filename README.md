@@ -84,7 +84,6 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 * Robust: As long as *most* mirrors work fine, Flexo should be able to handle the download process
   without the client noticing any issues or interruptions, even if remote mirrors are slow or connections
   are unexpectedly dropped.
-mirror is too slow or causes other issues.
 * Simple: Users should not require more than a few minutes to set up flexo and understand what it does.
 
 
