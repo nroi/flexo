@@ -1,38 +1,38 @@
-#[macro_use] extern crate log;
-
-extern crate http;
-extern crate rand;
 extern crate flexo;
+extern crate http;
+#[macro_use] extern crate log;
+extern crate rand;
 
+use std::ffi::OsString;
+use std::fs::File;
+use std::io;
+use std::io::ErrorKind;
 use std::io::prelude::*;
-use std::sync::{Arc, Mutex};
-use flexo::*;
-use crate::mirror_config::{MirrorSelectionMethod, MirrorConfig, CustomRepo};
-use crossbeam::channel::Receiver;
-use mirror_flexo::*;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::unix::io::AsRawFd;
+use std::path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::{Arc, Mutex};
+
+use crossbeam::channel::Receiver;
+use crossbeam::channel::RecvTimeoutError;
+use libc::off64_t;
+#[cfg(test)]
+use tempfile::tempfile;
+
+use flexo::*;
+use mirror_flexo::*;
+
+use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
+use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
+use crate::str_path::StrPath;
 
 mod mirror_config;
 mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
 mod str_path;
-
-use std::io;
-use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::path;
-use std::path::{Path, PathBuf};
-use std::fs::File;
-use crossbeam::channel::RecvTimeoutError;
-use std::ffi::OsString;
-
-use libc::off64_t;
-
-#[cfg(test)]
-use tempfile::tempfile;
-use std::io::ErrorKind;
-use crate::mirror_cache::{TimestampedDownloadProviders, DemarshallError};
-use crate::str_path::StrPath;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -80,16 +80,66 @@ fn main() {
     let port = job_context.lock().unwrap().properties.port;
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).unwrap();
+    // Synchronize file system access: We only want one cache purging process running at any given time.
+    let cache_purge_mutex = Arc::new(Mutex::new(()));
+
     for client_stream in listener.incoming() {
         let client_stream: TcpStream = client_stream.unwrap();
         debug!("Established connection with client.");
         let job_context = job_context.clone();
         let properties = properties.clone();
+        let num_versions_retain = properties.num_versions_retain;
+        let cache_directory = properties.cache_directory.clone();
         debug!("All set, spawning new thread.");
+        let cache_purge_mutex = cache_purge_mutex.clone();
         std::thread::spawn(move || {
             debug!("Started new thread.");
-            serve_client(job_context, client_stream, properties)
+            let cache_tainted_result = serve_client(job_context, client_stream, properties);
+            let _ = cache_purge_mutex.lock().unwrap();
+            match (cache_tainted_result, num_versions_retain) {
+                (Ok(true), Some(0)) => {},
+                (Ok(true), Some(v)) => {
+                    purge_cache(&cache_directory, v);
+                },
+                _ => {},
+            }
         });
+    }
+}
+
+fn purge_cache(directory: &str, num_versions_retain: u32) {
+    debug!("Purging package cache");
+    let flexo_purge_cache = "/usr/bin/flexo_purge_cache";
+    let result = Command::new(flexo_purge_cache)
+        .env("FLEXO_CACHE_DIRECTORY", directory)
+        .env("FLEXO_NUM_VERSIONS_RETAIN", num_versions_retain.to_string())
+        .output();
+    match result {
+        Ok(v) => {
+            if let Some(s) = str_from_vec(v.stderr) {
+                eprint!("{}", s);
+            }
+            if let Some(s) = str_from_vec(v.stdout) {
+                print!("{}", s);
+            }
+            if v.status.success() {
+                debug!("Package cache purged successfully");
+            } else {
+                warn!("Unable to purge package cache: {} has exited with failure (exit code {:?})",
+                      flexo_purge_cache, v.status.code());
+            }
+        }
+        Err(e) => {
+            warn!("Unable to purge package cache: {:?}", &e);
+        }
+    }
+}
+
+fn str_from_vec(v: Vec<u8>) -> Option<String> {
+    match String::from_utf8(v) {
+        Ok(s) if !s.is_empty() => Some(s),
+        Ok(_) => None,
+        Err(_) => None,
     }
 }
 
@@ -203,7 +253,8 @@ fn serve_client(
     job_context: Arc<Mutex<JobContext<DownloadJob>>>,
     mut client_stream: TcpStream,
     properties: MirrorConfig
-) -> Result<(), ClientError> {
+) -> Result<bool, ClientError> {
+    let mut cache_tainted = false;
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
     loop {
         debug!("Reading header from client.");
@@ -214,7 +265,12 @@ fn serve_client(
                     Ok(payload_origin) => {
                         let payload_origin_human_readable = match payload_origin {
                             PayloadOrigin::Cache => "CACHE HIT",
-                            PayloadOrigin::RemoteMirror => "CACHE MISS",
+                            PayloadOrigin::RemoteMirror => {
+                                // When the payload is downloaded from a remote mirror, a new file is stored in the
+                                // cache.
+                                cache_tainted = true;
+                                "CACHE MISS"
+                            },
                             PayloadOrigin::NoPayload => "NO PAYLOAD",
                         };
                         info!("Request served [{}]: {:?}", payload_origin_human_readable, &request_path.to_str())
@@ -222,11 +278,19 @@ fn serve_client(
                     Err(e) => {
                         error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e);
                         handle_client_error(&mut client_stream, e)?;
+                        return Ok(cache_tainted)
                     },
                 }
             }
+            Err(ClientError::SocketClosed) => {
+                // The client decides when the connection should be closed, so this is not an error.
+                // TODO see the TODO on ClientError::SocketClosed enum: we should probably refactor this
+                // and not refer to this case as an error.
+                return Ok(cache_tainted);
+            }
             Err(e) => {
                 handle_client_error(&mut client_stream, e)?;
+                return Ok(cache_tainted);
             }
         };
     }

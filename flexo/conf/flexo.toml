@@ -51,6 +51,11 @@ mirror_selection_method = "auto"
 # something like "http://archlinux.mirror.org/" or "https://mirror.org/archlinux/".
 mirrors_predefined = []
 
+# The number of versions kept in the cache. If set to a positive number, Flexo
+# will keep at most this many versions in the cache. If set to 0, packages will
+# be retained indefinitely.
+num_versions_retain = 3
+
 # If you use any custom repos, add them here. Notice that the URL does *not* include the $repo/$arch part.
 # You can list multiple repos by just adding multiple [[custom_repo]] entries.
 # Also adapt your pacman.conf to an entry like the following:

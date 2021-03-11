@@ -53,6 +53,8 @@ set as cache_directory resides on a file system with support for extended attrib
 pub enum ClientError {
     BufferSizeExceeded,
     TimedOut,
+    // TODO using SocketClosed as part of ClientError is confusing, because it's not an error: We keep the connection
+    // open to support persistent connections and wait until the client decides to close the connection.
     SocketClosed,
     IoError(std::io::ErrorKind),
     UnsupportedHttpMethod(ClientStatus),

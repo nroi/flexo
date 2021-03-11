@@ -100,6 +100,7 @@ pub struct MirrorConfig {
     pub low_speed_limit: Option<u32>,
     pub low_speed_time_secs: Option<u64>,
     pub max_speed_limit: Option<u64>,
+    pub num_versions_retain: Option<u32>,
     pub mirrors_auto: Option<MirrorsAutoConfig>,
 }
 
@@ -202,6 +203,7 @@ fn mirror_config_from_env() -> MirrorConfig {
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
     let refresh_latency_tests_after = parse_env_toml::<String>("FLEXO_REFRESH_LATENCY_TESTS_AFTER");
     let custom_repo_env = parse_env_toml::<String>("FLEXO_CUSTOM_REPO");
+    let num_versions_retain = parse_env_toml::<u32>("FLEXO_NUM_VERSIONS_RETAIN");
     let custom_repo = custom_repos_from_env(custom_repo_env);
 
     let mirrors_auto = match mirror_selection_method {
@@ -220,6 +222,7 @@ fn mirror_config_from_env() -> MirrorConfig {
         low_speed_time_secs,
         max_speed_limit,
         refresh_latency_tests_after,
+        num_versions_retain,
         mirrors_auto
     }
 }
