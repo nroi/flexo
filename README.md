@@ -89,19 +89,12 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 
 ## Cleaning the package cache
 
-`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old
-packages. Install it, if you haven't done so already:
-```bash
-sudo pacman -S pacman-contrib
-```
+Starting with version 1.2.0, Flexo includes the setting `num_versions_retain` to purge the package cache. See the
+[configuration example](./flexo/conf/flexo.toml) for more details.
 
-Packages are stored in the directory specified by the `cache_directory` variable in `/etc/flexo/flexo.toml`. By default,
-it's `/var/cache/flexo`. Use `paccache` to clean up the subdirectories of this directory. For instance, the following
-will delete all packages except for the three most recent versions:
-
-```bash
-paccache -r -k3  $(find /var/cache/flexo/pkg -type d -name x86_64 -printf "-c %p ")
-```
+Notice that this setting currently does not work if you use Docker. Providing a convenient way to purge the package
+cache for docker is currently a
+[Work in Progress](https://github.com/nroi/flexo/issues/39).
 
 ## Using Unofficial User Repositories
 
