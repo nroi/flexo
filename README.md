@@ -92,9 +92,8 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 Starting with version 1.2.0, Flexo includes the setting `num_versions_retain` to purge the package cache. See the
 [configuration example](./flexo/conf/flexo.toml) for more details.
 
-Notice that this setting currently does not work if you use Docker. Providing a convenient way to purge the package
-cache for docker is currently a
-[Work in Progress](https://github.com/nroi/flexo/issues/39).
+If you use Docker, make sure to use an image that is tagged with a version of 1.2.2 or higher. By default, 3 versions are kept in the cache.
+Adapt the `FLEXO_NUM_VERSIONS_RETAIN` environment variable to change the number of versions kept in cache.
 
 ## Using Unofficial User Repositories
 
