@@ -13,7 +13,7 @@ fi
 if [ -f "/usr/bin/paccache" ]; then
   exec /usr/bin/paccache -r -k "$FLEXO_NUM_VERSIONS_RETAIN" $(find "$FLEXO_CACHE_DIRECTORY" -type d -name x86_64 -printf "-c %p ")
 elif [ -f "/usr/bin/scruffy" ]; then
-  exec /usr/bin/scruffy --cache-dir "$FLEXO_CACHE_DIRECTORY/pkg" --keep "$FLEXO_NUM_VERSIONS_RETAIN"
+  exec /usr/bin/scruffy --cachedir "$FLEXO_CACHE_DIRECTORY/pkg" --keep "$FLEXO_NUM_VERSIONS_RETAIN"
 else
   >&2 echo "Neither paccache nor scruffy was found - unable to purge the package cache."
   exit 1
