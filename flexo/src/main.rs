@@ -259,7 +259,7 @@ fn serve_client(
     loop {
         debug!("Reading header from client.");
         match read_client_header(&mut client_stream) {
-            Ok(get_request) => {
+            Ok(ClientResponse::GetRequest(get_request)) => {
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
                     Ok(payload_origin) => {
@@ -282,10 +282,7 @@ fn serve_client(
                     },
                 }
             }
-            Err(ClientError::SocketClosed) => {
-                // The client decides when the connection should be closed, so this is not an error.
-                // TODO see the TODO on ClientError::SocketClosed enum: we should probably refactor this
-                // and not refer to this case as an error.
+            Ok(ClientResponse::SocketClosed) => {
                 return Ok(cache_tainted);
             }
             Err(e) => {
@@ -330,10 +327,6 @@ fn custom_provider_from_request(get_request: GetRequest,
 /// Returns Ok if it is save to continue serving requests to this client, or Err otherwise.
 fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientError) -> Result<(), ClientError> {
     let result = match client_error {
-        ClientError::SocketClosed => {
-            debug!("Socket closed by client.");
-            Err(client_error)
-        }
         ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
             debug!("Socket closed by client.");
             Err(client_error)
@@ -368,13 +361,7 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
     };
     match result {
         Err(ref e) => {
-            // TODO perhaps there is a more elegant way: We want to print a warning when
-            // an error has occurred, but this particular type of error is harmless, so we
-            // don't want to log it. It would be better if this "error" is not returned as an
-            // error in the first place.
-            if e != &ClientError::SocketClosed {
-                warn!("Closing TCP socket due to error: {:?}", e);
-            }
+            warn!("Closing TCP socket due to error: {:?}", e);
             let _ = client_stream.shutdown(std::net::Shutdown::Both);
         },
         Ok(()) => {
