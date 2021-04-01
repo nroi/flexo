@@ -133,8 +133,8 @@ fn mirror_config_from_toml() -> MirrorConfig {
         .unwrap_or_else(|_| panic!("Unable to read file: {}", CONFIG_FILE));
     match toml::from_str(&config_contents) {
         Ok(v) => v,
-        Err(e) => panic!(format!("Unable to parse file {}: {:?}\nPlease make sure that the file contains \
-        valid TOML syntax and that all required attributes are set.", CONFIG_FILE, e))
+        Err(e) => panic!("Unable to parse file {}: {:?}\nPlease make sure that the file contains \
+        valid TOML syntax and that all required attributes are set.", CONFIG_FILE, e)
     }
 }
 
