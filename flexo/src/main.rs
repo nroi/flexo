@@ -6,6 +6,7 @@ extern crate rand;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
+use std::fs;
 use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam::channel::Receiver;
 use crossbeam::channel::RecvTimeoutError;
+use glob::glob;
 use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
@@ -100,6 +102,7 @@ fn main() {
                 (Ok(true), Some(0)) => {},
                 (Ok(true), Some(v)) => {
                     purge_cache(&cache_directory, v);
+                    purge_content_lengths(&cache_directory);
                 },
                 _ => {},
             }
@@ -131,6 +134,40 @@ fn purge_cache(directory: &str, num_versions_retain: u32) {
         }
         Err(e) => {
             warn!("Unable to purge package cache: {:?}", &e);
+        }
+    }
+}
+
+fn purge_content_lengths(directory: &str) {
+    let glob_pattern = format!("{}/**/.*.cl", directory);
+    for path in glob(&glob_pattern).unwrap() {
+        match &path {
+            Ok(p) => {
+                match p.file_name().unwrap().to_str() {
+                    None => {
+                        warn!("Invalid unicode: {:?}", p.file_name());
+                    }
+                    Some(filename) => {
+                        let corresponding_package_filename = filename
+                            .strip_prefix(".").unwrap()
+                            .strip_suffix(".cl").unwrap();
+                        let corresponding_package_filepath = p.with_file_name(corresponding_package_filename);
+                        if !corresponding_package_filepath.exists() {
+                            match fs::remove_file(&p) {
+                                Ok(()) => {
+                                    debug!("File {:?} is no longer required and therefore removed.", &p);
+                                }
+                                Err(e) => {
+                                    warn!("Unable to remove file {:?}: {:?}", &p, e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Unreadable path: {:?}", &e);
+            }
         }
     }
 }
