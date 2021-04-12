@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io;
 use std::io::ErrorKind;
 use std::io::prelude::*;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::AsRawFd;
 use std::path;
 use std::path::{Path, PathBuf};
@@ -78,8 +78,14 @@ fn main() {
         }
     };
     let port = job_context.lock().unwrap().properties.port;
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = TcpListener::bind(addr).unwrap();
+    let listen_ip_address =
+        job_context.lock().unwrap().properties.listen_ip_address.clone().unwrap_or("0.0.0.0".to_owned());
+    debug!("Listen on address {}", listen_ip_address);
+    let addr = format!("{}:{}", listen_ip_address, port);
+    let listener = match TcpListener::bind(&addr) {
+        Ok(l) => l,
+        Err(e) => panic!("Unable to listen on address {}: {:?}", &addr, e),
+    };
     // Synchronize file system access: We only want one cache purging process running at any given time.
     let cache_purge_mutex = Arc::new(Mutex::new(()));
 

@@ -94,6 +94,7 @@ pub struct MirrorConfig {
     pub mirrorlist_latency_test_results_file: Option<String>,
     pub refresh_latency_tests_after: Option<String>,
     pub port: u16,
+    pub listen_ip_address: Option<String>,
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
     pub custom_repo: Option<Vec<CustomRepo>>,
@@ -195,6 +196,7 @@ fn mirror_config_from_env() -> MirrorConfig {
     let cache_directory = parse_env_toml::<String>("FLEXO_CACHE_DIRECTORY").unwrap();
     let mirrorlist_fallback_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_FALLBACK_FILE").unwrap();
     let mirrorlist_latency_test_results_file = parse_env_toml::<String>("FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE");
+    let listen_ip_address = parse_env_toml::<String>("FLEXO_LISTEN_IP_ADDRESS");
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
@@ -214,6 +216,7 @@ fn mirror_config_from_env() -> MirrorConfig {
         cache_directory,
         mirrorlist_fallback_file,
         mirrorlist_latency_test_results_file,
+        listen_ip_address,
         port,
         mirror_selection_method,
         mirrors_predefined,
