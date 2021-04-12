@@ -734,6 +734,7 @@ fn serve_from_complete_file(
 }
 
 fn serve_via_redirect(uri: String, client_stream: &mut TcpStream) -> io::Result<()> {
+    debug!("Attempting to serve from {}", &uri);
     let header = redirect_header(&uri);
     client_stream.write_all(header.as_bytes())
 }
