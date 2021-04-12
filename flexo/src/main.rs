@@ -3,7 +3,6 @@ extern crate http;
 #[macro_use] extern crate log;
 extern crate rand;
 
-use std::ffi::OsString;
 use std::fs::File;
 use std::io;
 use std::fs;
@@ -63,7 +62,7 @@ fn main() {
 
     let properties = mirror_config::load_config();
     debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
-    initialize_cache(&properties);
+    inspect_and_initialize_cache(&properties);
     match properties.low_speed_limit {
         None => {},
         Some(limit) => {
@@ -208,7 +207,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
         let order = DownloadOrder {
             filepath: get_request.path,
         };
-        debug!("Attempt to schedule new job");
+        debug!("Schedule new job");
         let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, get_request.resume_from);
         match result {
             ScheduleOutcome::AlreadyInProgress => {
@@ -585,10 +584,10 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
     let mut num_attempts = 0;
     // Timeout after 2 seconds.
     while num_attempts < 2_000 * 2 {
-        match content_length_from_path(path)? {
+        match get_complete_size_from_cfs_file(path) {
             None => {
-                // for the unlikely event that this file has just been created, but the extended attribute
-                // has not been set yet.
+                // for the unlikely event that this file has just been created, but the cfs file
+                // has not been created yet.
                 std::thread::sleep(std::time::Duration::from_micros(500));
             },
             Some(v) => return Ok(v),
@@ -598,23 +597,6 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
 
     info!("Number of attempts exceeded: File {:?} not found.", &path);
     Err(FileAttrError::TimeoutError)
-}
-
-fn content_length_from_path(path: &Path) -> Result<Option<u64>, FileAttrError> {
-    let key = OsString::from("user.content_length");
-    let value = xattr::get(&path, &key)?;
-    match value {
-        Some(value) => {
-            let content_length = String::from_utf8(value).map_err(FileAttrError::from)
-                .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from))?;
-            debug!("Found file! content length is {}", content_length);
-            Ok(Some(content_length))
-        },
-        None => {
-            info!("file exists, but no content length is set.");
-            Ok(None)
-        }
-    }
 }
 
 fn serve_from_growing_file(

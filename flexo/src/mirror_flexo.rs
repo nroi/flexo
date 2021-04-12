@@ -2,15 +2,15 @@ extern crate flexo;
 
 use std::{fs, str};
 use std::cmp::Ordering;
-use std::ffi::OsString;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::io::{ErrorKind, Read, Write};
 use std::num::ParseIntError;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 use std::time::Duration;
+use std::os::unix::ffi::OsStrExt;
 
 use crossbeam::channel::Sender;
 use curl::easy::{Easy2, Handler, HttpVersion, WriteError};
@@ -45,9 +45,6 @@ const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 const MAX_REDIRECTIONS: u32 = 3;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
-
-const ERR_MSG_XATTR_SUPPORT: &str = "Unable to get extended file attributes. Please make sure that the path \
-set as cache_directory resides on a file system with support for extended attributes.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -322,7 +319,7 @@ impl Job for DownloadJob {
     // it also has side effects.
     fn cache_state(order: &Self::O, properties: &Self::PR) -> Option<CachedItem> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        cache_state_from_path(&path)
+        persist_and_get_cache_state(&path)
     }
 
     fn serve_from_provider(self, mut channel: DownloadChannel,
@@ -459,17 +456,14 @@ impl Job for DownloadJob {
     }
 }
 
-pub fn initialize_cache(mirror_config: &MirrorConfig) {
+pub fn inspect_and_initialize_cache(mirror_config: &MirrorConfig) {
     let mut sum_size = 0;
     let mut count_cache_items = 0;
     for entry in WalkDir::new(&mirror_config.cache_directory) {
         let entry = entry.expect("Error while reading directory entry");
-        if entry.file_type().is_file() {
-            match cache_state_from_path(entry.path()) {
-                None => {
-                    // This should happen only in extremely unlikely circumstances, e.g. when the file is
-                    // deleted shortly after this function started executing.
-                }
+        if entry.file_type().is_file() && !entry.file_name().as_bytes().starts_with(b".") {
+            match persist_and_get_cache_state(entry.path()) {
+                None => {},
                 Some(CachedItem { cached_size, .. }) => {
                     sum_size += cached_size;
                     count_cache_items += 1;
@@ -481,10 +475,12 @@ pub fn initialize_cache(mirror_config: &MirrorConfig) {
     info!("Retrieved {} files with a total size of {} from local file system.", count_cache_items, size_formatted);
 }
 
-fn cache_state_from_path(path: &Path) -> Option<CachedItem> {
+fn persist_and_get_cache_state(path: &Path) -> Option<CachedItem> {
+    debug!("Determine cache state for path {:?}", &path);
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == ErrorKind::NotFound => {
+            debug!("The file {:?} does not exist (yet)", &path);
             // The requested file is not cached, yet.
             return None;
         }
@@ -496,43 +492,79 @@ fn cache_state_from_path(path: &Path) -> Option<CachedItem> {
             panic!("Unexpected I/O error occurred: {:?}", e);
         }
     };
-    let key = OsString::from("user.content_length");
     let file_size = file.metadata().expect("Unable to fetch file metadata").len();
-    let complete_size = match xattr::get(path, &key).expect(ERR_MSG_XATTR_SUPPORT) {
-        Some(value) => {
-            let result = String::from_utf8(value).map_err(FileAttrError::from)
-                .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from));
-            match result {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    error!("Unable to read extended attribute user.content_length from file {:?}: {:?}", path, e);
-                    None
-                },
-            }
-        },
+    let complete_size = match get_complete_size_from_cfs_file(path) {
         None => {
-            // Flexo sets the extended attributes for all files, but this file lacks this attribute:
-            // We assume that this mostly happens when the user copies files into the directory used
-            // by flexo, and we further assume that users will do this only if this file is complete.
-            // Therefore, we can set the content length attribute of this file to the file size.
-            let value = file_size.to_string();
-            match xattr::set(path, &key, &value.as_bytes()) {
-                Ok(()) => {
-                    info!("The file {:?} used to lack the content-length attribute, \
-                    this attribute has now been set to {}.", path, value);
+            // Flexo maintains the complete file size (i.e., the expected file size when the
+            // download has completed) in files with the "cfs" extension (cfs = complete file size).
+            // If, for some reason, the complete file size could not be determined from the cfs
+            // file, then just assuming that the current file size is already the complete file
+            // size is usually a safe fallback. For example, this case can occur if files have been
+            // copied to Flexo's package directory, or if the user removed the files with the cfs
+            // extension.
+            debug!("Unable to fetch file size from CFS file for {:?}", path);
+            match path.metadata().expect("Unable to fetch file metadata").len() {
+                0 => {
+                    info!("File {:?} is empty. Apparently, a previous download was aborted. This file will be removed",
+                          path);
+                    let _ = fs::remove_file(path);
+                    return None;
                 },
-                Err(e) => {
-                    error!("Unable to set extended file attributes for {:?}: {:?}. Please make sure that \
-                                flexo has write permissions for this file.", path, e)
-                },
+                s => {
+                    create_cfs_file(path, s);
+                    Some(s)
+                }
             }
-            Some(file_size)
-        },
+        }
+        Some(s) => Some(s)
     };
     Some(CachedItem {
         cached_size: file_size,
         complete_size,
     })
+}
+
+pub fn get_complete_size_from_cfs_file(path: &Path) -> Option<u64> {
+    let cfs_path = cfs_path_from_pkg_path(&path)?;
+    match fs::read_to_string(&cfs_path) {
+        Ok(s) => {
+            if s.ends_with("\n") && s.chars().rev().skip(1).all(|c| c.is_ascii_digit()) {
+                let without_newline = &s[0..s.len()-1];
+                match without_newline.parse::<u64>() {
+                    Ok(size) => Some(size),
+                    Err(e) => {
+                        error!("Unable to parse {:?} into integer: {:?}", s, e);
+                        None
+                    }
+                }
+            } else {
+                error!("File {:?} has unexpected format: Expected a single line containing digits only", cfs_path);
+                None
+            }
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            debug!("CFS file {:?} does not exist", cfs_path);
+            None
+        }
+        Err(e) => {
+            error!("Unable to read file {:?} into string: {:?}", cfs_path, e);
+            None
+        }
+    }
+}
+
+fn cfs_path_from_pkg_path(path: &Path) -> Option<PathBuf> {
+    match path.file_name() {
+        None => {
+            warn!("Unable to determine file name from path {:?}", path);
+            None
+        }
+        Some(f) => {
+            let filename = f.to_str().expect("Expected all file names to be valid UTF-8");
+            let cfs_filename = format!(".{}.cfs", filename);
+            Some(path.with_file_name(cfs_filename))
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -681,21 +713,17 @@ impl Handler for DownloadState {
                     ).unwrap();
                     debug!("Content length is {}", content_length);
                     job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
-                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
-                    let key = OsString::from("user.content_length");
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current
                     // implementation, we assume that the header method is always called before anything is written to
                     // the file.
                     let size_written = self.job_state.job_resources.as_ref().unwrap().file_state.size_written;
+                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
                     // provider_content_length = the content length we send to the provider.
                     let client_content_length = size_written + content_length;
-                    let value = format!("{}", client_content_length);
-                    debug!("Setting the extended file attribute");
-                    xattr::set(path, &key, &value.as_bytes())
-                        .expect("Unable to set extended file attributes");
+                    create_cfs_file(&path, client_content_length);
                     debug!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);
@@ -726,6 +754,24 @@ impl Handler for DownloadState {
         }
 
         true
+    }
+}
+
+fn create_cfs_file(path: &Path, complete_filesize: u64) {
+    debug!("Creating CFS file for {:?}", &path);
+    let cfs_path = cfs_path_from_pkg_path(path).unwrap();
+    let mut cfs_file = match File::create(&cfs_path) {
+        Ok(f) => f,
+        Err(e) => {
+            error!("Unable to create CFS file {:?}: {:?}", &cfs_path, e);
+            return;
+        }
+    };
+    match cfs_file.write_all(format!("{}\n", complete_filesize).as_bytes()) {
+        Ok(_) => {}
+        Err(e) => {
+            error!("Unable to write to CFS file {:?}: {:?}", &cfs_path, e);
+        }
     }
 }
 
