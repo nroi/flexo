@@ -53,9 +53,6 @@ set as cache_directory resides on a file system with support for extended attrib
 pub enum ClientError {
     BufferSizeExceeded,
     TimedOut,
-    // TODO using SocketClosed as part of ClientError is confusing, because it's not an error: We keep the connection
-    // open to support persistent connections and wait until the client decides to close the connection.
-    SocketClosed,
     IoError(std::io::ErrorKind),
     UnsupportedHttpMethod(ClientStatus),
     InvalidHeader(ClientStatus),
@@ -130,6 +127,12 @@ fn parse_range_header_value(s: &str) -> Result<u64, ClientError> {
             }
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ClientResponse {
+    GetRequest(GetRequest),
+    SocketClosed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -863,7 +866,7 @@ fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usi
     CountryFilter::SelectedCountries(countries)
 }
 
-pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, ClientError> where T: Read {
+pub fn read_client_header<T>(client_stream: &mut T) -> Result<ClientResponse, ClientError> where T: Read {
     let mut buf = [0; MAX_HEADER_SIZE + 1];
     let mut size_read_all = 0;
 
@@ -874,7 +877,7 @@ pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, Client
         let size = match client_stream.read(&mut buf[size_read_all..]) {
             Ok(0) => {
                 // we need this branch in case the socket is closed: Otherwise, we would read a size of 0 indefinitely.
-                return Err(ClientError::SocketClosed);
+                return Ok(ClientResponse::SocketClosed);
             }
             Ok(s) if s > MAX_HEADER_SIZE => return Err(ClientError::BufferSizeExceeded),
             Ok(s) => s,
@@ -896,7 +899,7 @@ pub fn read_client_header<T>(client_stream: &mut T) -> Result<GetRequest, Client
         match res {
             Ok(Status::Complete(_result)) => {
                 debug!("Received header from client");
-                break(Ok(GetRequest::new(req)?))
+                break(Ok(ClientResponse::GetRequest(GetRequest::new(req)?)))
             }
             Ok(Status::Partial) => {
                 {}

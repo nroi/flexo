@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io;
 use std::io::ErrorKind;
 use std::io::prelude::*;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::io::AsRawFd;
 use std::path;
 use std::path::{Path, PathBuf};
@@ -78,8 +78,14 @@ fn main() {
         }
     };
     let port = job_context.lock().unwrap().properties.port;
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = TcpListener::bind(addr).unwrap();
+    let listen_ip_address =
+        job_context.lock().unwrap().properties.listen_ip_address.clone().unwrap_or("0.0.0.0".to_owned());
+    debug!("Listen on address {}", listen_ip_address);
+    let addr = format!("{}:{}", listen_ip_address, port);
+    let listener = match TcpListener::bind(&addr) {
+        Ok(l) => l,
+        Err(e) => panic!("Unable to listen on address {}: {:?}", &addr, e),
+    };
     // Synchronize file system access: We only want one cache purging process running at any given time.
     let cache_purge_mutex = Arc::new(Mutex::new(()));
 
@@ -259,7 +265,7 @@ fn serve_client(
     loop {
         debug!("Reading header from client.");
         match read_client_header(&mut client_stream) {
-            Ok(get_request) => {
+            Ok(ClientResponse::GetRequest(get_request)) => {
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
                     Ok(payload_origin) => {
@@ -282,10 +288,7 @@ fn serve_client(
                     },
                 }
             }
-            Err(ClientError::SocketClosed) => {
-                // The client decides when the connection should be closed, so this is not an error.
-                // TODO see the TODO on ClientError::SocketClosed enum: we should probably refactor this
-                // and not refer to this case as an error.
+            Ok(ClientResponse::SocketClosed) => {
                 return Ok(cache_tainted);
             }
             Err(e) => {
@@ -330,10 +333,6 @@ fn custom_provider_from_request(get_request: GetRequest,
 /// Returns Ok if it is save to continue serving requests to this client, or Err otherwise.
 fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientError) -> Result<(), ClientError> {
     let result = match client_error {
-        ClientError::SocketClosed => {
-            debug!("Socket closed by client.");
-            Err(client_error)
-        }
         ClientError::Other(kind) if kind == ErrorKind::ConnectionReset => {
             debug!("Socket closed by client.");
             Err(client_error)
@@ -368,13 +367,7 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
     };
     match result {
         Err(ref e) => {
-            // TODO perhaps there is a more elegant way: We want to print a warning when
-            // an error has occurred, but this particular type of error is harmless, so we
-            // don't want to log it. It would be better if this "error" is not returned as an
-            // error in the first place.
-            if e != &ClientError::SocketClosed {
-                warn!("Closing TCP socket due to error: {:?}", e);
-            }
+            warn!("Closing TCP socket due to error: {:?}", e);
             let _ = client_stream.shutdown(std::net::Shutdown::Both);
         },
         Ok(()) => {
