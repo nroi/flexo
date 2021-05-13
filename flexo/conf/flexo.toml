@@ -60,7 +60,7 @@ num_versions_retain = 3
 # You can list multiple repos by just adding multiple [[custom_repo]] entries.
 # Also adapt your pacman.conf to an entry like the following:
 # [archzfs]
-# Server = http://localhost:7878/custom_repo/archzfs/$repo/os/$arch
+# Server = http://localhost:7878/custom_repo/archzfs/$repo/$arch
 #
 # [[custom_repo]]
 #     name = "archzfs"
