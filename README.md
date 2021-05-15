@@ -47,6 +47,9 @@ Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
   the two clients, both clients will be able to download the file with the full download speed provided by your ISP.
 * Persistent connections: This is especially useful when many small files are downloaded, since no new TLS negotiation
   is required for each file.
+* The package cache is cleaned automatically: No need to set up cron jobs or systemd timers to clean the cache
+  regularly, Flexo will automatically ensure that only the 3 most recent versions of a package are kept in your cache
+  (this parameter can be changed).
 
 ## Configuration
 
@@ -89,12 +92,13 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 
 ## Cleaning the package cache
 
-Starting with version 1.2.0, Flexo includes the setting `num_versions_retain` to purge the package cache. See the
-[configuration example](./flexo/conf/flexo.toml) for more details.
+The default configuration of Flexo will keep 3 versions of a package in cache: After a 4th version of a package has been
+downloaded, the oldest version will be automatically removed. This setting can be changed with the `num_versions_retain`
+parameter. See the [configuration example](./flexo/conf/flexo.toml) for more details.
 
-If you use Docker, make sure to use an image that is tagged with a version of 1.2.2 or higher. By default, 3 versions
-are kept in the cache. Adapt the `FLEXO_NUM_VERSIONS_RETAIN` environment variable to change the number of versions kept
-in cache.
+If you use Docker, the default behavior can be changed with the `FLEXO_NUM_VERSIONS_RETAIN` environment variable.
+
+If you want to disable this setting and never purge the cache, set the parameter to `0`.
 
 ## Using Unofficial User Repositories
 
