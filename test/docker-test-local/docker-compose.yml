@@ -15,6 +15,8 @@ services:
   flexo-server:
     build: flexo-server
     container_name: flexo-server
+    tmpfs:
+      - /tmp
     depends_on:
       - mirror-delay-mock
       - mirror-fast-mock
@@ -27,6 +29,8 @@ services:
   flexo-server-fast:
     build: flexo-server-fast
     container_name: flexo-server-fast
+    tmpfs:
+      - /tmp
     depends_on:
       - mirror-fast-mock
     healthcheck:
@@ -38,6 +42,8 @@ services:
   flexo-server-delay:
     build: flexo-server-delay
     container_name: flexo-server-delay
+    tmpfs:
+      - /tmp
     depends_on:
       - mirror-delay-mock
       - mirror-fast-mock
@@ -45,20 +51,28 @@ services:
   flexo-server-slow-primary:
     build: flexo-server-slow-primary
     container_name: flexo-server-slow-primary
+    tmpfs:
+      - /tmp
     depends_on:
       - mirror-fast-mock
       - mirror-low-bandwidth-mock
   flexo-server-delay-primary:
+    tmpfs:
+      - /tmp
     build: flexo-server-delay-primary
     container_name: flexo-server-delay-primary
     depends_on:
       - mirror-delay-mock
   flexo-server-mirror-stalling:
+    tmpfs:
+      - /tmp
     build: flexo-server-mirror-stalling
     container_name: flexo-server-mirror-stalling
     depends_on:
       - mirror-stalling-mock
   flexo-client:
+    tmpfs:
+      - /tmp
     build: flexo-client
     container_name: flexo-client
     environment:

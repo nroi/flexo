@@ -24,26 +24,13 @@ EXPOSE 7878
 RUN apt-get update && \
     apt-get install -y curl
 
-RUN mkdir -p /var/cache/flexo/pkg && \
-    mkdir /var/cache/flexo/state && \
-    mkdir /etc/flexo && \
-    mkdir -p /var/cache/flexo/pkg/community/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/community-staging/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/community-testing/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/core/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/extra/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/gnome-unstable/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/kde-unstable/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/multilib/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/multilib-testing/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/staging/os/x86_64 && \
-    mkdir -p /var/cache/flexo/pkg/testing/os/x86_64
+RUN mkdir /etc/flexo
 
-ENV FLEXO_CACHE_DIRECTORY="/var/cache/flexo/pkg" \
-    FLEXO_MIRRORLIST_FALLBACK_FILE="/var/cache/flexo/state/mirrorlist" \
-    FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE="/var/cache/flexo/state/latency_test_results.json" \
-    FLEXO_LISTEN_IP_ADDRESS="0.0.0.0" \
+ENV FLEXO_CACHE_DIRECTORY="/tmp/var/cache/flexo/pkg" \
+    FLEXO_MIRRORLIST_FALLBACK_FILE="/tmp/var/cache/flexo/state/mirrorlist" \
+    FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE="/tmp/var/cache/flexo/state/latency_test_results.json" \
     FLEXO_PORT=7878 \
+    FLEXO_LISTEN_IP_ADDRESS="0.0.0.0" \
     FLEXO_MIRROR_SELECTION_METHOD="predefined" \
     FLEXO_MIRRORS_PREDEFINED="['http://mirror-stalling-mock', 'http://mirror-fast-mock']" \
     FLEXO_MIRRORS_BLACKLIST=[] \
@@ -55,4 +42,6 @@ ENV RUST_BACKTRACE="full" \
 
 COPY --from=build /tmp/build_output/flexo /usr/bin/flexo
 
-ENTRYPOINT /usr/bin/flexo
+COPY start_flexo.sh /usr/bin
+
+ENTRYPOINT /usr/bin/start_flexo.sh

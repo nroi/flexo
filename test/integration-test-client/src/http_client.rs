@@ -92,6 +92,7 @@ pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern:
     match receiver.recv_timeout(timeout) {
         Ok(r) => r,
         Err(e) => {
+            // TODO why does that happen during our test cases?
             error!("Unable to obtain response from thread: {:?}", e);
             panic!("Unable to obtain response from thread: {:?}", e);
         },
