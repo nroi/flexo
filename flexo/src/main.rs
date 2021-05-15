@@ -589,12 +589,12 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthRe
 fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
     let mut num_attempts = 0;
     // Timeout after 2 seconds.
-    while num_attempts < 2_000 * 2 {
+    while num_attempts < 2_000 {
         match get_complete_size_from_cfs_file(path) {
             None => {
                 // for the unlikely event that this file has just been created, but the cfs file
                 // has not been created yet.
-                std::thread::sleep(std::time::Duration::from_micros(500));
+                std::thread::sleep(std::time::Duration::from_millis(1));
             },
             Some(v) => return Ok(v),
         }
