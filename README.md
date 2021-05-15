@@ -41,8 +41,8 @@ Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
 * Concurrent downloads: You can have multiple clients downloading files from Flexo without one client having to wait.
 * Efficient bandwidth sharing for concurrent downloads: Flexo does not require a new connection to the remote mirror
   when the same file is downloaded by multiple clients. For instance, suppose a client starts downloading a given file.
-  After 5 seconds have elapsed, 100MB have been downloaded. Now, a second client requests the same file. The second
-  client will receive the first 100MB immediately from the local file system. Then, both clients continue to download
+  After 5 seconds have elapsed, 100 MB have been downloaded. Now, a second client requests the same file. The second
+  client will receive the first 100 MB immediately from the local file system. Then, both clients continue to download
   the file, while only a single connection to the remote mirror exists. This means that your bandwidth is not split for
   the two clients, both clients will be able to download the file with the full download speed provided by your ISP.
 * Persistent connections: This is especially useful when many small files are downloaded, since no new TLS negotiation
@@ -51,7 +51,7 @@ Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
 ## Configuration
 
 The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
-It includes many comments and should be self explanatory (open an issue in case you disagree).
+It includes many comments and should be self-explanatory (open an issue in case you disagree).
 In most cases, you will want to leave all settings unchanged, with two exceptions:
 
 1. The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
@@ -92,8 +92,9 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 Starting with version 1.2.0, Flexo includes the setting `num_versions_retain` to purge the package cache. See the
 [configuration example](./flexo/conf/flexo.toml) for more details.
 
-If you use Docker, make sure to use an image that is tagged with a version of 1.2.2 or higher. By default, 3 versions are kept in the cache.
-Adapt the `FLEXO_NUM_VERSIONS_RETAIN` environment variable to change the number of versions kept in cache.
+If you use Docker, make sure to use an image that is tagged with a version of 1.2.2 or higher. By default, 3 versions
+are kept in the cache. Adapt the `FLEXO_NUM_VERSIONS_RETAIN` environment variable to change the number of versions kept
+in cache.
 
 ## Using Unofficial User Repositories
 
@@ -139,7 +140,7 @@ if that feature is desired and if it fits into the design goals of flexo.
 
 ## Development
 
-Details about design decisions and the terminology used in the code
+Details about design decisions, and the terminology used in the code,
 are described [here](flexo/terminology.md).
 
 The following packages are required to build and test flexo:
@@ -150,7 +151,7 @@ pacman -S rustup docker docker-compose curl
 
 The [./docker-compose](test/docker-test-local/docker-compose) script may require you to be able to use Docker
 without root privileges. Add your user to the Docker group to do so. You may want to read
-the [wiki](https://wiki.archlinux.org/index.php/Docker) for more details on on the security
+the [wiki](https://wiki.archlinux.org/index.php/Docker) for more details on the security
 implications of doing so.
 
 ```
@@ -168,7 +169,7 @@ One way to enable it is to modify your `~/.docker/config.json` to include the fo
 Make sure to restart the Docker daemon after modifying this file.
 
 We have two types of test cases:
-1. Tests written in Rust: [integration_tests.rs](flexo/tests/integration_test.rs). These tests run quickly
+1. Tests written in Rust: [integration_tests.rs](flexo/tests/integration_test.rs). These tests run quickly,
 and they are fully deterministic (afaik). You can run them with `cargo`:
     ```
    cd flexo
@@ -176,10 +177,10 @@ and they are fully deterministic (afaik). You can run them with `cargo`:
     ```
 2. end-to-end tests using Docker.
 We try to avoid flaky test cases, but we cannot guarantee that all our Docker test cases are deterministic,
-since their outcome depends on various factors outside of our control (e.g. how the scheduler runs OS processes,
-how TCP packets are assembled by the kernel's TCP stack, etc.).  
-As a result, a failing end-to-end
-test may indicate that a new bug was introduced, but it might also have been bad luck or a badly written test case.
+since their outcome depends on various factors outside our control (e.g. how the scheduler runs OS processes,
+how TCP packets are assembled by the kernel's TCP stack, etc.).
+As a result, a failing end-to-end test may indicate that a new bug was introduced, but it might also have been bad luck
+or a badly written test case.
 
 In order to run the Docker test cases, run the shell script to set up everything:
 
