@@ -41,8 +41,8 @@ impl From<MirrorListOption> for MirrorList {
     }
 }
 
-#[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum MirrorProtocol {
     Http,
     Https,

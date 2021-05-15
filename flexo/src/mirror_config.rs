@@ -11,8 +11,8 @@ static DEFAULT_JSON_URI: &str = "https://archlinux.org/mirrors/status/json/";
 
 static DEFAULT_REFRESH_AFTER_SECONDS: u64 = 3600 * 24 * 14;
 
-#[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum MirrorSelectionMethod {
     Auto,
     Predefined,
@@ -55,8 +55,8 @@ impl TomlValue for MirrorSelectionMethod {
     }
 }
 
-#[serde(rename_all = "lowercase")]
 #[derive(Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum MirrorsRandomOrSort {
     Sort,
     Random,
