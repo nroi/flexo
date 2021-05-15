@@ -144,7 +144,7 @@ fn purge_cache(directory: &str, num_versions_retain: u32) {
 }
 
 fn purge_content_lengths(directory: &str) {
-    let glob_pattern = format!("{}/**/.*.cl", directory);
+    let glob_pattern = format!("{}/**/.*.cfs", directory);
     for path in glob(&glob_pattern).unwrap() {
         match &path {
             Ok(p) => {
@@ -155,7 +155,7 @@ fn purge_content_lengths(directory: &str) {
                     Some(filename) => {
                         let corresponding_package_filename = filename
                             .strip_prefix(".").unwrap()
-                            .strip_suffix(".cl").unwrap();
+                            .strip_suffix(".cfs").unwrap();
                         let corresponding_package_filepath = p.with_file_name(corresponding_package_filename);
                         if !corresponding_package_filepath.exists() {
                             match fs::remove_file(&p) {
