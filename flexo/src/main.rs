@@ -3,9 +3,9 @@ extern crate http;
 #[macro_use] extern crate log;
 extern crate rand;
 
-use std::ffi::OsString;
 use std::fs::File;
 use std::io;
+use std::fs;
 use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam::channel::Receiver;
 use crossbeam::channel::RecvTimeoutError;
+use glob::glob;
 use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
@@ -61,7 +62,7 @@ fn main() {
 
     let properties = mirror_config::load_config();
     debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
-    initialize_cache(&properties);
+    inspect_and_initialize_cache(&properties);
     match properties.low_speed_limit {
         None => {},
         Some(limit) => {
@@ -106,6 +107,7 @@ fn main() {
                 (Ok(true), Some(0)) => {},
                 (Ok(true), Some(v)) => {
                     purge_cache(&cache_directory, v);
+                    purge_cfs_files(&cache_directory);
                 },
                 _ => {},
             }
@@ -137,6 +139,40 @@ fn purge_cache(directory: &str, num_versions_retain: u32) {
         }
         Err(e) => {
             warn!("Unable to purge package cache: {:?}", &e);
+        }
+    }
+}
+
+fn purge_cfs_files(directory: &str) {
+    let glob_pattern = format!("{}/**/.*.cfs", directory);
+    for path in glob(&glob_pattern).unwrap() {
+        match &path {
+            Ok(p) => {
+                match p.file_name().unwrap().to_str() {
+                    None => {
+                        warn!("Invalid unicode: {:?}", p.file_name());
+                    }
+                    Some(filename) => {
+                        let corresponding_package_filename = filename
+                            .strip_prefix(".").unwrap()
+                            .strip_suffix(".cfs").unwrap();
+                        let corresponding_package_filepath = p.with_file_name(corresponding_package_filename);
+                        if !corresponding_package_filepath.exists() {
+                            match fs::remove_file(&p) {
+                                Ok(()) => {
+                                    debug!("File {:?} is no longer required and therefore removed.", &p);
+                                }
+                                Err(e) => {
+                                    warn!("Unable to remove file {:?}: {:?}", &p, e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Unreadable path: {:?}", &e);
+            }
         }
     }
 }
@@ -177,7 +213,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
         let order = DownloadOrder {
             filepath: get_request.path,
         };
-        debug!("Attempt to schedule new job");
+        debug!("Schedule new job");
         let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, get_request.resume_from);
         match result {
             ScheduleOutcome::AlreadyInProgress => {
@@ -553,12 +589,12 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthRe
 fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
     let mut num_attempts = 0;
     // Timeout after 2 seconds.
-    while num_attempts < 2_000 * 2 {
-        match content_length_from_path(path)? {
+    while num_attempts < 2_000 {
+        match get_complete_size_from_cfs_file(path) {
             None => {
-                // for the unlikely event that this file has just been created, but the extended attribute
-                // has not been set yet.
-                std::thread::sleep(std::time::Duration::from_micros(500));
+                // for the unlikely event that this file has just been created, but the cfs file
+                // has not been created yet.
+                std::thread::sleep(std::time::Duration::from_millis(1));
             },
             Some(v) => return Ok(v),
         }
@@ -567,23 +603,6 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
 
     info!("Number of attempts exceeded: File {:?} not found.", &path);
     Err(FileAttrError::TimeoutError)
-}
-
-fn content_length_from_path(path: &Path) -> Result<Option<u64>, FileAttrError> {
-    let key = OsString::from("user.content_length");
-    let value = xattr::get(&path, &key)?;
-    match value {
-        Some(value) => {
-            let content_length = String::from_utf8(value).map_err(FileAttrError::from)
-                .and_then(|v| v.parse::<u64>().map_err(FileAttrError::from))?;
-            debug!("Found file! content length is {}", content_length);
-            Ok(Some(content_length))
-        },
-        None => {
-            info!("file exists, but no content length is set.");
-            Ok(None)
-        }
-    }
 }
 
 fn serve_from_growing_file(

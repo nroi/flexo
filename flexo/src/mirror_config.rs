@@ -173,7 +173,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
                 .split(",")
                 .into_iter()
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_owned())
+                .map(|s| s.trim().to_owned())
                 .collect::<Vec<String>>()
         );
     let mirrors_blacklist =

@@ -455,6 +455,7 @@ impl <J> JobContext<J> where J: Job {
                         return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
                     },
                     Some(CachedItem { complete_size: Some(c), cached_size }) if c == cached_size => {
+                        debug!("Order {:?} is already cached.", &order);
                         return ScheduleOutcome::Cached;
                     },
                     Some(CachedItem { cached_size, .. } ) => cached_size,
