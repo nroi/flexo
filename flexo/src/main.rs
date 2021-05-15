@@ -107,7 +107,7 @@ fn main() {
                 (Ok(true), Some(0)) => {},
                 (Ok(true), Some(v)) => {
                     purge_cache(&cache_directory, v);
-                    purge_content_lengths(&cache_directory);
+                    purge_cfs_files(&cache_directory);
                 },
                 _ => {},
             }
@@ -143,7 +143,7 @@ fn purge_cache(directory: &str, num_versions_retain: u32) {
     }
 }
 
-fn purge_content_lengths(directory: &str) {
+fn purge_cfs_files(directory: &str) {
     let glob_pattern = format!("{}/**/.*.cfs", directory);
     for path in glob(&glob_pattern).unwrap() {
         match &path {
