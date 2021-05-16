@@ -186,6 +186,9 @@ how TCP packets are assembled by the kernel's TCP stack, etc.).
 As a result, a failing end-to-end test may indicate that a new bug was introduced, but it might also have been bad luck
 or a badly written test case.
 
+Also notice that the Docker test cases currently require at least 32 GB of RAM, because all files are downloaded
+in a tmpfs.
+
 In order to run the Docker test cases, run the shell script to set up everything:
 
 ```
