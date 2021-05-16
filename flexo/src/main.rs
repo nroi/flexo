@@ -1,6 +1,7 @@
 extern crate flexo;
 extern crate http;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 extern crate rand;
 
 use std::fs::File;
@@ -28,6 +29,7 @@ use mirror_flexo::*;
 use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
 use crate::str_path::StrPath;
+use crate::mirror_fetch::Mirror;
 
 mod mirror_config;
 mod mirror_fetch;
@@ -64,13 +66,13 @@ fn main() {
     debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
     inspect_and_initialize_cache(&properties);
     match properties.low_speed_limit {
-        None => {},
+        None => {}
         Some(limit) => {
             info!("Will switch mirror if download speed falls below {}/s", size_to_human_readable(limit.into()));
-        },
+        }
     }
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = match initialize_job_context(properties.clone()) {
-        Ok(jc) =>  Arc::new(Mutex::new(jc)),
+        Ok(jc) => Arc::new(Mutex::new(jc)),
         Err(ProviderSelectionError::NoProviders) => {
             error!("Unable to find remote mirrors that match the selected criteria. Please \
             adapt your flexo.toml configuration file. See \
@@ -104,12 +106,12 @@ fn main() {
             let cache_tainted_result = serve_client(job_context, client_stream, properties);
             let _ = cache_purge_mutex.lock().unwrap();
             match (cache_tainted_result, num_versions_retain) {
-                (Ok(true), Some(0)) => {},
+                (Ok(true), Some(0)) => {}
                 (Ok(true), Some(v)) => {
                     purge_cache(&cache_directory, v);
                     purge_cfs_files(&cache_directory);
-                },
-                _ => {},
+                }
+                _ => {}
             }
         });
     }
@@ -202,7 +204,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
 ) -> Result<PayloadOrigin, ClientError> {
     let (custom_provider, get_request) =
         custom_provider_from_request(get_request, &properties.custom_repo.unwrap_or(vec![]));
-    if !valid_path(&get_request.path.as_ref())  {
+    if !valid_path(&get_request.path.as_ref()) {
         info!("Invalid path: Serve 403");
         serve_403_header(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
@@ -235,29 +237,29 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         let file: File = File::open(&path)?;
                         serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::RemoteMirror)
-                    },
+                    }
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
                         let path = Path::new(&properties.cache_directory).join(&order.filepath);
                         let file: File = File::open(&path)?;
                         serve_from_complete_file(file, get_request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::Cache)
-                    },
+                    }
                     Err(ContentLengthError::Unavailable) => {
                         debug!("Will send 404 reply to client.");
                         serve_404_header(client_stream)?;
                         Ok(PayloadOrigin::NoPayload)
-                    },
+                    }
                     Err(ContentLengthError::OrderError) => {
                         debug!("Will send 400 reply to client.");
                         serve_400_header(client_stream)?;
                         Ok(PayloadOrigin::NoPayload)
-                    },
+                    }
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
                         eprintln!("Remote server has disconnected unexpectedly.");
                         serve_500_header(client_stream)?;
                         Ok(PayloadOrigin::NoPayload)
-                    },
+                    }
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Timeout)) => {
                         // TODO we should not immediately return 500, and instead try another mirror.
                         // TODO the problem is that the entire logic about retrying other mirrors is
@@ -265,9 +267,9 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                         error!("Timeout: Unable to obtain content length.");
                         serve_500_header(client_stream)?;
                         Ok(PayloadOrigin::NoPayload)
-                    },
+                    }
                 }
-            },
+            }
             ScheduleOutcome::Cached => {
                 debug!("Cache hit for request {:?}", &order.filepath);
                 let path = Path::new(&properties.cache_directory).join(&order.filepath);
@@ -280,7 +282,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
                 };
                 serve_from_complete_file(file, get_request.resume_from, client_stream)?;
                 Ok(PayloadOrigin::Cache)
-            },
+            }
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
                 let uri_string = uri_from_components(&p.uri, order.filepath.to_str());
@@ -294,7 +296,7 @@ fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
 fn serve_client(
     job_context: Arc<Mutex<JobContext<DownloadJob>>>,
     mut client_stream: TcpStream,
-    properties: MirrorConfig
+    properties: MirrorConfig,
 ) -> Result<bool, ClientError> {
     let mut cache_tainted = false;
     // Loop for persistent connections: Will wait for subsequent requests instead of closing immediately.
@@ -312,16 +314,16 @@ fn serve_client(
                                 // cache.
                                 cache_tainted = true;
                                 "CACHE MISS"
-                            },
+                            }
                             PayloadOrigin::NoPayload => "NO PAYLOAD",
                         };
                         info!("Request served [{}]: {:?}", payload_origin_human_readable, &request_path.to_str())
-                    },
+                    }
                     Err(e) => {
                         error!("Unable to serve request {:?}: {:?}", &request_path.to_str(), e);
                         handle_client_error(&mut client_stream, e)?;
-                        return Ok(cache_tainted)
-                    },
+                        return Ok(cache_tainted);
+                    }
                 }
             }
             Ok(ClientResponse::SocketClosed) => {
@@ -384,7 +386,7 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
                 serve_400_header(&mut client_stream)?;
             }
             Ok(())
-        },
+        }
         ClientError::InvalidHeader(ClientStatus { response_headers_sent }) => {
             error!("The client has sent an invalid header");
             if !response_headers_sent {
@@ -405,7 +407,7 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
         Err(ref e) => {
             warn!("Closing TCP socket due to error: {:?}", e);
             let _ = client_stream.shutdown(std::net::Shutdown::Both);
-        },
+        }
         Ok(()) => {
             // nothing to do.
         }
@@ -433,7 +435,7 @@ pub enum ProviderSelectionError {
 fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<DownloadJob>, ProviderSelectionError> {
     let providers: Vec<DownloadProvider> = rated_providers(&properties);
     if providers.is_empty() {
-        return Err(ProviderSelectionError::NoProviders)
+        return Err(ProviderSelectionError::NoProviders);
     }
     info!("Primary mirror: {:#?}", providers[0].uri);
     let providers = mirror_cache::store_download_providers(&properties, providers);
@@ -441,75 +443,107 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
     Ok(JobContext::new(providers, properties))
 }
 
+fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
+        let providers = fetch_auto(mirror_config);
+        debug!("Mirror latency test results: {:#?}", providers);
+        providers
+    } else {
+        let default_mirror_result: MirrorResults = Default::default();
+        let mirrors_predefined = mirror_config.mirrors_predefined.clone();
+        mirrors_predefined.into_iter().map(|uri| {
+            DownloadProvider {
+                uri: uri.clone(),
+                name: uri,
+                mirror_results: default_mirror_result,
+                country_code: "Unknown".to_owned(),
+            }
+        }).collect()
+    }
+}
+
 fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     let country_codes = mirror_config.mirrors_auto.as_ref()
         .map(|ma| ma.allowed_countries.clone())
         .flatten();
     let country_filter_uncached = match country_codes {
-        None => CountryFilter::AllCountries,
-        Some(v) if v.is_empty() => CountryFilter::AllCountries,
-        Some(v) => CountryFilter::SelectedCountries(v),
+        None =>
+            CountryFilter::AllCountries,
+        Some(v) if v.is_empty() =>
+            CountryFilter::AllCountries,
+        Some(v) =>
+            CountryFilter::SelectedCountries(v),
     };
     match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
-        Ok(mirror_urls) => {
-            match mirror_cache::fetch_download_providers(mirror_config) {
-                Ok(download_providers) => {
-                    match latency_tests_refresh_required(mirror_config, &download_providers) {
-                        true => {
-                            info!("Continue to run latency test against all mirrors.");
-                            rate_providers_uncached_retry(mirror_urls,
-                                                          mirror_config.mirrors_auto.as_ref().unwrap().clone(),
-                                                          &country_filter_uncached,
-                                                          Limit::NoLimit)
-                        },
-                        false => {
-                            info!("Continue to run latency test against a limited number of mirrors.");
-                            rate_providers_cached(mirror_urls,
-                                                  mirror_config,
-                                                  download_providers.download_providers)
-                        }
-                    }
-                },
-                Err(e) => {
-                    match e {
-                        DemarshallError::IoError(e) if e.kind() == ErrorKind::NotFound => {
-                            info!("No cached latency test results available. \
-                            Continue to run latency tests on all mirrors.");
-                        }
-                        DemarshallError::VersionMismatch => {
-                            info!("Latency test results are currently stored in an outdated \
-                            format. This can happen if you have recently upgraded Flexo. Will \
-                            continue to re-run latency tests and store them in the new format.");
-                        }
-                        DemarshallError::SerdeError(e) => {
-                            info!("Unable to deserialize latency test results from file: {:?}. \
-                            This can happen if you have recently upgraded Flexo. Will continue to \
-                            re-run latency tests and store them in the new format.", e);
-                        }
-                        _ => {
-                            error!("Unable to fetch latency test results from file: {:?}. \
-                            Continue to run latency tests on all mirrors.", e);
-                        }
-                    };
-                    rate_providers_uncached_retry(mirror_urls,
-                                                  mirror_config.mirrors_auto.as_ref().unwrap().clone(),
-                                                  &country_filter_uncached,
-                                                  Limit::NoLimit)
+        Ok(mirror_urls) =>
+            rated_mirrors(mirror_urls, country_filter_uncached, &mirror_config),
+        Err(e) => {
+            info!("Unable to fetch mirrors remotely: {:?}\nWill try to fetch them from cache.", e);
+            mirrors_from_cache(&mirror_config)
+        }
+    }
+}
+
+fn rated_mirrors(
+    mirror_urls: Vec<Mirror>,
+    country_filter: CountryFilter,
+    mirror_config: &MirrorConfig,
+) -> Vec<DownloadProvider> {
+    let (limit, country_filter) = match mirror_cache::fetch_download_providers(mirror_config) {
+        Ok(download_providers) => {
+            match latency_tests_refresh_required(mirror_config, &download_providers) {
+                true => {
+                    info!("Continue to run latency test against all mirrors.");
+                    (Limit::NoLimit, country_filter)
+                }
+                false => {
+                    info!("Continue to run latency test against a limited number of mirrors.");
+                    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
+                    let limit = Limit::Limit(mirrors_auto.num_mirrors);
+                    let country_filter = get_country_filter(
+                        &download_providers.download_providers,
+                        mirrors_auto.num_mirrors,
+                    );
+                    (limit, country_filter)
                 }
             }
         }
         Err(e) => {
-            info!("Unable to fetch mirrors remotely: {:?}\nWill try to fetch them from cache.", e);
-            match mirror_cache::fetch_download_providers(&mirror_config) {
-                Ok(v) => v.download_providers,
-                Err(e) => panic!("Unable to fetch mirrors from cache: {:?}", e),
-            }
-        },
-    }
+            match e {
+                DemarshallError::IoError(e) if e.kind() == ErrorKind::NotFound => {
+                    info!("No cached latency test results available. \
+                            Continue to run latency tests on all mirrors.");
+                }
+                DemarshallError::VersionMismatch => {
+                    info!("Latency test results are currently stored in an outdated \
+                            format. This can happen if you have recently upgraded Flexo. Will \
+                            continue to re-run latency tests and store them in the new format.");
+                }
+                DemarshallError::SerdeError(e) => {
+                    info!("Unable to deserialize latency test results from file: {:?}. \
+                            This can happen if you have recently upgraded Flexo. Will continue to \
+                            re-run latency tests and store them in the new format.", e);
+                }
+                _ => {
+                    error!("Unable to fetch latency test results from file: {:?}. \
+                            Continue to run latency tests on all mirrors.", e);
+                }
+            };
+            (Limit::NoLimit, country_filter)
+        }
+    };
+    rated_providers_retry(
+        mirror_urls,
+        mirror_config.mirrors_auto.as_ref().unwrap().clone(),
+        &country_filter,
+        limit,
+    )
 }
 
-fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
-                                  download_providers: &TimestampedDownloadProviders) -> bool {
+fn latency_tests_refresh_required(
+    mirror_config: &MirrorConfig,
+    download_providers: &TimestampedDownloadProviders,
+) -> bool {
     let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
         Ok(d) => d,
         Err(e) => {
@@ -530,23 +564,23 @@ fn latency_tests_refresh_required(mirror_config: &MirrorConfig,
     duration_since_last_check > refresh_latency_tests_after
 }
 
+fn get_country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
+    // If the user already ran a latency test, then we can restrict our latency tests to mirrors that are located at a
+    // country that scored well in the previous latency test. For example, for users located in Australia, we will
+    // not consider European mirrors because the previous latency test should have revealed that mirrors from
+    // Australia have better latency than mirrors from European countries.
+    let countries = prev_rated_providers.iter()
+        .take(num_mirrors)
+        .map(|m| m.country_code.clone())
+        .collect::<Vec<String>>();
 
-fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
-    if mirror_config.mirror_selection_method == MirrorSelectionMethod::Auto {
-        let providers = fetch_auto(mirror_config);
-        debug!("Mirror latency test results: {:#?}", providers);
-        providers
-    } else {
-        let default_mirror_result: MirrorResults = Default::default();
-        let mirrors_predefined = mirror_config.mirrors_predefined.clone();
-        mirrors_predefined.into_iter().map(|uri| {
-            DownloadProvider {
-                uri: uri.clone(),
-                name: uri,
-                mirror_results: default_mirror_result,
-                country_code: "Unknown".to_owned(),
-            }
-        }).collect()
+    CountryFilter::SelectedCountries(countries)
+}
+
+fn mirrors_from_cache(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
+    match mirror_cache::fetch_download_providers(&mirror_config) {
+        Ok(v) => v.download_providers,
+        Err(e) => panic!("Unable to fetch mirrors from cache: {:?}", e),
     }
 }
 
@@ -579,7 +613,7 @@ fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthRe
             }
             Ok(msg) => {
                 panic!("Unexpected message: {:?}", msg);
-            },
+            }
             Err(e) => break Err(ContentLengthError::TransmissionError(e)),
         }
     }
@@ -595,7 +629,7 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
                 // for the unlikely event that this file has just been created, but the cfs file
                 // has not been created yet.
                 std::thread::sleep(std::time::Duration::from_millis(1));
-            },
+            }
             Some(v) => return Ok(v),
         }
         num_attempts += 1;
@@ -609,7 +643,7 @@ fn serve_from_growing_file(
     mut file: File,
     content_length: u64,
     resume_from: Option<u64>,
-    client_stream: &mut TcpStream
+    client_stream: &mut TcpStream,
 ) -> io::Result<()> {
     let header = match resume_from {
         None => reply_header_success(content_length, PayloadOrigin::RemoteMirror),
@@ -627,7 +661,7 @@ fn serve_from_growing_file(
             match result {
                 Ok(size) => {
                     client_received = size as u64;
-                },
+                }
                 Err(e) => {
                     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
                         debug!("Broken Pipe or Connection reset. Connection closed by client?");
@@ -635,7 +669,7 @@ fn serve_from_growing_file(
                         error!("Failed to send payload: An unexpected I/O error has occurred: {:?}", e);
                     }
                     return Err(e);
-                },
+                }
             }
         }
         if client_received < content_length {
@@ -740,7 +774,7 @@ fn redirect_header(path: &str) -> String {
 fn serve_from_complete_file(
     mut file: File,
     resume_from: Option<u64>,
-    client_stream: &mut TcpStream
+    client_stream: &mut TcpStream,
 ) -> io::Result<i64> {
     let filesize = file.metadata()?.len();
     let content_length = filesize - resume_from.unwrap_or(0);
@@ -768,7 +802,7 @@ fn send_payload_and_flush(
     mut source: &mut File,
     filesize: u64,
     bytes_sent: i64,
-    receiver: &mut TcpStream
+    receiver: &mut TcpStream,
 ) -> io::Result<i64> {
     let result = send_payload(&mut source, filesize, bytes_sent, receiver);
     // Enabling and then disabling the nodelay option results in a flush.
@@ -825,7 +859,7 @@ fn custom_provider_from_request_test() {
         uri: "https://archzfs.com".to_owned(),
         name: "archzfs".to_owned(),
         mirror_results: Default::default(),
-        country_code: "Unknown".to_string()
+        country_code: "Unknown".to_string(),
     };
     let expected_get_request = GetRequest {
         resume_from: None,
