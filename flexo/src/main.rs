@@ -197,10 +197,11 @@ fn valid_path(path: &Path) -> bool {
     })
 }
 
-fn serve_request(job_context: Arc<Mutex<JobContext<DownloadJob>>>,
-                 client_stream: &mut TcpStream,
-                 properties: MirrorConfig,
-                 get_request: GetRequest,
+fn serve_request(
+    job_context: Arc<Mutex<JobContext<DownloadJob>>>,
+    client_stream: &mut TcpStream,
+    properties: MirrorConfig,
+    get_request: GetRequest,
 ) -> Result<PayloadOrigin, ClientError> {
     let (custom_provider, get_request) =
         custom_provider_from_request(get_request, &properties.custom_repo.unwrap_or(vec![]));
@@ -340,8 +341,10 @@ fn serve_client(
 /// Returns the custom provider, if a custom provider needs to be used, and the GetRequest. The GetRequest
 /// is adapted to the returned custom provider, or returned unchanged if no custom provider needs to
 /// be used.
-fn custom_provider_from_request(get_request: GetRequest,
-                                custom_repos: &Vec<CustomRepo>) -> (Option<DownloadProvider>, GetRequest) {
+fn custom_provider_from_request(
+    get_request: GetRequest,
+    custom_repos: &Vec<CustomRepo>
+) -> (Option<DownloadProvider>, GetRequest) {
     match repo_name_from_get_request(&get_request) {
         None => (None, get_request),
         Some((repo_name, path)) => {
@@ -729,10 +732,12 @@ fn reply_header_forbidden() -> String {
     reply_header("403 Forbidden", 0, None, PayloadOrigin::NoPayload)
 }
 
-fn reply_header(status_line: &str,
-                content_length: u64,
-                resume_from: Option<u64>,
-                payload_origin: PayloadOrigin) -> String {
+fn reply_header(
+    status_line: &str,
+    content_length: u64,
+    resume_from: Option<u64>,
+    payload_origin: PayloadOrigin,
+) -> String {
     let now = time::now_utc();
     let timestamp = now.rfc822();
     let content_range_header = resume_from.map(|r| {

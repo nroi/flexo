@@ -322,9 +322,11 @@ impl Job for DownloadJob {
         persist_and_get_cache_state(&path)
     }
 
-    fn serve_from_provider(self, mut channel: DownloadChannel,
-                           properties: MirrorConfig,
-                           resume_from: u64) -> JobResult<DownloadJob> {
+    fn serve_from_provider(
+        self, mut channel: DownloadChannel,
+        properties: MirrorConfig,
+        resume_from: u64,
+    ) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         debug!("Fetch package from remote mirror: {}. Resume from byte {}.", &url, resume_from);
         channel.handle.url(&url).unwrap();
@@ -415,7 +417,11 @@ impl Job for DownloadJob {
         }
     }
 
-    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
+    fn acquire_resources(
+        order: &DownloadOrder,
+        properties: &MirrorConfig,
+        last_chance: bool
+    ) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
         debug!("Attempt to create file: {:?}", &path);
         let f = match OpenOptions::new().create(true).append(true).open(&path) {
@@ -441,7 +447,7 @@ impl Job for DownloadJob {
         let buf_writer = BufWriter::new(f);
         let header_state = HeaderState {
             received_header: vec![],
-            header_success: None
+            header_success: None,
         };
         let file_state = FileState  {
             buf_writer,
@@ -576,20 +582,24 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, properties: MirrorConfig,
-                   tx: Sender<FlexoProgress>,
-                   last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn new_channel(
+        self, properties: MirrorConfig,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+    ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         Ok(DownloadChannel {
             handle: Easy2::new(download_state)
         })
     }
 
-    fn reuse_channel(self,
-                     properties: MirrorConfig,
-                     tx: Sender<FlexoProgress>,
-                     last_chance: bool,
-                     previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn reuse_channel(
+        self,
+        properties: MirrorConfig,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+        previous_channel: DownloadChannel,
+    ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         let mut handle = previous_channel.handle;
         handle.get_mut().replace(download_state);
@@ -640,8 +650,12 @@ struct DownloadState {
 }
 
 impl DownloadState {
-
-    pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
+    pub fn new(
+        order: DownloadOrder,
+        properties: MirrorConfig,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+    ) -> std::io::Result<Self> {
         let download_job_resources = DownloadJob::acquire_resources(&order, &properties, last_chance)?;
         let job_state = JobState {
             order,

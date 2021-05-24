@@ -113,7 +113,7 @@ impl MirrorUrlOption {
             score,
             country_code,
             ipv4,
-            ipv6
+            ipv6,
         })
     }
 }
@@ -165,7 +165,7 @@ fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, MirrorFetchError> 
 }
 
 fn try_num_attempts<T, F, E>(max_num_attempts: i32, action: F) -> Result<T, E>
-where F: Fn() -> Result<T, E>, E: std::fmt::Debug
+    where F: Fn() -> Result<T, E>, E: std::fmt::Debug
 {
     let mut result = action();
     let mut num_attempts = 1;
