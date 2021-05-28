@@ -38,7 +38,7 @@ fn latency_test_results_file(properties: &MirrorConfig) -> &str {
     }
 }
 
-pub fn store_download_providers(
+pub fn store_latency_test_results(
     properties: &MirrorConfig,
     download_providers: Vec<DownloadProvider>
 ) -> Vec<DownloadProvider> {

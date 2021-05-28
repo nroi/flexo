@@ -441,7 +441,14 @@ fn initialize_job_context(properties: MirrorConfig) -> Result<JobContext<Downloa
         return Err(ProviderSelectionError::NoProviders);
     }
     info!("Primary mirror: {:#?}", providers[0].uri);
-    let providers = mirror_cache::store_download_providers(&properties, providers);
+    let providers = match properties.mirror_selection_method {
+        MirrorSelectionMethod::Auto =>
+            // With this mirror selection method, latency test have been run, so we store the results
+            // in order to be able to choose fast mirrors next time without running them again.
+            mirror_cache::store_latency_test_results(&properties, providers),
+        MirrorSelectionMethod::Predefined =>
+            providers,
+    };
 
     Ok(JobContext::new(providers, properties))
 }
