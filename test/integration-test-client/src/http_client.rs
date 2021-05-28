@@ -51,11 +51,11 @@ pub struct HttpGetResult {
     pub payload_result: Option<BodyResult>,
 }
 
-pub fn http_get(request: GetRequestTest) -> Vec<HttpGetResult> {
+pub fn http_get(request: GetRequestTest) -> Option<Vec<HttpGetResult>> {
     http_get_with_header_chunked(request, None)
 }
 
-pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern: Option<ChunkPattern>) -> Vec<HttpGetResult> {
+pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern: Option<ChunkPattern>) -> Option<Vec<HttpGetResult>> {
     let host = request_test.conn_addr.host.clone();
     let (sender, receiver) = mpsc::channel::<Vec<HttpGetResult>>();
     let timeout = request_test.timeout.unwrap_or(Duration::from_millis(5000));
@@ -90,11 +90,10 @@ pub fn http_get_with_header_chunked(request_test: GetRequestTest, maybe_pattern:
     });
     info!("Waiting for response from thread for request at host {}, Timeout is {:?}", host, timeout);
     match receiver.recv_timeout(timeout) {
-        Ok(r) => r,
-        Err(e) => {
-            // TODO why does that happen during our test cases?
-            error!("Unable to obtain response from thread: {:?}", e);
-            panic!("Unable to obtain response from thread: {:?}", e);
+        Ok(r) => Some(r),
+        Err(_) => {
+            info!("No response received within {:?}", timeout);
+            None
         },
     }
 }

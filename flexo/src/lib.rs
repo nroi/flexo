@@ -79,7 +79,11 @@ pub trait Provider where
     Self: std::marker::Sized + std::fmt::Debug + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::marker::Send + 'static,
 {
     type J: Job;
-    fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: <<Self as Provider>::J as Job>::O) -> Self::J;
+    fn new_job(
+        &self,
+        properties: &<<Self as Provider>::J as Job>::PR,
+        order: <<Self as Provider>::J as Job>::O
+    ) -> Self::J;
 
     fn initial_score(&self) -> <<Self as Provider>::J as Job>::S;
 
@@ -116,7 +120,12 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
     fn acquire_resources(order: &Self::O, properties: &Self::PR, last_chance: bool) -> std::io::Result<Self::JS>;
 
-    fn get_channel(&self, channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>, tx: Sender<FlexoProgress>, last_chance: bool) -> Result<(Self::C, ChannelEstablishment), Self::OE> {
+    fn get_channel(
+        &self,
+        channels: &Arc<Mutex<HashMap<Self::P, Self::C>>>,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool
+    ) -> Result<(Self::C, ChannelEstablishment), Self::OE> {
         let mut channels = channels.lock().unwrap();
         match channels.remove(&self.provider()) {
             Some(channel) => {
@@ -146,17 +155,19 @@ pub struct ProvidersWithStats<J> where J: Job {
 
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
-    fn new_channel(self,
-                   properties: <<Self as Order>::J as Job>::PR,
-                   tx: Sender<FlexoProgress>,
-                   last_chance: bool
+    fn new_channel(
+        self,
+        properties: <<Self as Order>::J as Job>::PR,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
-    fn reuse_channel(self,
-                   properties: <<Self as Order>::J as Job>::PR,
-                   tx: Sender<FlexoProgress>,
-                   last_chance: bool,
-                   channel: <<Self as Order>::J as Job>::C,
+    fn reuse_channel(
+        self,
+        properties: <<Self as Order>::J as Job>::PR,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+        channel: <<Self as Order>::J as Job>::C,
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
     fn is_cacheable(&self) -> bool;
@@ -273,9 +284,10 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         }
     }
 
-    fn pardon(punished_providers: Vec<<<Self as Order>::J as Job>::P>,
-              mut failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>)
-    {
+    fn pardon(
+        punished_providers: Vec<<<Self as Order>::J as Job>::P>,
+        mut failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>,
+    ) {
         for not_guilty in punished_providers {
             match (*failures).entry(not_guilty.clone()) {
                 Entry::Occupied(mut value) => {
@@ -431,7 +443,7 @@ impl <J> JobContext<J> where J: Job {
         &mut self,
         order: J::O,
         custom_provider: Option<J::P>,
-        resume_from: Option<u64>
+        resume_from: Option<u64>,
     ) -> ScheduleOutcome<J> {
         if !order.is_cacheable() {
             return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));

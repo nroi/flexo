@@ -168,7 +168,7 @@ fn flexo_test_malformed_header(_path_generator: &mut PathGenerator) {
         }],
         timeout: None,
     };
-    let results = http_get(uri1);
+    let results = http_get(uri1).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     println!("result: {:?}", &result);
@@ -185,7 +185,7 @@ fn flexo_test_malformed_header(_path_generator: &mut PathGenerator) {
         }],
         timeout: None,
     };
-    let results = http_get(uri2);
+    let results = http_get(uri2).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     println!("result: {:?}", &result);
@@ -209,7 +209,7 @@ fn flexo_test_partial_header(path_generator: &mut PathGenerator) {
         chunk_size: 3,
         wait_interval: Duration::from_millis(300),
     };
-    let results = http_get_with_header_chunked(uri, Some(pattern));
+    let results = http_get_with_header_chunked(uri, Some(pattern)).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
@@ -238,7 +238,7 @@ fn flexo_test_persistent_connections_c2s(path_generator: &mut PathGenerator) {
         ],
         timeout: None,
     };
-    let results = http_get(request_test);
+    let results = http_get(request_test).unwrap();
     assert_eq!(results.len(), 3);
     let all_ok = results.iter().all(|r| r.header_result.status_code == 200);
     assert!(all_ok);
@@ -264,7 +264,7 @@ fn flexo_test_persistent_connections_s2s(path_generator: &mut PathGenerator) {
         get_requests,
         timeout: Some(Duration::from_secs(1)),
     };
-    let results = http_get(request_test);
+    let results = http_get(request_test).unwrap();
     assert_eq!(results.len(), 100);
     let all_ok = results.iter().all(|r| r.header_result.status_code == 200);
     assert!(all_ok);
@@ -285,7 +285,7 @@ fn flexo_test_mirror_selection_slow_mirror(path_generator: &mut PathGenerator) {
         get_requests,
         timeout: Some(Duration::from_millis(5_000)),
     };
-    let results = http_get(request_test);
+    let results = http_get(request_test).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
@@ -329,7 +329,7 @@ fn download_large_file() -> Vec<HttpGetResult> {
         get_requests,
         timeout: Some(Duration::from_millis(60_000)),
     };
-    http_get(request_test)
+    http_get(request_test).unwrap()
 }
 
 fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenerator) {
@@ -354,7 +354,7 @@ fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenera
         get_requests,
         timeout: Some(Duration::from_millis(60_000)),
     };
-    let results = http_get(request_test);
+    let results = http_get(request_test).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 206);
@@ -406,14 +406,22 @@ fn flexo_test_parallel_downloads_nonblocking(path_generator: &mut PathGenerator)
         timeout: None,
     };
     std::thread::spawn(move || {
-        let results = http_get(request_test_1);
-        // Ignore the result: when t2 was faster, the channel is already closed;
-        let _ = sender1.send(results);
+        match http_get(request_test_1) {
+            None => {}
+            Some(r) => {
+                // Ignore the result: when the 2nd thread was faster, the channel is already closed;
+                let _ = sender1.send(r);
+            }
+        }
     });
     std::thread::spawn(move || {
-        let results = http_get(request_test_2);
-        // Ignore the result: when t1 was faster, the channel is already closed;
-        let _ = sender2.send(results);
+        match http_get(request_test_2) {
+            None => {}
+            Some(r) => {
+                // Ignore the result: when the 1st thread was faster, the channel is already closed;
+                let _ = sender2.send(r);
+            }
+        }
     });
     let first_result_idx = receive_first(vec![receiver1, receiver2]);
     assert_eq!(first_result_idx, 1);
@@ -434,7 +442,7 @@ fn flexo_test_mirror_stalling(path_generator: &mut PathGenerator) {
         get_requests,
         timeout: Some(Duration::from_millis(5_000)),
     };
-    let results = http_get(request_test);
+    let results = http_get(request_test).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);

@@ -38,8 +38,10 @@ fn latency_test_results_file(properties: &MirrorConfig) -> &str {
     }
 }
 
-pub fn store_download_providers(properties: &MirrorConfig,
-                                download_providers: Vec<DownloadProvider>) -> Vec<DownloadProvider> {
+pub fn store_latency_test_results(
+    properties: &MirrorConfig,
+    download_providers: Vec<DownloadProvider>
+) -> Vec<DownloadProvider> {
     let timestamped = TimestampedDownloadProviders {
         version: Some(TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION),
         timestamp: format!("{:?}", chrono::Utc::now()),

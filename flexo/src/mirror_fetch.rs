@@ -26,15 +26,15 @@ pub struct MirrorListOption {
 }
 
 struct MirrorList {
-    urls: Vec<MirrorUrl>,
+    urls: Vec<Mirror>,
 }
 
 impl From<MirrorListOption> for MirrorList {
     fn from(mirror_list_option: MirrorListOption) -> Self {
-        let urls: Vec<Option<MirrorUrl>> = mirror_list_option.urls.into_iter().map(|mirror_url_option| {
+        let urls: Vec<Option<Mirror>> = mirror_list_option.urls.into_iter().map(|mirror_url_option| {
             mirror_url_option.mirror_url()
         }).collect();
-        let urls: Vec<MirrorUrl> = urls.into_iter().filter_map(|x| x).collect();
+        let urls: Vec<Mirror> = urls.into_iter().filter_map(|x| x).collect();
         MirrorList {
             urls
         }
@@ -91,7 +91,7 @@ pub struct MirrorUrlOption {
 }
 
 impl MirrorUrlOption {
-    pub fn mirror_url(self) -> Option<MirrorUrl> {
+    pub fn mirror_url(self) -> Option<Mirror> {
         let protocol = self.protocol?;
         let last_sync = self.last_sync?;
         let completion_pct = self.completion_pct?;
@@ -102,7 +102,7 @@ impl MirrorUrlOption {
         let country_code = self.country_code?;
         let ipv4 = self.ipv4?;
         let ipv6 = self.ipv6?;
-        Some(MirrorUrl {
+        Some(Mirror {
             url: self.url,
             protocol,
             last_sync,
@@ -113,13 +113,13 @@ impl MirrorUrlOption {
             score,
             country_code,
             ipv4,
-            ipv6
+            ipv6,
         })
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct MirrorUrl {
+pub struct Mirror {
     pub url: String,
     pub protocol: MirrorProtocol,
     pub last_sync: String,
@@ -133,7 +133,7 @@ pub struct MirrorUrl {
     pub ipv6: bool,
 }
 
-impl MirrorUrl {
+impl Mirror {
     pub fn filter_predicate(&self, mirrors_auto: &MirrorsAutoConfig) -> bool {
         !(
             (mirrors_auto.https_required && self.protocol != MirrorProtocol::Https) ||
@@ -165,7 +165,7 @@ fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, MirrorFetchError> 
 }
 
 fn try_num_attempts<T, F, E>(max_num_attempts: i32, action: F) -> Result<T, E>
-where F: Fn() -> Result<T, E>, E: std::fmt::Debug
+    where F: Fn() -> Result<T, E>, E: std::fmt::Debug
 {
     let mut result = action();
     let mut num_attempts = 1;
@@ -186,7 +186,7 @@ where F: Fn() -> Result<T, E>, E: std::fmt::Debug
     }
 }
 
-pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<MirrorUrl>, MirrorFetchError> {
+pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<Mirror>, MirrorFetchError> {
     let json = fetch_json(mirror_config)?;
     let mirror_list_option: MirrorListOption = serde_json::from_str(&json)?;
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);

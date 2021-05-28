@@ -22,7 +22,7 @@ use flexo::*;
 
 use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use crate::mirror_fetch;
-use crate::mirror_fetch::{MirrorProtocol, MirrorUrl};
+use crate::mirror_fetch::{MirrorProtocol, Mirror};
 use crate::str_path::StrPath;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
@@ -82,7 +82,7 @@ impl ClientStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CountryFilter {
     AllCountries,
     SelectedCountries(Vec<String>),
@@ -187,6 +187,8 @@ impl GetRequest {
 pub struct DownloadProvider {
     pub uri: String,
     pub name: String,
+    // TODO both mirror_results and country_code should be Optional. Right now, we're storing garbage values
+    // when the country is unknown and no results are available, which has already caused problems, see issue #58.
     pub mirror_results: MirrorResults,
     pub country_code: String,
 }
@@ -322,9 +324,11 @@ impl Job for DownloadJob {
         persist_and_get_cache_state(&path)
     }
 
-    fn serve_from_provider(self, mut channel: DownloadChannel,
-                           properties: MirrorConfig,
-                           resume_from: u64) -> JobResult<DownloadJob> {
+    fn serve_from_provider(
+        self, mut channel: DownloadChannel,
+        properties: MirrorConfig,
+        resume_from: u64,
+    ) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);
         debug!("Fetch package from remote mirror: {}. Resume from byte {}.", &url, resume_from);
         channel.handle.url(&url).unwrap();
@@ -415,7 +419,11 @@ impl Job for DownloadJob {
         }
     }
 
-    fn acquire_resources(order: &DownloadOrder, properties: &MirrorConfig, last_chance: bool) -> std::io::Result<DownloadJobResources> {
+    fn acquire_resources(
+        order: &DownloadOrder,
+        properties: &MirrorConfig,
+        last_chance: bool
+    ) -> std::io::Result<DownloadJobResources> {
         let path = Path::new(&properties.cache_directory).join(&order.filepath);
         debug!("Attempt to create file: {:?}", &path);
         let f = match OpenOptions::new().create(true).append(true).open(&path) {
@@ -441,7 +449,7 @@ impl Job for DownloadJob {
         let buf_writer = BufWriter::new(f);
         let header_state = HeaderState {
             received_header: vec![],
-            header_success: None
+            header_success: None,
         };
         let file_state = FileState  {
             buf_writer,
@@ -576,20 +584,24 @@ pub struct DownloadOrder {
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
-    fn new_channel(self, properties: MirrorConfig,
-                   tx: Sender<FlexoProgress>,
-                   last_chance: bool) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn new_channel(
+        self, properties: MirrorConfig,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+    ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         Ok(DownloadChannel {
             handle: Easy2::new(download_state)
         })
     }
 
-    fn reuse_channel(self,
-                     properties: MirrorConfig,
-                     tx: Sender<FlexoProgress>,
-                     last_chance: bool,
-                     previous_channel: DownloadChannel) -> Result<DownloadChannel, <Self::J as Job>::OE> {
+    fn reuse_channel(
+        self,
+        properties: MirrorConfig,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+        previous_channel: DownloadChannel,
+    ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         let mut handle = previous_channel.handle;
         handle.get_mut().replace(download_state);
@@ -640,8 +652,12 @@ struct DownloadState {
 }
 
 impl DownloadState {
-
-    pub fn new(order: DownloadOrder, properties: MirrorConfig, tx: Sender<FlexoProgress>, last_chance: bool) -> std::io::Result<Self> {
+    pub fn new(
+        order: DownloadOrder,
+        properties: MirrorConfig,
+        tx: Sender<FlexoProgress>,
+        last_chance: bool,
+    ) -> std::io::Result<Self> {
         let download_job_resources = DownloadJob::acquire_resources(&order, &properties, last_chance)?;
         let job_state = JobState {
             order,
@@ -798,10 +814,11 @@ impl Channel for DownloadChannel {
     }
 }
 
-pub fn rate_providers_uncached_retry(mirror_urls: Vec<MirrorUrl>,
-                                     mirrors_auto: MirrorsAutoConfig,
-                                     country_filter: &CountryFilter,
-                                     limit: Limit
+pub fn rated_providers_retry(
+    mirrors: Vec<Mirror>,
+    mirrors_auto: MirrorsAutoConfig,
+    country_filter: &CountryFilter,
+    limit: Limit,
 ) -> Vec<DownloadProvider> {
     for i in 0..LATENCY_TEST_NUM_ATTEMPTS {
         let mirrors_auto = match i {
@@ -815,7 +832,7 @@ pub fn rate_providers_uncached_retry(mirror_urls: Vec<MirrorUrl>,
                 relaxed
             },
         };
-        let providers = rate_providers_uncached(mirror_urls.clone(), &mirrors_auto, &country_filter, limit);
+        let providers = rated_providers(mirrors.clone(), &mirrors_auto, &country_filter, limit);
         if !providers.is_empty() {
             return providers;
         }
@@ -824,22 +841,23 @@ pub fn rate_providers_uncached_retry(mirror_urls: Vec<MirrorUrl>,
     vec![]
 }
 
-pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
-                               mirrors_auto: &MirrorsAutoConfig,
-                               country_filter: &CountryFilter,
-                               limit: Limit
+pub fn rated_providers(
+    mut mirrors: Vec<Mirror>,
+    mirrors_auto: &MirrorsAutoConfig,
+    country_filter: &CountryFilter,
+    limit: Limit,
 ) -> Vec<DownloadProvider> {
-    mirror_urls.sort_by(|a, b| a.score.cmp(&b.score));
+    mirrors.sort_by(|a, b| a.score.cmp(&b.score));
     debug!("Mirrors will be filtered according to the following criteria: {:#?}", mirrors_auto);
     debug!("The following CountryFilter is applied: {:?}", country_filter);
-    let filtered_mirror_urls_unlimited = mirror_urls
+    let filtered_mirrors_unlimited = mirrors
         .into_iter()
-        .filter(|x| x.protocol == MirrorProtocol::Http || x.protocol == MirrorProtocol::Https)
-        .filter(|x| x.filter_predicate(&mirrors_auto))
-        .filter(|x| country_filter.includes_country(&x.country_code));
-    let filtered_mirror_urls: Vec<MirrorUrl> = match limit {
-        Limit::NoLimit => filtered_mirror_urls_unlimited.collect(),
-        Limit::Limit(l) => filtered_mirror_urls_unlimited.take(l).collect(),
+        .filter(|mirror| mirror.protocol == MirrorProtocol::Http || mirror.protocol == MirrorProtocol::Https)
+        .filter(|mirror| mirror.filter_predicate(&mirrors_auto))
+        .filter(|mirror| country_filter.includes_country(&mirror.country_code));
+    let filtered_mirror_urls: Vec<Mirror> = match limit {
+        Limit::NoLimit => filtered_mirrors_unlimited.collect(),
+        Limit::Limit(l) => filtered_mirrors_unlimited.take(l).collect(),
     };
     debug!("Running latency tests on the following mirrors: {:#?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
@@ -882,34 +900,6 @@ pub fn rate_providers_uncached(mut mirror_urls: Vec<MirrorUrl>,
             country_code: mirror.country_code,
         }
     }).collect()
-}
-
-pub fn rate_providers_cached(mirror_urls: Vec<MirrorUrl>,
-                             mirror_config: &MirrorConfig,
-                             prev_rated_providers: Vec<DownloadProvider>,
-) -> Vec<DownloadProvider> {
-    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
-    let country_filter = country_filter(&prev_rated_providers, mirrors_auto.num_mirrors);
-    let limit = Limit::Limit(mirrors_auto.num_mirrors);
-
-    rate_providers_uncached_retry(mirror_urls,
-                                  mirror_config.mirrors_auto.as_ref().unwrap().clone(),
-                                  &country_filter,
-                                  limit,
-    )
-}
-
-fn country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
-    // If the user already ran a latency test, then we can restrict our latency tests to mirrors that are located at a
-    // country that scored well in the previous latency test. For example, for users located in Australia, we will
-    // not consider European mirrors because the previous latency test should have revealed that mirrors from
-    // Australia have better latency than mirrors from European countries.
-    let countries = prev_rated_providers.iter()
-        .take(num_mirrors)
-        .map(|m| m.country_code.clone())
-        .collect::<Vec<String>>();
-
-    CountryFilter::SelectedCountries(countries)
 }
 
 pub fn read_client_header<T>(client_stream: &mut T) -> Result<ClientResponse, ClientError> where T: Read {

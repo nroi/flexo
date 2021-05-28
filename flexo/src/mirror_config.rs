@@ -226,7 +226,7 @@ fn mirror_config_from_env() -> MirrorConfig {
         max_speed_limit,
         refresh_latency_tests_after,
         num_versions_retain,
-        mirrors_auto
+        mirrors_auto,
     }
 }
 
