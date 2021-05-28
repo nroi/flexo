@@ -187,6 +187,8 @@ impl GetRequest {
 pub struct DownloadProvider {
     pub uri: String,
     pub name: String,
+    // TODO both mirror_results and country_code should be Optional. Right now, we're storing garbage values
+    // when the country is unknown and no results are available, which has already caused problems, see issue #58.
     pub mirror_results: MirrorResults,
     pub country_code: String,
 }
