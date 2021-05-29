@@ -30,6 +30,7 @@ use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
 use crate::str_path::StrPath;
 use crate::mirror_fetch::Mirror;
+use humantime::format_duration;
 
 mod mirror_config;
 mod mirror_fetch;
@@ -554,13 +555,6 @@ fn latency_tests_refresh_required(
     mirror_config: &MirrorConfig,
     download_providers: &TimestampedDownloadProviders,
 ) -> bool {
-    let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
-        Ok(d) => d,
-        Err(e) => {
-            error!("Unable to convert duration: {:?}", e);
-            return true;
-        }
-    };
     let last_check = match chrono::DateTime::parse_from_rfc3339(&download_providers.timestamp) {
         Ok(dt) => dt.naive_utc(),
         Err(e) => {
@@ -569,7 +563,14 @@ fn latency_tests_refresh_required(
         }
     };
     info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
-    duration of: {:?}", last_check, refresh_latency_tests_after);
+    duration of: {}", last_check, format_duration(mirror_config.refresh_latency_tests_after()));
+    let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("Unable to convert duration: {:?}", e);
+            return true;
+        }
+    };
     let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }
