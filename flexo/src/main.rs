@@ -556,7 +556,7 @@ fn latency_tests_refresh_required(
     download_providers: &TimestampedDownloadProviders,
 ) -> bool {
     let last_check = match chrono::DateTime::parse_from_rfc3339(&download_providers.timestamp) {
-        Ok(dt) => dt.naive_utc(),
+        Ok(dt) => dt.with_timezone(&chrono::offset::Utc),
         Err(e) => {
             error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
             return true;
@@ -571,7 +571,7 @@ fn latency_tests_refresh_required(
             return true;
         }
     };
-    let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
+    let duration_since_last_check = chrono::Utc::now() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }
 
