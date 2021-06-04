@@ -24,6 +24,7 @@ use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use crate::mirror_fetch;
 use crate::mirror_fetch::{MirrorProtocol, Mirror};
 use crate::str_path::StrPath;
+use uuid::Uuid;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -45,6 +46,8 @@ const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 const MAX_REDIRECTIONS: u32 = 3;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
+
+pub const UNCACHEABLE_DIRECTORY: &'static str = "/tmp/flexo/uncacheable";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -197,7 +200,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri = uri_from_components(&self.uri, order.filepath.to_str());
+        let uri = uri_from_components(&self.uri, order.requested_path.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -320,8 +323,7 @@ impl Job for DownloadJob {
     // TODO find a better function name than "cache_state": This function does not only return something,
     // it also has side effects.
     fn cache_state(order: &Self::O, properties: &Self::PR) -> Option<CachedItem> {
-        let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        persist_and_get_cache_state(&path)
+        persist_and_get_cache_state(&order.filepath(properties))
     }
 
     fn serve_from_provider(
@@ -424,7 +426,7 @@ impl Job for DownloadJob {
         properties: &MirrorConfig,
         last_chance: bool
     ) -> std::io::Result<DownloadJobResources> {
-        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+        let path = order.filepath(&properties);
         debug!("Attempt to create file: {:?}", &path);
         let f = match OpenOptions::new().create(true).append(true).open(&path) {
             Ok(f) => f,
@@ -578,14 +580,16 @@ fn cfs_path_from_pkg_path(path: &Path) -> Option<PathBuf> {
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
-    pub filepath: StrPath,
+    pub requested_path: StrPath,
+    pub id: Uuid,
 }
 
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
     fn new_channel(
-        self, properties: MirrorConfig,
+        self,
+        properties: MirrorConfig,
         tx: Sender<FlexoProgress>,
         last_chance: bool,
     ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
@@ -611,9 +615,26 @@ impl Order for DownloadOrder {
     }
 
     fn is_cacheable(&self) -> bool {
-        !(self.filepath.to_str().ends_with(".db") ||
-          self.filepath.to_str().ends_with(".files") ||
-          self.filepath.to_str().ends_with(".sig"))
+        !(self.requested_path.to_str().ends_with(".db") ||
+          self.requested_path.to_str().ends_with(".files") ||
+          self.requested_path.to_str().ends_with(".sig"))
+    }
+
+    fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
+        if self.is_cacheable() {
+            Path::new(&properties.cache_directory).join(&self.requested_path)
+        } else {
+            let path = Path::join(Path::new(UNCACHEABLE_DIRECTORY), &self.requested_path);
+            match fs::create_dir_all(path.parent().unwrap()) {
+                Ok(_) => {},
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
+                Err(e) => {
+                    panic!("Unexpected I/O error occurred: {:?}", e);
+                }
+            }
+            let filename = format!("{}-{}", &self.requested_path.to_str(), self.id);
+            Path::new(UNCACHEABLE_DIRECTORY).join(filename)
+        }
     }
 }
 
@@ -689,7 +710,7 @@ impl Handler for DownloadState {
             }
         }
         if job_resources.file_state.size_written == 0 {
-            debug!("Begin to transfer body to file {}", self.job_state.order.filepath.to_str());
+            debug!("Begin to transfer body to file {}", self.job_state.order.requested_path.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write(data) {
@@ -734,12 +755,14 @@ impl Handler for DownloadState {
                     // implementation, we assume that the header method is always called before anything is written to
                     // the file.
                     let size_written = self.job_state.job_resources.as_ref().unwrap().file_state.size_written;
-                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
+                    let path = self.job_state.order.filepath(&self.properties);
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
                     // provider_content_length = the content length we send to the provider.
                     let client_content_length = size_written + content_length;
-                    create_cfs_file(&path, client_content_length);
+                    if self.job_state.order.is_cacheable() {
+                        create_cfs_file(&path, client_content_length);
+                    }
                     debug!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);

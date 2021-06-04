@@ -4,6 +4,7 @@ extern crate rand;
 use flexo::*;
 use std::collections::HashMap;
 use crossbeam::channel::{Sender, Receiver};
+use std::path::PathBuf;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
 static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
@@ -114,7 +115,7 @@ impl Job for DummyJob {
                 std::thread::park(); // block forever.
                 JobResult::Complete(JobCompleted::new(channel, self.provider, 1))
             }
-            (DummyOrder::Panic(_), _) => panic!(ORDER_PANIC),
+            (DummyOrder::Panic(_), _) => panic!("{}", ORDER_PANIC),
             _ => JobResult::Error(JobTerminated { channel, error: DummyJobError {} }),
         }
     }
@@ -161,6 +162,10 @@ impl Order for DummyOrder {
 
     fn is_cacheable(&self) -> bool {
         true
+    }
+
+    fn filepath(&self, _properties: &<<Self as Order>::J as Job>::PR) -> PathBuf {
+        PathBuf::from("/tmp/some_path")
     }
 }
 
@@ -224,7 +229,7 @@ fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> 
             };
             wait_until_message_received(rx, message_cmp)
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     }
 }
 
@@ -239,7 +244,7 @@ fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyJob>) {
             };
             wait_until_message_received(rx, message_cmp);
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
 }
 
@@ -248,11 +253,11 @@ fn wait_until_job_completed(schedule_outcome: ScheduleOutcome<DummyJob>) -> Dumm
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _  }) => {
             join_handle.join().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     match result {
         JobOutcome::Success(provider) => DummyJobSuccess { provider },
-        JobOutcome::Error(_) => panic!(EXPECT_SUCCESS),
+        JobOutcome::Error(_) => panic!("{}", EXPECT_SUCCESS),
     }
 }
 
@@ -261,10 +266,10 @@ fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJo
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx: _, rx_progress: _  }) => {
             join_handle.join().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     match result {
-        JobOutcome::Success(_) => panic!(EXPECT_FAILURE),
+        JobOutcome::Success(_) => panic!("{}", EXPECT_FAILURE),
         JobOutcome::Error(failures) => DummyJobFailure {
             failures,
         }
@@ -283,7 +288,7 @@ fn provider_lowest_score() {
             // wait for the job to complete.
             join_handle.join()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     result.unwrap();
 }
@@ -299,7 +304,7 @@ fn second_provider_success_after_first_provider_failure() {
             // wait for the job to complete.
             join_handle.join().unwrap();
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     }
     let result = job_context.try_schedule(DummyOrder::Success(1), None, None);
     let DummyJobSuccess { provider } = wait_until_job_completed(result);
@@ -322,7 +327,7 @@ fn next_order_success_after_first_order_failed() {
                 _ => panic!("Expected success"),
             }
         },
-        _ => assert!(false, EXPECT_SCHEDULED),
+        _ => assert!(false, "{}", EXPECT_SCHEDULED),
     };
 }
 
@@ -340,13 +345,13 @@ fn provider_no_two_simultaneous_jobs() {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     let provider_order2 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_ne!(provider_order1, provider_order2);
 }
@@ -362,13 +367,13 @@ fn provider_two_simultaneous_jobs_if_required() {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     let provider_order2 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx, rx_progress: _ }) => {
             rx.recv().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_eq!(provider_order1, provider_order2);
 }
@@ -388,11 +393,11 @@ fn order_skipped_if_already_in_progress() {
         ScheduleOutcome::AlreadyInProgress =>
             {}
         ScheduleOutcome::Scheduled(_) =>
-            panic!(EXPECT_SKIPPED),
+            panic!("{}", EXPECT_SKIPPED),
         ScheduleOutcome::Cached =>
-            panic!(EXPECT_SKIPPED),
+            panic!("{}", EXPECT_SKIPPED),
         ScheduleOutcome::Uncacheable(_) =>
-            panic!(EXPECT_SKIPPED),
+            panic!("{}", EXPECT_SKIPPED),
     }
 }
 
@@ -431,7 +436,7 @@ fn job_continued_after_partial_completion() {
             };
             (provider_first_scheduled, provider_finally_scheduled)
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_eq!(provider_first_scheduled, p1);
     assert_eq!(provider_finally_scheduled, p2);
@@ -447,11 +452,11 @@ fn no_infinite_loop() {
         ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx: _, rx_progress: _ }) => {
             join_handle.join().unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
 
     match result {
-        JobOutcome::Success(_) => panic!(EXPECT_SUCCESS),
+        JobOutcome::Success(_) => panic!("{}", EXPECT_SUCCESS),
         JobOutcome::Error(_) => {},
     }
 }
@@ -507,7 +512,7 @@ fn no_new_channel_established() {
                 }
             })
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_eq!(channel_establishment, ChannelEstablishment::ExistingChannel)
 }
@@ -531,7 +536,7 @@ fn new_channel_established_because_channel_in_use() {
                 }
             })
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_eq!(channel_establishment, ChannelEstablishment::NewChannel)
 }
@@ -566,7 +571,7 @@ fn read_progress() {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx: _, rx_progress }) => {
             rx_progress.recv_timeout(std::time::Duration::from_millis(50)).unwrap()
         },
-        _ => panic!(EXPECT_SCHEDULED),
+        _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_eq!(result, FlexoProgress::Progress(0));
 }

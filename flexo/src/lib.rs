@@ -6,6 +6,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::collections::hash_map::Entry;
 use crossbeam::channel::{Sender, Receiver, unbounded};
+use std::path::PathBuf;
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -171,6 +172,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
     fn is_cacheable(&self) -> bool;
+
+    fn filepath(&self, properties: &<<Self as Order>::J as Job>::PR) -> PathBuf;
 
     fn try_until_success(
         self,
@@ -445,9 +448,6 @@ impl <J> JobContext<J> where J: Job {
         custom_provider: Option<J::P>,
         resume_from: Option<u64>,
     ) -> ScheduleOutcome<J> {
-        if !order.is_cacheable() {
-            return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
-        }
         let resume_from = resume_from.unwrap_or(0);
         let cached_size: u64 = {
             let mut orders_in_progress = self.orders_in_progress.lock().unwrap();
@@ -455,8 +455,12 @@ impl <J> JobContext<J> where J: Job {
                 debug!("order {:?} already in progress: nothing to do.", &order);
                 return ScheduleOutcome::AlreadyInProgress;
             } else {
-                let result = J::cache_state(&order, &self.properties);
-                match result {
+                let cache_state_result = if order.is_cacheable() {
+                    J::cache_state(&order, &self.properties)
+                } else {
+                    None
+                };
+                match cache_state_result {
                     None if resume_from > 0 => {
                         // Cannot store this order in cache: See issue #7
                         return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
