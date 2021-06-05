@@ -620,6 +620,22 @@ impl Order for DownloadOrder {
           self.requested_path.to_str().ends_with(".sig"))
     }
 
+    fn retryable(&self) -> bool {
+        if self.requested_path.to_str().ends_with(".db.sig") {
+            // As of now (2021-06-05), pacman attempts to fetch files ending with .db.sig from the remote
+            // mirrors, but the remote mirrors don't have those files available, because signatures for
+            // database files still seems to be an open issue in ArchLinux. So pacman just silently ignores
+            // the 404 responses returned by the remote mirrors. The default strategy for Flexo is to try all
+            // mirrors one after another if a mirror returns 404. However, in this case, this is not a very useful
+            // behavior because no mirror has those files, so Flexo would cause a small latency for the client
+            // while it attempts to fetch the signature file from the various remote mirrors.
+            // For this reason, we choose to not do any retries for all files ending with .db.sig.
+            false
+        } else {
+            true
+        }
+    }
+
     fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
         if self.is_cacheable() {
             Path::new(&properties.cache_directory).join(&self.requested_path)

@@ -153,7 +153,6 @@ pub struct ProvidersWithStats<J> where J: Job {
     pub providers: Vec<J::P>,
 }
 
-
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
     fn new_channel(
@@ -172,6 +171,10 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
     fn is_cacheable(&self) -> bool;
+
+    fn retryable(&self) -> bool {
+        true
+    }
 
     fn filepath(&self, properties: &<<Self as Order>::J as Job>::PR) -> PathBuf;
 
@@ -249,7 +252,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     break result;
                 },
             };
-            if result.is_success() || provider_stats.providers.is_empty() || last_chance {
+            if result.is_success() || provider_stats.providers.is_empty() || last_chance || !self.retryable() {
                 break result;
             }
         };
