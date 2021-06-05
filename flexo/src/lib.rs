@@ -178,6 +178,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
     fn filepath(&self, properties: &<<Self as Order>::J as Job>::PR) -> PathBuf;
 
+    fn description(&self) -> &str;
+
     fn try_until_success(
         self,
         provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
@@ -241,7 +243,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     info!("Error: {:?}, try again", e)
                 },
                 JobResult::Unavailable(_) => {
-                    info!("Order {:?} is not available at provider {}", &self, provider.description());
+                    info!("{} is not available at provider {}", &self.description(), provider.description());
                 },
                 JobResult::ClientError => {
                     warn!("Unable to finish job: {:?}", &result);
@@ -551,7 +553,7 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
-                    info!("The order {:?} was unavailable for all providers.", &order_cloned);
+                    info!("{} was unavailable for all providers.", &order_cloned.description());
                     channel.job_state().release_job_resources();
                     let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)

@@ -652,6 +652,11 @@ impl Order for DownloadOrder {
             Path::new(UNCACHEABLE_DIRECTORY).join(filename)
         }
     }
+
+    fn description(&self) -> &str {
+        self.requested_path.to_str()
+    }
+
 }
 
 
