@@ -201,7 +201,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             };
             debug!("selected provider: {:?}", &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
-            let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
+            let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
@@ -243,7 +243,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     info!("Error: {:?}, try again", e)
                 },
                 JobResult::Unavailable(_) => {
-                    info!("{} is not available at provider {}", &self.description(), provider.description());
+                    info!("{} is not available at {}", &self.description(), provider.description());
                 },
                 JobResult::ClientError => {
                     warn!("Unable to finish job: {:?}", &result);
@@ -254,7 +254,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     break result;
                 },
             };
-            if result.is_success() || provider_stats.providers.is_empty() || last_chance || !self.retryable() {
+            if result.is_success() || provider_stats.providers.is_empty() || last_chance {
                 break result;
             }
         };
@@ -553,7 +553,7 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
-                    info!("{} was unavailable for all providers.", &order_cloned.description());
+                    info!("{} was unavailable at all remote mirrors.", &order_cloned.description());
                     channel.job_state().release_job_resources();
                     let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)

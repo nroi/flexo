@@ -728,7 +728,7 @@ impl Handler for DownloadState {
                 // If the header says the file is not available, we return early without writing anything to
                 // the file on disk. The content returned is just the HTML code saying the file is not available,
                 // so there is no reason to write this data to disk.
-                info!("File unavailable - return content length without writing anything.");
+                debug!("File unavailable - return content length without writing anything.");
                 return Ok(data.len());
             },
             None => {
@@ -803,7 +803,7 @@ impl Handler for DownloadState {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                 } else if job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    error!("All providers have been unable to fulfil this request.");
+                    debug!("Sending FlexoProgress::Unavailable");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
                     let _ = self.job_state.tx.send(message);
                 }
