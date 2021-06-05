@@ -260,7 +260,7 @@ fn serve_request(
                 let path = order.filepath(&properties);
                 let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
                 let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
-                let file: File = File::open(&path)?;
+                let file = File::open(&path)?;
                 serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
                 Ok(PayloadOrigin::RemoteMirror)
             }
@@ -270,13 +270,13 @@ fn serve_request(
                 match receive_content_length(rx_progress) {
                     Ok(ContentLengthResult::ContentLength(content_length)) => {
                         debug!("Received content length via channel: {}", content_length);
-                        let file: File = File::open(order.filepath(&properties))?;
+                        let file = File::open(order.filepath(&properties))?;
                         serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::RemoteMirror)
                     }
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
-                        let file: File = File::open(order.filepath(&properties))?;
+                        let file = File::open(order.filepath(&properties))?;
                         serve_from_complete_file(file, get_request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::Cache)
                     }
@@ -308,7 +308,7 @@ fn serve_request(
             ScheduleOutcome::Cached => {
                 debug!("Cache hit for request {:?}", &order.requested_path);
                 let path = order.filepath(&properties);
-                let file: File = match File::open(&path) {
+                let file = match File::open(&path) {
                     Ok(f) => f,
                     Err(e) => {
                         error!("Unable to open file {:?}: {:?}", &path, e);
