@@ -424,7 +424,7 @@ impl Job for DownloadJob {
     fn acquire_resources(
         order: &DownloadOrder,
         properties: &MirrorConfig,
-        last_chance: bool
+        last_chance: bool,
     ) -> std::io::Result<DownloadJobResources> {
         let path = order.filepath(&properties);
         debug!("Attempt to create file: {:?}", &path);

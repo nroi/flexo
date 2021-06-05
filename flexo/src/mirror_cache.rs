@@ -63,7 +63,7 @@ pub fn store_latency_test_results(
 pub enum DemarshallError {
     VersionMismatch,
     SerdeError(serde_json::Error),
-    IoError(io::Error)
+    IoError(io::Error),
 }
 
 impl From<io::Error> for DemarshallError {

@@ -155,26 +155,25 @@ fn purge_cache(directory: &str, num_versions_retain: u32) {
 }
 
 fn purge_cfs_files(directory: &str) {
-    let glob_pattern = format!("{}/**/.*.cfs", directory);
-    for path in glob(&glob_pattern).unwrap() {
-        match &path {
-            Ok(p) => {
-                match p.file_name().unwrap().to_str() {
+    for glob_result in glob(&format!("{}/**/.*.cfs", directory)).unwrap() {
+        match &glob_result {
+            Ok(path) => {
+                match path.file_name().unwrap().to_str() {
                     None => {
-                        warn!("Invalid unicode: {:?}", p.file_name());
+                        warn!("Invalid unicode: {:?}", path.file_name());
                     }
                     Some(filename) => {
                         let corresponding_package_filename = filename
                             .strip_prefix(".").unwrap()
                             .strip_suffix(".cfs").unwrap();
-                        let corresponding_package_filepath = p.with_file_name(corresponding_package_filename);
+                        let corresponding_package_filepath = path.with_file_name(corresponding_package_filename);
                         if !corresponding_package_filepath.exists() {
-                            match fs::remove_file(&p) {
+                            match fs::remove_file(&path) {
                                 Ok(()) => {
-                                    debug!("File {:?} is no longer required and therefore removed.", &p);
+                                    debug!("File {:?} is no longer required and therefore removed.", &path);
                                 }
                                 Err(e) => {
-                                    warn!("Unable to remove file {:?}: {:?}", &p, e);
+                                    warn!("Unable to remove file {:?}: {:?}", &path, e);
                                 }
                             }
                         }
