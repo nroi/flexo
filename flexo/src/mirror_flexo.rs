@@ -49,6 +49,8 @@ const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
 
 pub const UNCACHEABLE_DIRECTORY: &'static str = "/tmp/flexo/uncacheable";
 
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_millis(3000);
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
     BufferSizeExceeded,
@@ -338,8 +340,11 @@ impl Job for DownloadJob {
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
-        // TODO avoid hardcoded values, make this configurable.
-        channel.handle.connect_timeout(Duration::from_secs(3)).unwrap();
+        let connect_timeout = match properties.connect_timeout {
+            None => DEFAULT_CONNECT_TIMEOUT,
+            Some(timeout) => Duration::from_millis(timeout),
+        };
+        channel.handle.connect_timeout(connect_timeout).unwrap();
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
@@ -904,11 +909,11 @@ pub fn rated_providers(
     };
     debug!("Running latency tests on the following mirrors: {:#?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
-    let timeout = Duration::from_millis(mirrors_auto.timeout);
+    let request_timeout = Duration::from_millis(mirrors_auto.timeout);
     let mut num_successes = 0;
     let mut num_failures = 0;
     for mirror in filtered_mirror_urls.into_iter() {
-        let is_success = match mirror_fetch::measure_latency(&mirror.url, timeout) {
+        let is_success = match mirror_fetch::measure_latency(&mirror.url, request_timeout) {
             Err(e) => {
                 num_failures += 1;
                 if e.code() == CURLE_OPERATION_TIMEDOUT {

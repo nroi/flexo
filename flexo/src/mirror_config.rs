@@ -100,6 +100,7 @@ pub struct MirrorConfig {
     pub custom_repo: Option<Vec<CustomRepo>>,
     pub low_speed_limit: Option<u32>,
     pub low_speed_time_secs: Option<u64>,
+    pub connect_timeout: Option<u64>,
     pub max_speed_limit: Option<u64>,
     pub num_versions_retain: Option<u32>,
     pub mirrors_auto: Option<MirrorsAutoConfig>,
@@ -200,6 +201,7 @@ fn mirror_config_from_env() -> MirrorConfig {
     let port = parse_env_toml::<u16>("FLEXO_PORT").unwrap();
     let mirror_selection_method = parse_env_toml::<MirrorSelectionMethod>("FLEXO_MIRROR_SELECTION_METHOD").unwrap();
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
+    let connect_timeout = parse_env_toml::<u64>("FLEXO_CONNECT_TIMEOUT");
     let low_speed_limit = parse_env_toml::<u32>("FLEXO_LOW_SPEED_LIMIT");
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
@@ -221,6 +223,7 @@ fn mirror_config_from_env() -> MirrorConfig {
         mirror_selection_method,
         mirrors_predefined,
         custom_repo,
+        connect_timeout,
         low_speed_limit,
         low_speed_time_secs,
         max_speed_limit,
