@@ -2,11 +2,13 @@
 // so that we can simply retrieve and reuse the previously selected mirrors from this file, instead of fetching
 // the mirrors from the JSON endpoint.
 
+use std::fs;
+use std::io;
+
+use serde::{Deserialize, Serialize};
+
 use crate::mirror_config::MirrorConfig;
 use crate::mirror_flexo::DownloadProvider;
-
-use std::io;
-use serde::{Serialize, Deserialize};
 
 const DEFAULT_LATENCY_TEST_RESULTS_FILE: &str = "/var/cache/flexo/state/latency_test_results.json";
 
@@ -49,7 +51,7 @@ pub fn store_latency_test_results(
     };
     let serialized = serde_json::to_string_pretty(&timestamped).unwrap();
     let file_path = latency_test_results_file(properties);
-    std::fs::write(file_path, serialized)
+    fs::write(file_path, serialized)
         .unwrap_or_else(|_| panic!("Unable to write file: {}", file_path));
 
     // Return the providers so that ownership is given back to the caller. This way, we can avoid
@@ -80,7 +82,7 @@ pub fn fetch_download_providers(
     properties: &MirrorConfig
 ) -> Result<TimestampedDownloadProviders, DemarshallError> {
     let file_path = latency_test_results_file(properties);
-    let contents = std::fs::read_to_string(file_path)?;
+    let contents = fs::read_to_string(file_path)?;
     match serde_json::from_str::<VersionOnly>(&contents)? {
         VersionOnly { version: Some(TIMESTAMPED_DOWNLOAD_PROVIDERS_VERSION) } => {
             Ok(serde_json::from_str::<TimestampedDownloadProviders>(&contents)?)

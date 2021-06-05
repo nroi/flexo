@@ -203,7 +203,7 @@ fn purge_uncacheable_files() -> io::Result<()> {
                 };
                 if duration > Duration::from_secs(60 * 5) {
                     debug!("Removing stale file {:?}", &path);
-                    std::fs::remove_file(&path)?;
+                    fs::remove_file(&path)?;
                 }
             }
             Ok(_path) => {},
