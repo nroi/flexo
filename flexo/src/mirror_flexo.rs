@@ -791,7 +791,6 @@ impl Handler for DownloadState {
                     let _ = self.job_state.tx.send(FlexoProgress::Completed);
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    info!("Hoping that another provider can fulfil this request…");
                 } else if job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     error!("All providers have been unable to fulfil this request.");

@@ -291,7 +291,7 @@ fn serve_request(
                         Ok(PayloadOrigin::NoPayload)
                     }
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
-                        eprintln!("Remote server has disconnected unexpectedly.");
+                        error!("Remote server has disconnected unexpectedly.");
                         serve_500_header(client_stream)?;
                         Ok(PayloadOrigin::NoPayload)
                     }
