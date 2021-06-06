@@ -793,8 +793,7 @@ impl Handler for DownloadState {
                         create_cfs_file(&path, client_content_length);
                     }
                     debug!("Sending content length: {}", client_content_length);
-                    let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::JobSize(client_content_length));
                 }  else if code == 416 {
                     // If the requested file was already cached, but we don't know if the cached file has been
                     // downloaded completely or only partially, we send the Content-Range header in order to not
@@ -807,8 +806,7 @@ impl Handler for DownloadState {
                 } else if job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     debug!("Sending FlexoProgress::Unavailable");
-                    let message: FlexoProgress = FlexoProgress::Unavailable;
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::Unavailable);
                 }
             }
             Ok(Status::Partial) => {
