@@ -18,7 +18,7 @@ cache_directory = "/var/cache/flexo/pkg"
 # for the given amount of seconds.
 low_speed_time_secs = 3
 
-# The timeout used when connecting to a remote mirror.
+# The timeout, in milliseconds, when connecting to a remote mirror.
 connect_timeout = 3000
 
 # After the mirrorlist was fetched from a remote JSON endpoint and the mirrors have
