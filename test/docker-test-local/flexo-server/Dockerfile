@@ -31,6 +31,7 @@ ENV FLEXO_CACHE_DIRECTORY="/tmp/var/cache/flexo/pkg" \
     FLEXO_MIRRORLIST_LATENCY_TEST_RESULTS_FILE="/tmp/var/cache/flexo/state/latency_test_results.json" \
     FLEXO_PORT=7878 \
     FLEXO_LISTEN_IP_ADDRESS="0.0.0.0" \
+    FLEXO_CONNECT_TIMEOUT=3000 \
     FLEXO_MIRROR_SELECTION_METHOD="auto" \
     FLEXO_MIRRORS_PREDEFINED=[] \
     FLEXO_MIRRORS_BLACKLIST=[] \

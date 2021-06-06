@@ -4,9 +4,9 @@ extern crate http;
 extern crate log;
 extern crate rand;
 
+use std::fs;
 use std::fs::File;
 use std::io;
-use std::fs;
 use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
@@ -19,17 +19,20 @@ use std::sync::{Arc, Mutex};
 use crossbeam::channel::Receiver;
 use crossbeam::channel::RecvTimeoutError;
 use glob::glob;
+use humantime::format_duration;
 use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
+use uuid::Uuid;
 
 use flexo::*;
 use mirror_flexo::*;
 
 use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
-use crate::str_path::StrPath;
 use crate::mirror_fetch::Mirror;
+use crate::str_path::StrPath;
+use std::time::{Duration, SystemTime};
 
 mod mirror_config;
 mod mirror_fetch;
@@ -113,6 +116,12 @@ fn main() {
                 }
                 _ => {}
             }
+            match purge_uncacheable_files() {
+                Ok(()) => {}
+                Err(e) => {
+                    error!("Unable to purge uncacheable files: {:?}", e);
+                }
+            }
         });
     }
 }
@@ -146,26 +155,25 @@ fn purge_cache(directory: &str, num_versions_retain: u32) {
 }
 
 fn purge_cfs_files(directory: &str) {
-    let glob_pattern = format!("{}/**/.*.cfs", directory);
-    for path in glob(&glob_pattern).unwrap() {
-        match &path {
-            Ok(p) => {
-                match p.file_name().unwrap().to_str() {
+    for glob_result in glob(&format!("{}/**/.*.cfs", directory)).unwrap() {
+        match &glob_result {
+            Ok(path) => {
+                match path.file_name().unwrap().to_str() {
                     None => {
-                        warn!("Invalid unicode: {:?}", p.file_name());
+                        warn!("Invalid unicode: {:?}", path.file_name());
                     }
                     Some(filename) => {
                         let corresponding_package_filename = filename
                             .strip_prefix(".").unwrap()
                             .strip_suffix(".cfs").unwrap();
-                        let corresponding_package_filepath = p.with_file_name(corresponding_package_filename);
+                        let corresponding_package_filepath = path.with_file_name(corresponding_package_filename);
                         if !corresponding_package_filepath.exists() {
-                            match fs::remove_file(&p) {
+                            match fs::remove_file(&path) {
                                 Ok(()) => {
-                                    debug!("File {:?} is no longer required and therefore removed.", &p);
+                                    debug!("File {:?} is no longer required and therefore removed.", &path);
                                 }
                                 Err(e) => {
-                                    warn!("Unable to remove file {:?}: {:?}", &p, e);
+                                    warn!("Unable to remove file {:?}: {:?}", &path, e);
                                 }
                             }
                         }
@@ -177,6 +185,33 @@ fn purge_cfs_files(directory: &str) {
             }
         }
     }
+}
+
+fn purge_uncacheable_files() -> io::Result<()> {
+    for glob_result in glob(&format!("{}/**/*", UNCACHEABLE_DIRECTORY)).unwrap() {
+        match &glob_result {
+            Ok(path) if path.is_file() => {
+                debug!("Check if file {:?} is stale", &path);
+                let modification_time = path.metadata()?.modified()?;
+                let duration = match SystemTime::now().duration_since(modification_time) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        error!("Unable to determine age of file {:?}: {:?}", &path, e);
+                        continue
+                    }
+                };
+                if duration > Duration::from_secs(60 * 5) {
+                    debug!("Removing stale file {:?}", &path);
+                    fs::remove_file(&path)?;
+                }
+            }
+            Ok(_path) => {},
+            Err(e) => {
+                error!("Glob failed: {:?}", e);
+            }
+        }
+    }
+    return Ok(());
 }
 
 fn str_from_vec(v: Vec<u8>) -> Option<String> {
@@ -204,7 +239,7 @@ fn serve_request(
     get_request: GetRequest,
 ) -> Result<PayloadOrigin, ClientError> {
     let (custom_provider, get_request) =
-        custom_provider_from_request(get_request, &properties.custom_repo.unwrap_or(vec![]));
+        custom_provider_from_request(get_request, &properties.custom_repo.as_ref().unwrap_or(&vec![]));
     if !valid_path(&get_request.path.as_ref()) {
         info!("Invalid path: Serve 403");
         serve_403_header(client_stream)?;
@@ -214,17 +249,18 @@ fn serve_request(
         Ok(PayloadOrigin::NoPayload)
     } else {
         let order = DownloadOrder {
-            filepath: get_request.path,
+            id: Uuid::new_v4(),
+            requested_path: get_request.path,
         };
         debug!("Schedule new job");
         let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, get_request.resume_from);
         match result {
             ScheduleOutcome::AlreadyInProgress => {
                 debug!("Job is already in progress");
-                let path = Path::new(&properties.cache_directory).join(&order.filepath.as_ref());
+                let path = order.filepath(&properties);
                 let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
                 let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
-                let file: File = File::open(&path)?;
+                let file = File::open(&path)?;
                 serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
                 Ok(PayloadOrigin::RemoteMirror)
             }
@@ -234,15 +270,13 @@ fn serve_request(
                 match receive_content_length(rx_progress) {
                     Ok(ContentLengthResult::ContentLength(content_length)) => {
                         debug!("Received content length via channel: {}", content_length);
-                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                        let file: File = File::open(&path)?;
+                        let file = File::open(order.filepath(&properties))?;
                         serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::RemoteMirror)
                     }
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
-                        let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                        let file: File = File::open(&path)?;
+                        let file = File::open(order.filepath(&properties))?;
                         serve_from_complete_file(file, get_request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::Cache)
                     }
@@ -257,7 +291,7 @@ fn serve_request(
                         Ok(PayloadOrigin::NoPayload)
                     }
                     Err(ContentLengthError::TransmissionError(RecvTimeoutError::Disconnected)) => {
-                        eprintln!("Remote server has disconnected unexpectedly.");
+                        error!("Remote server has disconnected unexpectedly.");
                         serve_500_header(client_stream)?;
                         Ok(PayloadOrigin::NoPayload)
                     }
@@ -272,9 +306,9 @@ fn serve_request(
                 }
             }
             ScheduleOutcome::Cached => {
-                debug!("Cache hit for request {:?}", &order.filepath);
-                let path = Path::new(&properties.cache_directory).join(&order.filepath);
-                let file: File = match File::open(&path) {
+                debug!("Cache hit for request {:?}", &order.requested_path);
+                let path = order.filepath(&properties);
+                let file = match File::open(&path) {
                     Ok(f) => f,
                     Err(e) => {
                         error!("Unable to open file {:?}: {:?}", &path, e);
@@ -286,7 +320,7 @@ fn serve_request(
             }
             ScheduleOutcome::Uncacheable(p) => {
                 debug!("Serve file via redirect.");
-                let uri_string = uri_from_components(&p.uri, order.filepath.to_str());
+                let uri_string = uri_from_components(&p.uri, order.requested_path.to_str());
                 serve_via_redirect(uri_string, client_stream)?;
                 Ok(PayloadOrigin::NoPayload)
             }
@@ -554,6 +588,15 @@ fn latency_tests_refresh_required(
     mirror_config: &MirrorConfig,
     download_providers: &TimestampedDownloadProviders,
 ) -> bool {
+    let last_check = match chrono::DateTime::parse_from_rfc3339(&download_providers.timestamp) {
+        Ok(dt) => dt.with_timezone(&chrono::offset::Utc),
+        Err(e) => {
+            error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
+            return true;
+        }
+    };
+    info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
+    duration of: {}", last_check, format_duration(mirror_config.refresh_latency_tests_after()));
     let refresh_latency_tests_after = match chrono::Duration::from_std(mirror_config.refresh_latency_tests_after()) {
         Ok(d) => d,
         Err(e) => {
@@ -561,16 +604,7 @@ fn latency_tests_refresh_required(
             return true;
         }
     };
-    let last_check = match chrono::DateTime::parse_from_rfc3339(&download_providers.timestamp) {
-        Ok(dt) => dt.naive_utc(),
-        Err(e) => {
-            error!("Unable to convert timestamp {:?}: {:?}", &download_providers.timestamp, e);
-            return true;
-        }
-    };
-    info!("The most recent latency test ran at {}. Latency tests are scheduled to run against all mirrors after a \
-    duration of: {:?}", last_check, refresh_latency_tests_after);
-    let duration_since_last_check = chrono::Utc::now().naive_utc() - last_check;
+    let duration_since_last_check = chrono::Utc::now() - last_check;
     duration_since_last_check > refresh_latency_tests_after
 }
 

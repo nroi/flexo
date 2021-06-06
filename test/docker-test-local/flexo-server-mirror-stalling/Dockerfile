@@ -32,6 +32,7 @@ ENV FLEXO_CACHE_DIRECTORY="/tmp/var/cache/flexo/pkg" \
     FLEXO_PORT=7878 \
     FLEXO_LISTEN_IP_ADDRESS="0.0.0.0" \
     FLEXO_MIRROR_SELECTION_METHOD="predefined" \
+    FLEXO_CONNECT_TIMEOUT=3000 \
     FLEXO_MIRRORS_PREDEFINED="['http://mirror-stalling-mock', 'http://mirror-fast-mock']" \
     FLEXO_MIRRORS_BLACKLIST=[] \
     FLEXO_LOW_SPEED_TIME_SECS=1 \

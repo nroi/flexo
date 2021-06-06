@@ -24,6 +24,7 @@ use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
 use crate::mirror_fetch;
 use crate::mirror_fetch::{MirrorProtocol, Mirror};
 use crate::str_path::StrPath;
+use uuid::Uuid;
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -45,6 +46,10 @@ const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 const MAX_REDIRECTIONS: u32 = 3;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
+
+pub const UNCACHEABLE_DIRECTORY: &'static str = "/tmp/flexo/uncacheable";
+
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_millis(3000);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -197,7 +202,7 @@ impl Provider for DownloadProvider {
     type J = DownloadJob;
 
     fn new_job(&self, properties: &<<Self as Provider>::J as Job>::PR, order: DownloadOrder) -> DownloadJob {
-        let uri = uri_from_components(&self.uri, order.filepath.to_str());
+        let uri = uri_from_components(&self.uri, order.requested_path.to_str());
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
@@ -320,8 +325,7 @@ impl Job for DownloadJob {
     // TODO find a better function name than "cache_state": This function does not only return something,
     // it also has side effects.
     fn cache_state(order: &Self::O, properties: &Self::PR) -> Option<CachedItem> {
-        let path = Path::new(&properties.cache_directory).join(&order.filepath);
-        persist_and_get_cache_state(&path)
+        persist_and_get_cache_state(&order.filepath(properties))
     }
 
     fn serve_from_provider(
@@ -336,8 +340,11 @@ impl Job for DownloadJob {
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
-        // TODO avoid hardcoded values, make this configurable.
-        channel.handle.connect_timeout(Duration::from_secs(3)).unwrap();
+        let connect_timeout = match properties.connect_timeout {
+            None => DEFAULT_CONNECT_TIMEOUT,
+            Some(timeout) => Duration::from_millis(timeout),
+        };
+        channel.handle.connect_timeout(connect_timeout).unwrap();
         match properties.low_speed_limit {
             None => {},
             Some(speed) => {
@@ -422,9 +429,9 @@ impl Job for DownloadJob {
     fn acquire_resources(
         order: &DownloadOrder,
         properties: &MirrorConfig,
-        last_chance: bool
+        last_chance: bool,
     ) -> std::io::Result<DownloadJobResources> {
-        let path = Path::new(&properties.cache_directory).join(&order.filepath);
+        let path = order.filepath(&properties);
         debug!("Attempt to create file: {:?}", &path);
         let f = match OpenOptions::new().create(true).append(true).open(&path) {
             Ok(f) => f,
@@ -578,14 +585,16 @@ fn cfs_path_from_pkg_path(path: &Path) -> Option<PathBuf> {
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
-    pub filepath: StrPath,
+    pub requested_path: StrPath,
+    pub id: Uuid,
 }
 
 impl Order for DownloadOrder {
     type J = DownloadJob;
 
     fn new_channel(
-        self, properties: MirrorConfig,
+        self,
+        properties: MirrorConfig,
         tx: Sender<FlexoProgress>,
         last_chance: bool,
     ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
@@ -611,9 +620,50 @@ impl Order for DownloadOrder {
     }
 
     fn is_cacheable(&self) -> bool {
-        !(self.filepath.to_str().ends_with(".db") ||
-          self.filepath.to_str().ends_with(".files") ||
-          self.filepath.to_str().ends_with(".sig"))
+        !(self.requested_path.to_str().ends_with(".db") ||
+          self.requested_path.to_str().ends_with(".files") ||
+          self.requested_path.to_str().ends_with(".sig"))
+    }
+
+    fn retryable(&self) -> bool {
+        if self.requested_path.to_str().ends_with(".db.sig") {
+            // As of now (2021-06-05), pacman attempts to fetch files ending with .db.sig from the remote
+            // mirrors, but the remote mirrors don't have those files available, because signatures for
+            // database files still seems to be an open issue in ArchLinux. So pacman just silently ignores
+            // the 404 responses returned by the remote mirrors. The default strategy for Flexo is to try all
+            // mirrors one after another if a mirror returns 404. However, in this case, this is not a very useful
+            // behavior because no mirror has those files, so Flexo would cause a small latency for the client
+            // while it attempts to fetch the signature file from the various remote mirrors.
+            // For this reason, we choose to not do any retries for all files ending with .db.sig.
+            false
+        } else {
+            true
+        }
+    }
+
+    fn description(&self) -> &str {
+        self.requested_path.to_str()
+    }
+
+}
+
+impl DownloadOrder {
+
+    pub fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
+        if self.is_cacheable() {
+            Path::new(&properties.cache_directory).join(&self.requested_path)
+        } else {
+            let path = Path::join(Path::new(UNCACHEABLE_DIRECTORY), &self.requested_path);
+            match fs::create_dir_all(path.parent().unwrap()) {
+                Ok(_) => {},
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
+                Err(e) => {
+                    panic!("Unexpected I/O error occurred: {:?}", e);
+                }
+            }
+            let filename = format!("{}-{}", &self.requested_path.to_str(), self.id);
+            Path::new(UNCACHEABLE_DIRECTORY).join(filename)
+        }
     }
 }
 
@@ -681,7 +731,7 @@ impl Handler for DownloadState {
                 // If the header says the file is not available, we return early without writing anything to
                 // the file on disk. The content returned is just the HTML code saying the file is not available,
                 // so there is no reason to write this data to disk.
-                info!("File unavailable - return content length without writing anything.");
+                debug!("File unavailable - return content length without writing anything.");
                 return Ok(data.len());
             },
             None => {
@@ -689,7 +739,7 @@ impl Handler for DownloadState {
             }
         }
         if job_resources.file_state.size_written == 0 {
-            debug!("Begin to transfer body to file {}", self.job_state.order.filepath.to_str());
+            debug!("Begin to transfer body to file {}", self.job_state.order.requested_path.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write(data) {
@@ -734,12 +784,14 @@ impl Handler for DownloadState {
                     // implementation, we assume that the header method is always called before anything is written to
                     // the file.
                     let size_written = self.job_state.job_resources.as_ref().unwrap().file_state.size_written;
-                    let path = Path::new(&self.properties.cache_directory).join(&self.job_state.order.filepath);
+                    let path = self.job_state.order.filepath(&self.properties);
                     // TODO stick to a consistent terminology, everywhere: client_content_length = the content length
                     // as communicated to the client, i.e., what the client receives in his headers.
                     // provider_content_length = the content length we send to the provider.
                     let client_content_length = size_written + content_length;
-                    create_cfs_file(&path, client_content_length);
+                    if self.job_state.order.is_cacheable() {
+                        create_cfs_file(&path, client_content_length);
+                    }
                     debug!("Sending content length: {}", client_content_length);
                     let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
                     let _ = self.job_state.tx.send(message);
@@ -752,10 +804,9 @@ impl Handler for DownloadState {
                     let _ = self.job_state.tx.send(FlexoProgress::Completed);
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    info!("Hoping that another provider can fulfil this request…");
                 } else if job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    error!("All providers have been unable to fulfil this request.");
+                    debug!("Sending FlexoProgress::Unavailable");
                     let message: FlexoProgress = FlexoProgress::Unavailable;
                     let _ = self.job_state.tx.send(message);
                 }
@@ -861,11 +912,11 @@ pub fn rated_providers(
     };
     debug!("Running latency tests on the following mirrors: {:#?}", filtered_mirror_urls);
     let mut mirrors_with_latencies = Vec::new();
-    let timeout = Duration::from_millis(mirrors_auto.timeout);
+    let request_timeout = Duration::from_millis(mirrors_auto.timeout);
     let mut num_successes = 0;
     let mut num_failures = 0;
     for mirror in filtered_mirror_urls.into_iter() {
-        let is_success = match mirror_fetch::measure_latency(&mirror.url, timeout) {
+        let is_success = match mirror_fetch::measure_latency(&mirror.url, request_timeout) {
             Err(e) => {
                 num_failures += 1;
                 if e.code() == CURLE_OPERATION_TIMEDOUT {

@@ -152,7 +152,6 @@ pub struct ProvidersWithStats<J> where J: Job {
     pub providers: Vec<J::P>,
 }
 
-
 pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job<O=Self>;
     fn new_channel(
@@ -171,6 +170,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> Result<<<Self as Order>::J as Job>::C, <<Self as Order>::J as Job>::OE>;
 
     fn is_cacheable(&self) -> bool;
+
+    fn retryable(&self) -> bool {
+        true
+    }
+
+    fn description(&self) -> &str;
 
     fn try_until_success(
         self,
@@ -193,7 +198,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             };
             debug!("selected provider: {:?}", &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
-            let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider;
+            let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
             {
@@ -235,7 +240,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     info!("Error: {:?}, try again", e)
                 },
                 JobResult::Unavailable(_) => {
-                    info!("Order is not available, let's try again with a different provider.")
+                    info!("{} is not available at {}", &self.description(), provider.description());
                 },
                 JobResult::ClientError => {
                     warn!("Unable to finish job: {:?}", &result);
@@ -445,9 +450,6 @@ impl <J> JobContext<J> where J: Job {
         custom_provider: Option<J::P>,
         resume_from: Option<u64>,
     ) -> ScheduleOutcome<J> {
-        if !order.is_cacheable() {
-            return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
-        }
         let resume_from = resume_from.unwrap_or(0);
         let cached_size: u64 = {
             let mut orders_in_progress = self.orders_in_progress.lock().unwrap();
@@ -455,8 +457,12 @@ impl <J> JobContext<J> where J: Job {
                 debug!("order {:?} already in progress: nothing to do.", &order);
                 return ScheduleOutcome::AlreadyInProgress;
             } else {
-                let result = J::cache_state(&order, &self.properties);
-                match result {
+                let cache_state_result = if order.is_cacheable() {
+                    J::cache_state(&order, &self.properties)
+                } else {
+                    None
+                };
+                match cache_state_result {
                     None if resume_from > 0 => {
                         // Cannot store this order in cache: See issue #7
                         return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
@@ -544,7 +550,7 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_failures)
                 }
                 JobResult::Unavailable(mut channel) => {
-                    info!("The given order was unavailable for all providers.");
+                    info!("{} was unavailable at all remote mirrors.", &order_cloned.description());
                     channel.job_state().release_job_resources();
                     let provider_failures = provider_stats.provider_failures.lock().unwrap().clone();
                     JobOutcome::Error(provider_failures)
