@@ -641,7 +641,15 @@ impl Order for DownloadOrder {
         }
     }
 
-    fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
+    fn description(&self) -> &str {
+        self.requested_path.to_str()
+    }
+
+}
+
+impl DownloadOrder {
+
+    pub fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
         if self.is_cacheable() {
             Path::new(&properties.cache_directory).join(&self.requested_path)
         } else {
@@ -657,11 +665,6 @@ impl Order for DownloadOrder {
             Path::new(UNCACHEABLE_DIRECTORY).join(filename)
         }
     }
-
-    fn description(&self) -> &str {
-        self.requested_path.to_str()
-    }
-
 }
 
 

@@ -6,7 +6,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::collections::hash_map::Entry;
 use crossbeam::channel::{Sender, Receiver, unbounded};
-use std::path::PathBuf;
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -175,8 +174,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     fn retryable(&self) -> bool {
         true
     }
-
-    fn filepath(&self, properties: &<<Self as Order>::J as Job>::PR) -> PathBuf;
 
     fn description(&self) -> &str;
 
