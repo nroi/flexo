@@ -192,8 +192,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            let (provider, is_last_provider) = match custom_provider.clone() { // TODO don't clone…
-                Some(p) => (p, true),
+            let (provider, is_last_provider) = match custom_provider {
+                Some(ref p) => (p.clone(), true),
                 None => self.select_provider(provider_stats, custom_provider.clone()), // TODO don't clone…
             };
             debug!("selected provider: {:?}", &provider);
