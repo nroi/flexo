@@ -190,11 +190,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            let (provider, is_last_provider) = match custom_provider {
-                Some(ref p) => (p, true),
-                None => self.select_provider(provider_stats, &custom_provider),
-            };
-            debug!("selected provider: {:?}", &provider);
+            let (provider, is_last_provider) = self.select_provider(provider_stats, &custom_provider);
+            debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
             let message = FlexoMessage::ProviderSelected(provider.clone());
