@@ -69,10 +69,7 @@ pub enum JobOutcome <J> where J: Job {
 
 impl <J> JobResult<J> where J: Job {
     fn is_success(&self) -> bool {
-        match self {
-            JobResult::Complete(_) => true,
-            _ => false,
-        }
+        matches!(self, JobResult::Complete(_))
     }
 }
 

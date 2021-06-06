@@ -223,13 +223,7 @@ fn str_from_vec(v: Vec<u8>) -> Option<String> {
 }
 
 fn valid_path(path: &Path) -> bool {
-    path.components().all(|c| {
-        match c {
-            path::Component::Normal(_) => true,
-            path::Component::RootDir => true,
-            _ => false,
-        }
-    })
+    path.components().all(|c| matches!(c, path::Component::Normal(_) | path::Component::RootDir))
 }
 
 fn serve_request(
