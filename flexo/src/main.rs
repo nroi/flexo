@@ -107,7 +107,7 @@ fn main() {
         std::thread::spawn(move || {
             debug!("Started new thread.");
             let cache_tainted_result = serve_client(job_context, client_stream, properties);
-            let _ = cache_purge_mutex.lock().unwrap();
+            let _lock = cache_purge_mutex.lock().unwrap();
             match (cache_tainted_result, num_versions_retain) {
                 (Ok(true), Some(0)) => {}
                 (Ok(true), Some(v)) => {
