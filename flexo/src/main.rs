@@ -85,7 +85,7 @@ fn main() {
     };
     let port = job_context.lock().unwrap().properties.port;
     let listen_ip_address =
-        job_context.lock().unwrap().properties.listen_ip_address.clone().unwrap_or("0.0.0.0".to_owned());
+        job_context.lock().unwrap().properties.listen_ip_address.clone().unwrap_or_else(|| "0.0.0.0".to_owned());
     debug!("Listen on address {}", listen_ip_address);
     let addr = format!("{}:{}", listen_ip_address, port);
     let listener = match TcpListener::bind(&addr) {

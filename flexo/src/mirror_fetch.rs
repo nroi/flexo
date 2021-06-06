@@ -34,7 +34,7 @@ impl From<MirrorListOption> for MirrorList {
         let urls: Vec<Option<Mirror>> = mirror_list_option.urls.into_iter().map(|mirror_url_option| {
             mirror_url_option.mirror_url()
         }).collect();
-        let urls: Vec<Mirror> = urls.into_iter().filter_map(|x| x).collect();
+        let urls: Vec<Mirror> = urls.into_iter().flatten().collect();
         MirrorList {
             urls
         }

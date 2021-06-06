@@ -171,16 +171,17 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
     let allowed_countries = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES")
         .map(|country_list|
             country_list
-                .split(",")
+                .split(',')
                 .into_iter()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim().to_owned())
                 .collect::<Vec<String>>()
         );
     let mirrors_blacklist =
-        parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_AUTO_MIRRORS_BLACKLIST").unwrap_or_else(|| vec![]);
+        parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_AUTO_MIRRORS_BLACKLIST").unwrap_or_else(Vec::new);
     MirrorsAutoConfig {
         mirrors_status_json_endpoint,
+        mirrors_blacklist,
         https_required,
         ipv4,
         ipv6,
@@ -188,8 +189,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
         num_mirrors,
         mirrors_random_or_sort,
         timeout,
-        mirrors_blacklist,
-        allowed_countries,
+        allowed_countries
     }
 }
 
@@ -218,18 +218,18 @@ fn mirror_config_from_env() -> MirrorConfig {
         cache_directory,
         mirrorlist_fallback_file,
         mirrorlist_latency_test_results_file,
-        listen_ip_address,
+        refresh_latency_tests_after,
         port,
+        listen_ip_address,
         mirror_selection_method,
         mirrors_predefined,
         custom_repo,
-        connect_timeout,
         low_speed_limit,
         low_speed_time_secs,
+        connect_timeout,
         max_speed_limit,
-        refresh_latency_tests_after,
         num_versions_retain,
-        mirrors_auto,
+        mirrors_auto
     }
 }
 
@@ -237,7 +237,7 @@ fn custom_repos_from_env(maybe_env: Option<String>) -> Option<Vec<CustomRepo>> {
     match maybe_env {
         None => None,
         Some(cr) => {
-            cr.split(" ").map(|s| {
+            cr.split(' ').map(|s| {
                 split_once(s, "@").map(|(name, url)| {
                     CustomRepo {
                         name: name.to_owned(),
