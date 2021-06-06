@@ -371,7 +371,7 @@ fn serve_client(
 /// be used.
 fn custom_provider_from_request(
     get_request: GetRequest,
-    custom_repos: &Vec<CustomRepo>
+    custom_repos: &[CustomRepo],
 ) -> (Option<DownloadProvider>, GetRequest) {
     match repo_name_from_get_request(&get_request) {
         None => (None, get_request),
@@ -602,7 +602,7 @@ fn latency_tests_refresh_required(
     duration_since_last_check > refresh_latency_tests_after
 }
 
-fn get_country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
+fn get_country_filter(prev_rated_providers: &[DownloadProvider], num_mirrors: usize) -> CountryFilter {
     // If the user already ran a latency test, then we can restrict our latency tests to mirrors that are located at a
     // country that scored well in the previous latency test. For example, for users located in Australia, we will
     // not consider European mirrors because the previous latency test should have revealed that mirrors from
