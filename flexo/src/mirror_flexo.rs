@@ -330,7 +330,7 @@ impl Job for DownloadJob {
 
     fn serve_from_provider(
         self, mut channel: DownloadChannel,
-        properties: MirrorConfig,
+        properties: &MirrorConfig,
         resume_from: u64,
     ) -> JobResult<DownloadJob> {
         let url = format!("{}", &self.uri);

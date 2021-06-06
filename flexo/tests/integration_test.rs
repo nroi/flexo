@@ -164,8 +164,8 @@ impl Order for DummyOrder {
         true
     }
 
-    fn filepath(&self, _properties: &<<Self as Order>::J as Job>::PR) -> PathBuf {
-        PathBuf::from("/tmp/some_path")
+    fn description(&self) -> &str {
+        "dummy description"
     }
 }
 

@@ -116,7 +116,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn order(&self) -> Self::O;
     fn properties(&self)-> Self::PR;
     fn cache_state(order: &<Self as Job>::O, properties: &Self::PR) -> Option<CachedItem>;
-    fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
+    fn serve_from_provider(self, channel: Self::C, properties: &Self::PR, cached_size: u64) -> JobResult<Self>;
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
     fn acquire_resources(order: &Self::O, properties: &Self::PR, last_chance: bool) -> std::io::Result<Self::JS>;
 
@@ -215,7 +215,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let result = match channel_result {
                 Ok((channel, channel_establishment)) => {
                     let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-                    job.serve_from_provider(channel, properties.clone(), cached_size)
+                    job.serve_from_provider(channel, &properties, cached_size)
                 }
                 Err(e) => {
                     warn!("Error while attempting to establish a new connection: {:?}", e);
