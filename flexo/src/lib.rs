@@ -193,8 +193,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
             let (provider, is_last_provider) = match custom_provider {
-                Some(ref p) => (p.clone(), true),
-                None => self.select_provider(provider_stats, custom_provider.clone()), // TODO don't clone…
+                Some(ref p) => (p, true),
+                None => self.select_provider(provider_stats, &custom_provider),
             };
             debug!("selected provider: {:?}", &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
@@ -262,11 +262,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         result
     }
 
-    fn select_provider(
+    fn select_provider<'a>(
         &self,
-        provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
-        custom_provider: Option<<<Self as Order>::J as Job>::P>,
-    ) -> (<<Self as Order>::J as Job>::P, bool) {
+        provider_stats: &'a ProvidersWithStats<<Self as Order>::J>,
+        custom_provider: &'a Option<<<Self as Order>::J as Job>::P>,
+    ) -> (&'a <<Self as Order>::J as Job>::P, bool) {
         match custom_provider {
             Some(p) => (p, true),
             None => {
@@ -283,7 +283,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
                     .unwrap();
 
-                let provider = provider_stats.providers.remove(idx);
+                let provider = provider_stats.providers.get(idx).unwrap();
                 (provider, provider_stats.providers.is_empty())
             }
         }
