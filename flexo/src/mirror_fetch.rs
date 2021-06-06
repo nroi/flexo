@@ -199,7 +199,11 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, cu
     easy.url(&url)?;
     easy.nobody(true)?;
     easy.follow_location(true)?;
-    easy.dns_cache_timeout(Duration::from_secs(3600 * 24))?; // TODO avoid hardcoded values
+    // Use a sufficiently large DNS timeout to avoid that latency tests are influenced by DNS lookups and caching
+    // behavior. For example, we don't want one mirror to be recognized as fast when, in fact, it was only faster
+    // than other mirrors because the DNS name was already cached.
+    let dns_cache_timeout = Duration::from_secs(3600 * 24);
+    easy.dns_cache_timeout(dns_cache_timeout)?;
     easy.timeout(timeout)?;
     // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
     // any benefit for our use case (afaik), so this setting should not have any downsides.
