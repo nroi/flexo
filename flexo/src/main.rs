@@ -15,6 +15,7 @@ use std::path;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use crossbeam::channel::Receiver;
 use crossbeam::channel::RecvTimeoutError;
@@ -32,7 +33,6 @@ use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
 use crate::mirror_fetch::Mirror;
 use crate::str_path::StrPath;
-use std::time::{Duration, SystemTime};
 
 mod mirror_config;
 mod mirror_fetch;
