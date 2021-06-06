@@ -1,11 +1,12 @@
 #[macro_use] extern crate log;
 
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
-use std::collections::hash_map::Entry;
-use crossbeam::channel::{Sender, Receiver, unbounded};
+
+use crossbeam::channel::{Receiver, Sender, unbounded};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -537,7 +538,7 @@ impl <J> JobContext<J> where J: Job {
                     complete_job.channel.job_state().release_job_resources();
                     let mut channels_cloned = channels_cloned.lock().unwrap();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
-                    JobOutcome::Success(complete_job.provider.clone())
+                    JobOutcome::Success(complete_job.provider)
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
                     channel.job_state().release_job_resources();

@@ -211,7 +211,7 @@ fn purge_uncacheable_files() -> io::Result<()> {
             }
         }
     }
-    return Ok(());
+    Ok(())
 }
 
 fn str_from_vec(v: Vec<u8>) -> Option<String> {
