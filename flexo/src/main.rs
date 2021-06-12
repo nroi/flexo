@@ -164,7 +164,7 @@ fn purge_cfs_files(directory: &str) {
                     }
                     Some(filename) => {
                         let corresponding_package_filename = filename
-                            .strip_prefix(".").unwrap()
+                            .strip_prefix('.').unwrap()
                             .strip_suffix(".cfs").unwrap();
                         let corresponding_package_filepath = path.with_file_name(corresponding_package_filename);
                         if !corresponding_package_filepath.exists() {

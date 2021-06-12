@@ -14,7 +14,7 @@ impl std::convert::AsRef<std::path::Path> for StrPath {
 
 impl StrPath {
     pub fn new(s: String) -> Self {
-        let s = if let Some(stripped) = s.strip_prefix("/") {
+        let s = if let Some(stripped) = s.strip_prefix('/') {
             stripped.to_owned()
         } else {
             s
