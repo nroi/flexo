@@ -5,8 +5,11 @@ use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
+
+static LOGICAL_CLOCK: AtomicU32 = AtomicU32::new(1);
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -64,7 +67,7 @@ pub enum JobResult<J> where J: Job {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum JobOutcome <J> where J: Job {
     Success(J::P),
-    Error(HashMap<J::P, i32>),
+    Error(HashMap<J::P, u32>),
 }
 
 impl <J> JobResult<J> where J: Job {
@@ -88,19 +91,15 @@ pub trait Provider where
     /// A short description which will be used in log messages.
     fn description(&self) -> String;
 
-    fn punish(self, mut failures: MutexGuard<HashMap<Self, i32>>) {
+    fn punish(self, mut failures: MutexGuard<HashMap<Self, u32>>) {
         let value = failures.entry(self).or_insert(0);
         *value += 1;
     }
 
-    fn reward(self, mut failures: MutexGuard<HashMap<Self, i32>>) {
-        let value = failures.entry(self).or_insert(0);
-        *value -= 1;
-    }
 }
 
 pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
-    type S: std::cmp::Ord + core::marker::Copy;
+    type S: std::cmp::Ord + core::marker::Copy + std::fmt::Debug;
     type JS;
     type C: Channel<J=Self>;
     type O: Order<J=Self> + std::clone::Clone + std::cmp::Eq + std::hash::Hash + std::fmt::Debug;
@@ -145,8 +144,8 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
 }
 
 pub struct ProvidersWithStats<J> where J: Job {
-    pub provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
-    pub provider_current_usages: Arc<Mutex<HashMap<J::P, i32>>>,
+    pub provider_failures: Arc<Mutex<HashMap<J::P, u32>>>,
+    pub provider_usage_timestamps: Arc<Mutex<HashMap<J::P, u32>>>,
     pub providers: Vec<J::P>,
 }
 
@@ -196,13 +195,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
             let message = FlexoMessage::ProviderSelected(provider.clone());
             let _ = tx.send(message);
-            {
-                debug!("Acquire lock on provider_current_usages…");
-                let mut provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
-                debug!("Successfully acquired lock on provider_current_usages.");
-                let value = provider_current_usages.entry(provider.clone()).or_insert(0);
-                *value += 1;
-            }
             let self_cloned: Self = self.clone();
             let job = provider.new_job(&properties, self_cloned);
             debug!("Attempt to establish new connection");
@@ -221,8 +213,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             };
             match &result {
                 JobResult::Complete(_) => {
-                    debug!("Job completed: Rewarding provider {}", provider.description());
-                    provider.clone().reward(provider_stats.provider_failures.lock().unwrap());
+                    debug!("Job completed with provider {}", provider.description());
                 },
                 JobResult::Partial(partial_job) => {
                     provider.clone().punish(provider_stats.provider_failures.lock().unwrap());
@@ -266,19 +257,23 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             Some(p) => (p, true),
             None => {
                 let provider_failures = provider_stats.provider_failures.lock().unwrap();
-                let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
+                let mut provider_usage_timestamps = provider_stats.provider_usage_timestamps.lock().unwrap();
                 let (idx, _) = provider_stats.providers
                     .iter()
                     .map(|x| DynamicScore {
                         num_failures: *(provider_failures.get(&x).unwrap_or(&0)),
-                        num_current_usages: *(provider_current_usages.get(&x).unwrap_or(&0)),
-                        initial_score: x.initial_score()
+                        most_recent_usage: *(provider_usage_timestamps.get(&x).unwrap_or(&0)),
+                        initial_score: x.initial_score(),
                     })
                     .enumerate()
                     .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
                     .unwrap();
-
                 let provider = provider_stats.providers.get(idx).unwrap();
+                debug!("Selected provider: {:?}", provider);
+                // TODO make sure this compiles on a raspberry pi
+                let timestamp = LOGICAL_CLOCK.fetch_add(1, Ordering::Relaxed);
+                provider_usage_timestamps.insert(provider.clone(), timestamp);
+
                 (provider, provider_stats.providers.is_empty())
             }
         }
@@ -286,7 +281,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
     fn pardon(
         punished_providers: Vec<<<Self as Order>::J as Job>::P>,
-        mut failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, i32>>,
+        mut failures: MutexGuard<HashMap<<<Self as Order>::J as Job>::P, u32>>,
     ) {
         for not_guilty in punished_providers {
             match (*failures).entry(not_guilty.clone()) {
@@ -301,10 +296,10 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 }
 
 /// A score that incorporates information that we have gained while using this provider.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 struct DynamicScore <S> where S: Ord {
-    num_failures: i32,
-    num_current_usages: i32,
+    num_failures: u32,
+    most_recent_usage: u32,
     initial_score: S,
 }
 
@@ -360,10 +355,10 @@ pub struct JobContext<J> where J: Job {
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
     orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
-    providers_in_use: Arc<Mutex<HashMap<J::P, i32>>>,
+    providers_in_use: Arc<Mutex<HashMap<J::P, u32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
-    provider_failures: Arc<Mutex<HashMap<J::P, i32>>>,
-    pub properties: J::PR
+    provider_failures: Arc<Mutex<HashMap<J::P, u32>>>,
+    pub properties: J::PR,
 }
 
 pub struct ScheduledItem<J> where J: Job {
@@ -405,14 +400,14 @@ impl <J> JobContext<J> where J: Job {
         let providers: Arc<Mutex<Vec<J::P>>> = Arc::new(Mutex::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
         let orders_in_progress: Arc<Mutex<HashSet<J::O>>> = Arc::new(Mutex::new(HashSet::new()));
-        let providers_in_use: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
-        let provider_records: Arc<Mutex<HashMap<J::P, i32>>> = Arc::new(Mutex::new(HashMap::new()));
+        let providers_in_use: Arc<Mutex<HashMap<J::P, u32>>> = Arc::new(Mutex::new(HashMap::new()));
+        let provider_failures: Arc<Mutex<HashMap<J::P, u32>>> = Arc::new(Mutex::new(HashMap::new()));
         let thread_mutexes: Vec<Arc<Mutex<i32>>> = Vec::new();
         Self {
             providers,
             channels,
             orders_in_progress,
-            provider_failures: provider_records,
+            provider_failures,
             providers_in_use,
             panic_monitor: thread_mutexes,
             properties,
@@ -512,7 +507,7 @@ impl <J> JobContext<J> where J: Job {
         let mut provider_stats = ProvidersWithStats {
             providers: providers_cloned,
             provider_failures: provider_failures_cloned,
-            provider_current_usages: providers_in_use_cloned,
+            provider_usage_timestamps: providers_in_use_cloned,
         };
         let t = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
@@ -569,12 +564,12 @@ impl <J> JobContext<J> where J: Job {
 fn test_no_failures_preferred() {
     let s1 = DynamicScore {
         num_failures: 2,
-        num_current_usages: 23,
+        most_recent_usage: 23,
         initial_score: 0,
     };
     let s2 = DynamicScore {
         num_failures: 0,
-        num_current_usages: 0,
+        most_recent_usage: 0,
         initial_score: -1,
     };
     assert!(s2 < s1);
@@ -584,12 +579,12 @@ fn test_no_failures_preferred() {
 fn test_initial_score_lower_is_better() {
     let s1 = DynamicScore {
         num_failures: 0,
-        num_current_usages: 0,
+        most_recent_usage: 0,
         initial_score: 0,
     };
     let s2 = DynamicScore {
         num_failures: 0,
-        num_current_usages: 0,
+        most_recent_usage: 0,
         initial_score: -1,
     };
     assert!(s2 < s1);

@@ -4,7 +4,6 @@ extern crate rand;
 use flexo::*;
 use std::collections::HashMap;
 use crossbeam::channel::{Sender, Receiver};
-use std::path::PathBuf;
 
 static EXPECT_SCHEDULED: &str = "Expected the job to be scheduled";
 static EXPECT_SKIPPED: &str = "Expected the job to be skipped";
@@ -101,7 +100,7 @@ impl Job for DummyJob {
         None
     }
 
-    fn serve_from_provider(self, channel: DummyChannel, _properties: DummyProperties, _cached_size: u64) -> JobResult<DummyJob> {
+    fn serve_from_provider(self, channel: DummyChannel, _properties: &DummyProperties, _cached_size: u64) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
             (DummyOrder::Success(_), DummyProvider::Success(_)) => {
                 let jc = JobCompleted::new(channel, self.provider, 1);
@@ -193,7 +192,7 @@ struct DummyJobSuccess {
 }
 
 struct DummyJobFailure {
-    failures: HashMap<DummyProvider, i32>
+    failures: HashMap<DummyProvider, i64>
 }
 
 fn successful_providers() -> Vec<DummyProvider> {
