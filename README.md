@@ -7,7 +7,7 @@ Flexo is a caching proxy for pacman, the package manager of Arch Linux.
 * If you're bothered by slow mirrors: Instead of manually maintaining a `mirrorlist`, Flexo automatically chooses
 a low-latency mirror for you and switches to another mirror if the selected mirror turns out to be slow.
 * If you have multiple machines running ArchLinux, and you don't want each machine to download
-and store the packages: You can just set Flexo as your new ArchLinux mirror so that no file needs
+and store the packages: You can just set flexo as your new ArchLinux mirror so that no file needs
 to be downloaded more often than once.
 * If you run ArchLinux inside Docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just install Flexo on the host and run this command on the Docker container:
     ````
@@ -19,13 +19,13 @@ A package for Arch Linux is available on [AUR](https://aur.archlinux.org/package
 Alternatively, you can use the [docker image](https://hub.docker.com/r/nroi/flexo) instead.
 Flexo needs to be installed on a single machine (the server) so that it can be accessed by
 multiple clients.
-Once you have installed Flexo on the server, start and enable the systemd service:
+Once you have installed flexo on the server, start and enable the systemd service:
 ```
 systemctl start flexo.service
 systemctl enable flexo.service
 ```
 Next, set the new mirror in `/etc/pacman.d/mirrorlist` on all clients.
-In most cases, the server that runs Flexo will also be a client that uses Flexo, so
+In most cases, the server that runs flexo will also be a client that uses flexo, so
 add the following entry to the top of your mirrorlist:
 ```bash
 Server = http://localhost:7878/$repo/os/$arch
@@ -57,7 +57,7 @@ The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self-explanatory (open an issue in case you disagree).
 In most cases, you will want to leave all settings unchanged, with two exceptions:
 
-1. The setting `low_speed_limit` is commented by default, which means that Flexo will *not* attempt
+1. The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
 uncomment the setting and enter an appropriate value.
 
@@ -87,7 +87,7 @@ For issues related to the mirror selection, also see [this page](./mirror_select
 * Robust: As long as *most* mirrors work fine, Flexo should be able to handle the download process
   without the client noticing any issues or interruptions, even if remote mirrors are slow or connections
   are unexpectedly dropped.
-* Simple: Users should not require more than a few minutes to set up Flexo and understand what it does.
+* Simple: Users should not require more than a few minutes to set up flexo and understand what it does.
 
 
 ## Cleaning the package cache
@@ -137,17 +137,17 @@ FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ```
 
 ## Contribute
-If you know Rust, feel free to dive into the code base and send a PR. Smaller improvements
+If you know rust, feel free to dive into the code base and send a PR. Smaller improvements
 to make the code base cleaner, more idiomatic or efficient are always welcome. Before submitting
 larger changes, including new features or design changes, you should first open an issue to see
-if that feature is desired and if it fits into the design goals of Flexo.
+if that feature is desired and if it fits into the design goals of flexo.
 
 ## Development
 
 Details about design decisions, and the terminology used in the code,
 are described [here](flexo/terminology.md).
 
-The following packages are required to build and test Flexo:
+The following packages are required to build and test flexo:
 
 ```bash
 pacman -S rustup docker docker-compose curl
