@@ -690,6 +690,7 @@ fn serve_from_growing_file(
         Some(r) => reply_header_partial(content_length, r, PayloadOrigin::RemoteMirror)
     };
     client_stream.write_all(header.as_bytes())?;
+    debug!("Header was sent to the client.");
     let resume_from = resume_from.unwrap_or(0);
     let mut client_received = resume_from;
     let complete_filesize = content_length + resume_from;

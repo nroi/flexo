@@ -14,7 +14,8 @@ mod http_client;
 
 const DEFAULT_PORT: u16 = 7878;
 
-const LARGE_FILE_SIZE: usize = 8192 * 1024 * 1024;
+const LARGE_FILE_SIZE: usize = 8 * 1024 * 1024 * 1024;
+const LARGE_FILE_REQUEST_PATH: &str = "/large";
 
 struct PathGenerator {
     range: Range<i32>,
@@ -27,7 +28,7 @@ impl PathGenerator {
 
 struct FlexoTest {
     description: &'static str,
-    action: fn(&mut PathGenerator) -> ()
+    action: fn(&mut PathGenerator, &'static str) -> ()
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
@@ -109,7 +110,7 @@ fn main() {
         info!("Starting test {}", test.description);
         let t = thread::scope(|s| {
             s.spawn(|_| {
-                (test.action)(&mut path_generator);
+                (test.action)(&mut path_generator, test.description);
             });
         });
         let outcome = match t {
@@ -155,7 +156,7 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn flexo_test_malformed_header(_path_generator: &mut PathGenerator) {
+fn flexo_test_malformed_header(_path_generator: &mut PathGenerator, testcase: &'static str) {
     let malformed_header = "this is not a valid http header".to_owned();
     let uri1 = GetRequestTest {
         conn_addr: ConnAddr {
@@ -168,7 +169,7 @@ fn flexo_test_malformed_header(_path_generator: &mut PathGenerator) {
         }],
         timeout: None,
     };
-    let results = http_get(uri1).unwrap();
+    let results = http_get(uri1, testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     println!("result: {:?}", &result);
@@ -185,14 +186,14 @@ fn flexo_test_malformed_header(_path_generator: &mut PathGenerator) {
         }],
         timeout: None,
     };
-    let results = http_get(uri2).unwrap();
+    let results = http_get(uri2, testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     println!("result: {:?}", &result);
     assert_eq!(result.header_result.status_code, 200);
 }
 
-fn flexo_test_partial_header(path_generator: &mut PathGenerator) {
+fn flexo_test_partial_header(path_generator: &mut PathGenerator, testcase: &'static str) {
     // Sending the header in multiple TCP segments does not cause the server to crash
     let uri = GetRequestTest {
         conn_addr: ConnAddr {
@@ -209,14 +210,14 @@ fn flexo_test_partial_header(path_generator: &mut PathGenerator) {
         chunk_size: 3,
         wait_interval: Duration::from_millis(300),
     };
-    let results = http_get_with_header_chunked(uri, Some(pattern)).unwrap();
+    let results = http_get_with_header_chunked(uri, Some(pattern), testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
 }
 
 
-fn flexo_test_persistent_connections_c2s(path_generator: &mut PathGenerator) {
+fn flexo_test_persistent_connections_c2s(path_generator: &mut PathGenerator, testcase: &'static str) {
     let request_test = GetRequestTest {
         conn_addr: ConnAddr {
             host: "flexo-server-delay".to_owned(),
@@ -238,13 +239,13 @@ fn flexo_test_persistent_connections_c2s(path_generator: &mut PathGenerator) {
         ],
         timeout: None,
     };
-    let results = http_get(request_test).unwrap();
+    let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 3);
     let all_ok = results.iter().all(|r| r.header_result.status_code == 200);
     assert!(all_ok);
 }
 
-fn flexo_test_persistent_connections_s2s(path_generator: &mut PathGenerator) {
+fn flexo_test_persistent_connections_s2s(path_generator: &mut PathGenerator, testcase: &'static str) {
     // Connections made from server-to-server (i.e., from flexo to the remote mirror) should be persistent.
     // We can test this only in an indirect manner: Based on the assumption that a short delay happens before
     // the flexo server can connect to the remote mirror, we conclude that if many files have been successfully
@@ -264,13 +265,13 @@ fn flexo_test_persistent_connections_s2s(path_generator: &mut PathGenerator) {
         get_requests,
         timeout: Some(Duration::from_secs(1)),
     };
-    let results = http_get(request_test).unwrap();
+    let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 100);
     let all_ok = results.iter().all(|r| r.header_result.status_code == 200);
     assert!(all_ok);
 }
 
-fn flexo_test_mirror_selection_slow_mirror(path_generator: &mut PathGenerator) {
+fn flexo_test_mirror_selection_slow_mirror(path_generator: &mut PathGenerator, testcase: &'static str) {
     let get_requests = vec![
         GetRequest {
             path: "/zero".to_owned(),
@@ -285,16 +286,16 @@ fn flexo_test_mirror_selection_slow_mirror(path_generator: &mut PathGenerator) {
         get_requests,
         timeout: Some(Duration::from_millis(5_000)),
     };
-    let results = http_get(request_test).unwrap();
+    let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
 }
 
-fn flexo_test_download_large_file(_path_generator: &mut PathGenerator) {
+fn flexo_test_download_large_file(_path_generator: &mut PathGenerator, testcase: &'static str) {
     // This test case is mainly intended to provoke errors due to various 2GiB or 4GiB limits. For instance,
     // sendfile uses off_t as offset (see man 2 sendfile). off_t can be only 32 bit on some platforms.
-    let results = download_large_file();
+    let results = download_large_file(testcase);
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
@@ -302,11 +303,11 @@ fn flexo_test_download_large_file(_path_generator: &mut PathGenerator) {
     assert!(!result.header_result.cached);
 }
 
-fn flexo_test_download_large_file_cached(_path_generator: &mut PathGenerator) {
+fn flexo_test_download_large_file_cached(_path_generator: &mut PathGenerator, testcase: &'static str) {
     // The intention of this test case is to demonstrate that with large files, no issues occur when the file
     // is served from the cache instead of from a remote mirror.
-    download_large_file();
-    let results = download_large_file();
+    download_large_file(testcase);
+    let results = download_large_file(testcase);
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
@@ -314,10 +315,10 @@ fn flexo_test_download_large_file_cached(_path_generator: &mut PathGenerator) {
     assert!(result.header_result.cached);
 }
 
-fn download_large_file() -> Vec<HttpGetResult> {
+fn download_large_file(testcase: &'static str) -> Vec<HttpGetResult> {
     let get_requests = vec![
         GetRequest {
-            path: "/zero".to_owned(),
+            path: LARGE_FILE_REQUEST_PATH.to_owned(),
             client_header: AutoGenerated,
         }
     ];
@@ -329,20 +330,20 @@ fn download_large_file() -> Vec<HttpGetResult> {
         get_requests,
         timeout: Some(Duration::from_millis(60_000)),
     };
-    http_get(request_test).unwrap()
+    http_get(request_test, testcase).unwrap()
 }
 
-fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenerator) {
+fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenerator, testcase: &'static str) {
     // The resume feature can only be used when the file is already cached, so we download it before continuing
     // with the actual test:
-    download_large_file();
+    download_large_file(testcase);
     let start_byte = 6291456;
     let remaining_size = LARGE_FILE_SIZE - start_byte;
     let header = format!("GET {} HTTP/1.1\r\nHost: {}\r\nRange: bytes={}-{}",
-                         "/zero", "flexo-server-fast", start_byte, HEADER_SEPARATOR_STR);
+                         LARGE_FILE_REQUEST_PATH, "flexo-server-fast", start_byte, HEADER_SEPARATOR_STR);
     let get_requests = vec![
         GetRequest {
-            path: "/zero".to_owned(),
+            path: LARGE_FILE_REQUEST_PATH.to_owned(),
             client_header: Custom(header),
         }
     ];
@@ -354,7 +355,7 @@ fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenera
         get_requests,
         timeout: Some(Duration::from_millis(60_000)),
     };
-    let results = http_get(request_test).unwrap();
+    let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 206);
@@ -375,7 +376,7 @@ fn receive_first<T>(receivers: Vec<Receiver<T>>) -> usize  {
     }
 }
 
-fn flexo_test_parallel_downloads_nonblocking(path_generator: &mut PathGenerator) {
+fn flexo_test_parallel_downloads_nonblocking(path_generator: &mut PathGenerator, testcase: &'static str) {
     let (sender1, receiver1) = mpsc::channel::<Vec<HttpGetResult>>();
     let (sender2, receiver2) = mpsc::channel::<Vec<HttpGetResult>>();
     let host = "flexo-server-slow-primary".to_owned();
@@ -406,7 +407,7 @@ fn flexo_test_parallel_downloads_nonblocking(path_generator: &mut PathGenerator)
         timeout: None,
     };
     std::thread::spawn(move || {
-        match http_get(request_test_1) {
+        match http_get(request_test_1, testcase) {
             None => {}
             Some(r) => {
                 // Ignore the result: when the 2nd thread was faster, the channel is already closed;
@@ -415,7 +416,7 @@ fn flexo_test_parallel_downloads_nonblocking(path_generator: &mut PathGenerator)
         }
     });
     std::thread::spawn(move || {
-        match http_get(request_test_2) {
+        match http_get(request_test_2, testcase) {
             None => {}
             Some(r) => {
                 // Ignore the result: when the 1st thread was faster, the channel is already closed;
@@ -427,7 +428,7 @@ fn flexo_test_parallel_downloads_nonblocking(path_generator: &mut PathGenerator)
     assert_eq!(first_result_idx, 1);
 }
 
-fn flexo_test_mirror_stalling(path_generator: &mut PathGenerator) {
+fn flexo_test_mirror_stalling(path_generator: &mut PathGenerator, testcase: &'static str) {
     let get_requests = vec![
         GetRequest {
             path: path_generator.generate(),
@@ -442,7 +443,7 @@ fn flexo_test_mirror_stalling(path_generator: &mut PathGenerator) {
         get_requests,
         timeout: Some(Duration::from_millis(5_000)),
     };
-    let results = http_get(request_test).unwrap();
+    let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
     assert_eq!(result.header_result.status_code, 200);
