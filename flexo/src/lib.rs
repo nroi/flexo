@@ -1,11 +1,12 @@
 #[macro_use] extern crate log;
 
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
-use std::collections::hash_map::Entry;
-use crossbeam::channel::{Sender, Receiver, unbounded};
+
+use crossbeam::channel::{Receiver, Sender, unbounded};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
 
@@ -68,10 +69,7 @@ pub enum JobOutcome <J> where J: Job {
 
 impl <J> JobResult<J> where J: Job {
     fn is_success(&self) -> bool {
-        match self {
-            JobResult::Complete(_) => true,
-            _ => false,
-        }
+        matches!(self, JobResult::Complete(_))
     }
 }
 
@@ -116,7 +114,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn order(&self) -> Self::O;
     fn properties(&self)-> Self::PR;
     fn cache_state(order: &<Self as Job>::O, properties: &Self::PR) -> Option<CachedItem>;
-    fn serve_from_provider(self, channel: Self::C, properties: Self::PR, cached_size: u64) -> JobResult<Self>;
+    fn serve_from_provider(self, channel: Self::C, properties: &Self::PR, cached_size: u64) -> JobResult<Self>;
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
     fn acquire_resources(order: &Self::O, properties: &Self::PR, last_chance: bool) -> std::io::Result<Self::JS>;
 
@@ -192,11 +190,8 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            let (provider, is_last_provider) = match custom_provider.clone() { // TODO don't clone…
-                Some(p) => (p, true),
-                None => self.select_provider(provider_stats, custom_provider.clone()), // TODO don't clone…
-            };
-            debug!("selected provider: {:?}", &provider);
+            let (provider, is_last_provider) = self.select_provider(provider_stats, &custom_provider);
+            debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
             let message = FlexoMessage::ProviderSelected(provider.clone());
@@ -215,7 +210,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let result = match channel_result {
                 Ok((channel, channel_establishment)) => {
                     let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
-                    job.serve_from_provider(channel, properties.clone(), cached_size)
+                    job.serve_from_provider(channel, &properties, cached_size)
                 }
                 Err(e) => {
                     warn!("Error while attempting to establish a new connection: {:?}", e);
@@ -262,11 +257,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         result
     }
 
-    fn select_provider(
+    fn select_provider<'a>(
         &self,
-        provider_stats: &mut ProvidersWithStats<<Self as Order>::J>,
-        custom_provider: Option<<<Self as Order>::J as Job>::P>,
-    ) -> (<<Self as Order>::J as Job>::P, bool) {
+        provider_stats: &'a ProvidersWithStats<<Self as Order>::J>,
+        custom_provider: &'a Option<<<Self as Order>::J as Job>::P>,
+    ) -> (&'a <<Self as Order>::J as Job>::P, bool) {
         match custom_provider {
             Some(p) => (p, true),
             None => {
@@ -283,7 +278,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
                     .unwrap();
 
-                let provider = provider_stats.providers.remove(idx);
+                let provider = provider_stats.providers.get(idx).unwrap();
                 (provider, provider_stats.providers.is_empty())
             }
         }
@@ -537,7 +532,7 @@ impl <J> JobContext<J> where J: Job {
                     complete_job.channel.job_state().release_job_resources();
                     let mut channels_cloned = channels_cloned.lock().unwrap();
                     channels_cloned.insert(complete_job.provider.clone(), complete_job.channel);
-                    JobOutcome::Success(complete_job.provider.clone())
+                    JobOutcome::Success(complete_job.provider)
                 }
                 JobResult::Partial(JobPartiallyCompleted { mut channel, .. }) => {
                     channel.job_state().release_job_resources();

@@ -15,6 +15,7 @@ use std::path;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use crossbeam::channel::Receiver;
 use crossbeam::channel::RecvTimeoutError;
@@ -32,7 +33,6 @@ use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
 use crate::mirror_fetch::Mirror;
 use crate::str_path::StrPath;
-use std::time::{Duration, SystemTime};
 
 mod mirror_config;
 mod mirror_fetch;
@@ -85,7 +85,7 @@ fn main() {
     };
     let port = job_context.lock().unwrap().properties.port;
     let listen_ip_address =
-        job_context.lock().unwrap().properties.listen_ip_address.clone().unwrap_or("0.0.0.0".to_owned());
+        job_context.lock().unwrap().properties.listen_ip_address.clone().unwrap_or_else(|| "0.0.0.0".to_owned());
     debug!("Listen on address {}", listen_ip_address);
     let addr = format!("{}:{}", listen_ip_address, port);
     let listener = match TcpListener::bind(&addr) {
@@ -107,10 +107,12 @@ fn main() {
         std::thread::spawn(move || {
             debug!("Started new thread.");
             let cache_tainted_result = serve_client(job_context, client_stream, properties);
-            let _ = cache_purge_mutex.lock().unwrap();
             match (cache_tainted_result, num_versions_retain) {
                 (Ok(true), Some(0)) => {}
                 (Ok(true), Some(v)) => {
+                    debug!("Cache tainted, waiting for lock before purging cache.");
+                    let _lock = cache_purge_mutex.lock().unwrap();
+                    debug!("Lock acquired, continue to purge cache.");
                     purge_cache(&cache_directory, v);
                     purge_cfs_files(&cache_directory);
                 }
@@ -164,7 +166,7 @@ fn purge_cfs_files(directory: &str) {
                     }
                     Some(filename) => {
                         let corresponding_package_filename = filename
-                            .strip_prefix(".").unwrap()
+                            .strip_prefix('.').unwrap()
                             .strip_suffix(".cfs").unwrap();
                         let corresponding_package_filepath = path.with_file_name(corresponding_package_filename);
                         if !corresponding_package_filepath.exists() {
@@ -211,7 +213,7 @@ fn purge_uncacheable_files() -> io::Result<()> {
             }
         }
     }
-    return Ok(());
+    Ok(())
 }
 
 fn str_from_vec(v: Vec<u8>) -> Option<String> {
@@ -223,13 +225,7 @@ fn str_from_vec(v: Vec<u8>) -> Option<String> {
 }
 
 fn valid_path(path: &Path) -> bool {
-    path.components().all(|c| {
-        match c {
-            path::Component::Normal(_) => true,
-            path::Component::RootDir => true,
-            _ => false,
-        }
-    })
+    path.components().all(|c| matches!(c, path::Component::Normal(_) | path::Component::RootDir))
 }
 
 fn serve_request(
@@ -377,7 +373,7 @@ fn serve_client(
 /// be used.
 fn custom_provider_from_request(
     get_request: GetRequest,
-    custom_repos: &Vec<CustomRepo>
+    custom_repos: &[CustomRepo],
 ) -> (Option<DownloadProvider>, GetRequest) {
     match repo_name_from_get_request(&get_request) {
         None => (None, get_request),
@@ -608,7 +604,7 @@ fn latency_tests_refresh_required(
     duration_since_last_check > refresh_latency_tests_after
 }
 
-fn get_country_filter(prev_rated_providers: &Vec<DownloadProvider>, num_mirrors: usize) -> CountryFilter {
+fn get_country_filter(prev_rated_providers: &[DownloadProvider], num_mirrors: usize) -> CountryFilter {
     // If the user already ran a latency test, then we can restrict our latency tests to mirrors that are located at a
     // country that scored well in the previous latency test. For example, for users located in Australia, we will
     // not consider European mirrors because the previous latency test should have revealed that mirrors from

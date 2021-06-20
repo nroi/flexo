@@ -47,7 +47,7 @@ const MAX_REDIRECTIONS: u32 = 3;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
 
-pub const UNCACHEABLE_DIRECTORY: &'static str = "/tmp/flexo/uncacheable";
+pub const UNCACHEABLE_DIRECTORY: &str = "/tmp/flexo/uncacheable";
 
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_millis(3000);
 
@@ -206,10 +206,10 @@ impl Provider for DownloadProvider {
         let provider = self.clone();
         let properties = properties.clone();
         DownloadJob {
-            properties,
             provider,
             uri,
             order,
+            properties
         }
     }
 
@@ -330,12 +330,11 @@ impl Job for DownloadJob {
 
     fn serve_from_provider(
         self, mut channel: DownloadChannel,
-        properties: MirrorConfig,
+        properties: &MirrorConfig,
         resume_from: u64,
     ) -> JobResult<DownloadJob> {
-        let url = format!("{}", &self.uri);
-        debug!("Fetch package from remote mirror: {}. Resume from byte {}.", &url, resume_from);
-        channel.handle.url(&url).unwrap();
+        debug!("Fetch package from remote mirror: {}. Resume from byte {}.", &self.uri, resume_from);
+        channel.handle.url(&self.uri).unwrap();
         channel.handle.resume_from(resume_from).unwrap();
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
@@ -376,7 +375,7 @@ impl Job for DownloadJob {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
                 debug!("{} replied with status code {}.", self.provider.description(), response_code);
-                if response_code >= 200 && response_code < 300 {
+                if (200..300).contains(&response_code) {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
                 } else if response_code == 404 {
@@ -391,9 +390,9 @@ impl Job for DownloadJob {
             },
             Err(e) => {
                 if e.code() == CURLE_OPERATION_TIMEDOUT {
-                    warn!("Unable to download from {:?}: Timeout reached. Try another remote mirror.", &url);
+                    warn!("Unable to download from {:?}: Timeout reached. Try another remote mirror.", &self.uri);
                 } else {
-                    warn!("An unknown error occurred while downloading from remote mirror {:?}: {:?}", &url, e);
+                    warn!("An unknown error occurred while downloading from remote mirror {:?}: {:?}", &self.uri, e);
                 }
                 match channel.progress_indicator() {
                     Some(size) if size > 0 => {
@@ -448,7 +447,7 @@ impl Job for DownloadJob {
                     fs::create_dir_all(parent)?;
                     OpenOptions::new().create(true).append(true).open(&path)?
                 } else {
-                    Err(e)?
+                    return Err(e);
                 }
             }
         };
@@ -543,7 +542,7 @@ pub fn get_complete_size_from_cfs_file(path: &Path) -> Option<u64> {
     let cfs_path = cfs_path_from_pkg_path(&path)?;
     match fs::read_to_string(&cfs_path) {
         Ok(s) => {
-            if s.ends_with("\n") && s.chars().rev().skip(1).all(|c| c.is_ascii_digit()) {
+            if s.ends_with('\n') && s.chars().rev().skip(1).all(|c| c.is_ascii_digit()) {
                 let without_newline = &s[0..s.len()-1];
                 match without_newline.parse::<u64>() {
                     Ok(size) => Some(size),
@@ -626,19 +625,15 @@ impl Order for DownloadOrder {
     }
 
     fn retryable(&self) -> bool {
-        if self.requested_path.to_str().ends_with(".db.sig") {
-            // As of now (2021-06-05), pacman attempts to fetch files ending with .db.sig from the remote
-            // mirrors, but the remote mirrors don't have those files available, because signatures for
-            // database files still seems to be an open issue in ArchLinux. So pacman just silently ignores
-            // the 404 responses returned by the remote mirrors. The default strategy for Flexo is to try all
-            // mirrors one after another if a mirror returns 404. However, in this case, this is not a very useful
-            // behavior because no mirror has those files, so Flexo would cause a small latency for the client
-            // while it attempts to fetch the signature file from the various remote mirrors.
-            // For this reason, we choose to not do any retries for all files ending with .db.sig.
-            false
-        } else {
-            true
-        }
+        // As of now (2021-06-05), pacman attempts to fetch files ending with .db.sig from the remote
+        // mirrors, but the remote mirrors don't have those files available, because signatures for
+        // database files still seems to be an open issue in Arch Linux. So pacman just silently ignores
+        // the 404 responses returned by the remote mirrors. The default strategy for Flexo is to try all
+        // mirrors one after another if a mirror returns 404. However, in this case, this is not a very useful
+        // behavior because no mirror has those files, so Flexo would cause a small latency for the client
+        // while it attempts to fetch the signature file from the various remote mirrors.
+        // For this reason, we choose to not do any retries for all files ending with .db.sig.
+        !self.requested_path.to_str().ends_with(".db.sig")
     }
 
     fn description(&self) -> &str {
@@ -793,8 +788,7 @@ impl Handler for DownloadState {
                         create_cfs_file(&path, client_content_length);
                     }
                     debug!("Sending content length: {}", client_content_length);
-                    let message: FlexoProgress = FlexoProgress::JobSize(client_content_length);
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::JobSize(client_content_length));
                 }  else if code == 416 {
                     // If the requested file was already cached, but we don't know if the cached file has been
                     // downloaded completely or only partially, we send the Content-Range header in order to not
@@ -807,8 +801,7 @@ impl Handler for DownloadState {
                 } else if job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     debug!("Sending FlexoProgress::Unavailable");
-                    let message: FlexoProgress = FlexoProgress::Unavailable;
-                    let _ = self.job_state.tx.send(message);
+                    let _ = self.job_state.tx.send(FlexoProgress::Unavailable);
                 }
             }
             Ok(Status::Partial) => {
@@ -1000,7 +993,7 @@ pub fn read_client_header<T>(client_stream: &mut T) -> Result<ClientResponse, Cl
 }
 
 pub fn uri_from_components(prefix: &str, suffix: &str) -> String {
-    format!("{}/{}", prefix.trim_end_matches("/"), suffix.trim_start_matches("/"))
+    format!("{}/{}", prefix.trim_end_matches('/'), suffix.trim_start_matches('/'))
 }
 
 pub fn size_to_human_readable(size_in_bytes: u64) -> String {
