@@ -33,6 +33,7 @@ use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
 use crate::mirror_fetch::Mirror;
 use crate::str_path::StrPath;
+use std::collections::HashMap;
 
 mod mirror_config;
 mod mirror_fetch;
@@ -243,6 +244,15 @@ fn serve_request(
     } else if get_request.path.to_str() == "status" {
         serve_200_ok_empty(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
+    } else if get_request.path.to_str() == "metrics" {
+        let metrics_map: HashMap<String, ProviderMetrics> = job_context.lock().unwrap().provider_metrics()
+            .iter()
+            .map(|(k, v)| (k.description(), *v))
+            .collect();
+        let serialized = serde_json::to_string_pretty(&metrics_map).unwrap();
+        serve_200_ok_body(client_stream, serialized.as_bytes())?;
+        client_stream.write_all(serialized.as_bytes())?;
+        Ok(PayloadOrigin::NoPayload)
     } else {
         let order = DownloadOrder {
             id: Uuid::new_v4(),
@@ -437,6 +447,10 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
         }
     };
     match result {
+        Err(ClientError::Other(ErrorKind::ConnectionReset)) => {
+            debug!("Connection reset by client");
+            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+        }
         Err(ref e) => {
             warn!("Closing TCP socket due to error: {:?}", e);
             let _ = client_stream.shutdown(std::net::Shutdown::Both);
@@ -744,6 +758,13 @@ fn serve_403_header(client_stream: &mut TcpStream) -> io::Result<()> {
 fn serve_200_ok_empty(client_stream: &mut TcpStream) -> io::Result<()> {
     let header = reply_header_success(0, PayloadOrigin::NoPayload);
     client_stream.write_all(header.as_bytes())
+}
+
+fn serve_200_ok_body(client_stream: &mut TcpStream, body: &[u8]) -> io::Result<()> {
+    let content_length = body.len() as u64;
+    let header = reply_header_success(content_length, PayloadOrigin::NoPayload);
+    client_stream.write_all(header.as_bytes())?;
+    client_stream.write_all(body)
 }
 
 fn reply_header_success(content_length: u64, payload_origin: PayloadOrigin) -> String {

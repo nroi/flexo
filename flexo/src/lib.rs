@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::thread::JoinHandle;
 use std::sync::atomic::{AtomicU32, Ordering};
+use serde::Serialize;
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
 
@@ -275,8 +276,15 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 // TODO make sure this compiles on a raspberry pi
                 let timestamp = LOGICAL_CLOCK.fetch_add(1, Ordering::Relaxed);
                 provider_metrics.entry(provider.clone())
-                    .and_modify(|e| e.most_recent_usage = timestamp);
-
+                    .and_modify(|e| {
+                        e.most_recent_usage = timestamp;
+                        e.num_usages += 1;
+                    })
+                    .or_insert(ProviderMetrics {
+                        num_usages: 1,
+                        most_recent_usage: timestamp,
+                        num_failures: 0
+                    });
                 (provider, provider_stats.providers.is_empty())
             }
         }
@@ -363,10 +371,17 @@ pub struct JobContext<J> where J: Job {
     pub properties: J::PR,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy, Default)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy, Default, Serialize)]
 pub struct ProviderMetrics {
+    num_usages: u32,
     most_recent_usage: u32,
     num_failures: u32,
+}
+
+impl <J> JobContext<J> where J: Job {
+    pub fn provider_metrics(&self) -> HashMap<J::P, ProviderMetrics> {
+        return self.provider_metrics.lock().unwrap().clone();
+    }
 }
 
 pub struct ScheduledItem<J> where J: Job {
