@@ -355,7 +355,7 @@ pub struct JobContext<J> where J: Job {
     providers: Arc<Mutex<Vec<J::P>>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
     orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
-    providers_in_use: Arc<Mutex<HashMap<J::P, u32>>>,
+    provider_usage_timestamps: Arc<Mutex<HashMap<J::P, u32>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     provider_failures: Arc<Mutex<HashMap<J::P, u32>>>,
     pub properties: J::PR,
@@ -408,7 +408,7 @@ impl <J> JobContext<J> where J: Job {
             channels,
             orders_in_progress,
             provider_failures,
-            providers_in_use,
+            provider_usage_timestamps: providers_in_use,
             panic_monitor: thread_mutexes,
             properties,
         }
@@ -499,7 +499,7 @@ impl <J> JobContext<J> where J: Job {
         let channels_cloned = Arc::clone(&self.channels);
         let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
         let provider_failures_cloned = Arc::clone(&self.provider_failures);
-        let providers_in_use_cloned = Arc::clone(&self.providers_in_use);
+        let provider_usage_timestamps_cloned = Arc::clone(&self.provider_usage_timestamps);
         let order_states = Arc::clone(&self.orders_in_progress);
         let order_cloned = order.clone();
         let properties = self.properties.clone();
@@ -507,7 +507,7 @@ impl <J> JobContext<J> where J: Job {
         let mut provider_stats = ProvidersWithStats {
             providers: providers_cloned,
             provider_failures: provider_failures_cloned,
-            provider_usage_timestamps: providers_in_use_cloned,
+            provider_usage_timestamps: provider_usage_timestamps_cloned,
         };
         let t = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
