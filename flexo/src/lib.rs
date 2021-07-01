@@ -7,8 +7,13 @@ use std::thread;
 use std::thread::JoinHandle;
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
+use std::time::{Instant, Duration};
 
 const NUM_MAX_ATTEMPTS: i32 = 100;
+
+// It's important that this value is lower than the TIMEOUT_RECEIVE_CONTENT_LENGTH value:
+// Otherwise, if we keep doing our retries for too long, the other thread stops waiting.
+const TIMEOUT_ALL_RETRIES: Duration = Duration::from_secs(4);
 
 #[derive(Debug)]
 pub struct JobPartiallyCompleted<J> where J: Job {
@@ -187,9 +192,13 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
+        let start_time = Instant::now();
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
+            if num_attempt > 1 && start_time.elapsed() > TIMEOUT_ALL_RETRIES {
+                warn!("Unable to complete attempt number {}: The timeout has elapsed.", num_attempt);
+            }
             let (provider, is_last_provider) = self.select_provider(provider_stats, &custom_provider);
             debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);

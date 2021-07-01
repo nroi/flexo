@@ -48,6 +48,8 @@ const MAX_SENDFILE_COUNT: usize = 0x7fff_f000;
 #[cfg(test)]
 const MAX_SENDFILE_COUNT: usize = 128;
 
+const TIMEOUT_RECEIVE_CONTENT_LENGTH: Duration = Duration::from_secs(7);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum PayloadOrigin {
     Cache,
@@ -638,7 +640,7 @@ enum ContentLengthResult {
 
 fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthResult, ContentLengthError> {
     loop {
-        match rx.recv_timeout(std::time::Duration::from_secs(6)) {
+        match rx.recv_timeout(TIMEOUT_RECEIVE_CONTENT_LENGTH) {
             Ok(FlexoProgress::JobSize(content_length)) => {
                 break Ok(ContentLengthResult::ContentLength(content_length));
             }
