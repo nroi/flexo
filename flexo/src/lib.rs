@@ -193,13 +193,17 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
         let start_time = Instant::now();
+        let mut unsuccessful_providers = HashSet::<&<<Self as Order>::J as Job>::P>::new();
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
             if num_attempt > 1 && start_time.elapsed() > TIMEOUT_ALL_RETRIES {
                 warn!("Unable to complete attempt number {}: The timeout has elapsed.", num_attempt);
             }
-            let (provider, is_last_provider) = self.select_provider(provider_stats, &custom_provider);
+            let (provider, is_last_provider) = self.select_provider(
+                provider_stats,
+                &custom_provider,
+                &unsuccessful_providers);
             debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
@@ -258,6 +262,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             if result.is_success() || provider_stats.providers.is_empty() || last_chance {
                 break result;
             }
+            if !result.is_success() {
+                unsuccessful_providers.insert(provider);
+            }
         };
         if !result.is_success() {
             Self::pardon(punished_providers, provider_stats.provider_failures.lock().unwrap());
@@ -270,25 +277,30 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         &self,
         provider_stats: &'a ProvidersWithStats<<Self as Order>::J>,
         custom_provider: &'a Option<<<Self as Order>::J as Job>::P>,
+        exclude_providers: &HashSet<&<<Self as Order>::J as Job>::P>,
     ) -> (&'a <<Self as Order>::J as Job>::P, bool) {
         match custom_provider {
             Some(p) => (p, true),
             None => {
                 let provider_failures = provider_stats.provider_failures.lock().unwrap();
                 let provider_current_usages = provider_stats.provider_current_usages.lock().unwrap();
-                let (idx, _) = provider_stats.providers
+                let providers_not_excluded = provider_stats.providers
                     .iter()
-                    .map(|x| DynamicScore {
-                        num_failures: *(provider_failures.get(&x).unwrap_or(&0)),
-                        num_current_usages: *(provider_current_usages.get(&x).unwrap_or(&0)),
-                        initial_score: x.initial_score()
+                    .filter(|p| !exclude_providers.contains(p))
+                    .collect::<Vec<&<<Self as Order>::J as Job>::P>>();
+                let (idx, _) = providers_not_excluded
+                    .iter()
+                    .map(|p| DynamicScore {
+                        num_failures: *(provider_failures.get(&p).unwrap_or(&0)),
+                        num_current_usages: *(provider_current_usages.get(&p).unwrap_or(&0)),
+                        initial_score: p.initial_score()
                     })
                     .enumerate()
                     .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
                     .unwrap();
 
-                let provider = provider_stats.providers.get(idx).unwrap();
-                (provider, provider_stats.providers.is_empty())
+                let provider = providers_not_excluded.get(idx).unwrap();
+                (provider, providers_not_excluded.len() <= 1)
             }
         }
     }
