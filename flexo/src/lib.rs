@@ -9,7 +9,7 @@ use std::thread::JoinHandle;
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use std::time::{Instant, Duration};
 
-const NUM_MAX_ATTEMPTS: i32 = 100;
+const NUM_MAX_ATTEMPTS: i32 = 25;
 
 // It's important that this value is lower than the TIMEOUT_RECEIVE_CONTENT_LENGTH value:
 // Otherwise, if we keep doing our retries for too long, the other thread stops waiting.
