@@ -275,7 +275,7 @@ fn flexo_test_persistent_connections_s2s(path_generator: &mut PathGenerator, tes
     assert!(all_ok);
 }
 
-fn flexo_test_mirror_selection_slow_mirror(path_generator: &mut PathGenerator, testcase: &'static str) {
+fn flexo_test_mirror_selection_slow_mirror(_path_generator: &mut PathGenerator, testcase: &'static str) {
     let get_requests = vec![
         GetRequest {
             path: "/zero".to_owned(),
@@ -454,7 +454,7 @@ fn flexo_test_mirror_stalling(path_generator: &mut PathGenerator, testcase: &'st
 }
 
 
-fn flexo_test_404_not_found(path_generator: &mut PathGenerator, testcase: &'static str) {
+fn flexo_test_404_not_found(_path_generator: &mut PathGenerator, testcase: &'static str) {
     let get_requests = vec![
         GetRequest {
             path: "/does-not-exist".to_owned(),
