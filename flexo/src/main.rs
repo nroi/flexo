@@ -34,6 +34,7 @@ use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
 use crate::mirror_fetch::Mirror;
 use crate::str_path::StrPath;
 use std::collections::HashMap;
+use crate::mirror_flexo::RequestMethod::Post;
 
 mod mirror_config;
 mod mirror_fetch;
@@ -235,18 +236,18 @@ fn serve_request(
     job_context: Arc<Mutex<JobContext<DownloadJob>>>,
     client_stream: &mut TcpStream,
     properties: MirrorConfig,
-    get_request: GetRequest,
+    get_request: Request,
 ) -> Result<PayloadOrigin, ClientError> {
-    let (custom_provider, get_request) =
+    let (custom_provider, request) =
         custom_provider_from_request(get_request, &properties.custom_repo.as_ref().unwrap_or(&vec![]));
-    if !valid_path(&get_request.path.as_ref()) {
+    if !valid_path(&request.path.as_ref()) {
         info!("Invalid path: Serve 403");
         serve_403_header(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
-    } else if get_request.path.to_str() == "status" {
+    } else if request.path.to_str() == "status" {
         serve_200_ok_empty(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
-    } else if get_request.path.to_str() == "metrics" {
+    } else if request.path.to_str() == "metrics" {
         let metrics_map: HashMap<String, ProviderMetrics> = job_context.lock().unwrap().provider_metrics()
             .iter()
             .map(|(k, v)| (k.description(), *v))
@@ -255,21 +256,26 @@ fn serve_request(
         serve_200_ok_body(client_stream, serialized.as_bytes())?;
         client_stream.write_all(serialized.as_bytes())?;
         Ok(PayloadOrigin::NoPayload)
+    } else if request.path.to_str() == "reset-metrics" && request.method == Post {
+        job_context.lock().unwrap().reset_provider_metrics();
+        reset_logical_clock();
+        serve_200_ok_empty(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
     } else {
         let order = DownloadOrder {
             id: Uuid::new_v4(),
-            requested_path: get_request.path,
+            requested_path: request.path,
         };
         debug!("Schedule new job");
-        let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, get_request.resume_from);
+        let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, request.resume_from);
         match result {
             ScheduleOutcome::AlreadyInProgress => {
                 debug!("Job is already in progress");
                 let path = order.filepath(&properties);
                 let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
-                let content_length = complete_filesize - get_request.resume_from.unwrap_or(0);
+                let content_length = complete_filesize - request.resume_from.unwrap_or(0);
                 let file = File::open(&path)?;
-                serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
+                serve_from_growing_file(file, content_length, request.resume_from, client_stream)?;
                 Ok(PayloadOrigin::RemoteMirror)
             }
             ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
@@ -279,13 +285,13 @@ fn serve_request(
                     Ok(ContentLengthResult::ContentLength(content_length)) => {
                         debug!("Received content length via channel: {}", content_length);
                         let file = File::open(order.filepath(&properties))?;
-                        serve_from_growing_file(file, content_length, get_request.resume_from, client_stream)?;
+                        serve_from_growing_file(file, content_length, request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::RemoteMirror)
                     }
                     Ok(ContentLengthResult::AlreadyCached) => {
                         debug!("File is already available in cache.");
                         let file = File::open(order.filepath(&properties))?;
-                        serve_from_complete_file(file, get_request.resume_from, client_stream)?;
+                        serve_from_complete_file(file, request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::Cache)
                     }
                     Err(ContentLengthError::Unavailable) => {
@@ -323,7 +329,7 @@ fn serve_request(
                         return Err(ClientError::from(e));
                     }
                 };
-                serve_from_complete_file(file, get_request.resume_from, client_stream)?;
+                serve_from_complete_file(file, request.resume_from, client_stream)?;
                 Ok(PayloadOrigin::Cache)
             }
             ScheduleOutcome::Uncacheable(p) => {
@@ -346,7 +352,7 @@ fn serve_client(
     loop {
         debug!("Reading header from client.");
         match read_client_header(&mut client_stream) {
-            Ok(ClientResponse::GetRequest(get_request)) => {
+            Ok(ClientResponse::Request(get_request)) => {
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
                     Ok(payload_origin) => {
@@ -384,9 +390,9 @@ fn serve_client(
 /// is adapted to the returned custom provider, or returned unchanged if no custom provider needs to
 /// be used.
 fn custom_provider_from_request(
-    get_request: GetRequest,
+    get_request: Request,
     custom_repos: &[CustomRepo],
-) -> (Option<DownloadProvider>, GetRequest) {
+) -> (Option<DownloadProvider>, Request) {
     match repo_name_from_get_request(&get_request) {
         None => (None, get_request),
         Some((repo_name, path)) => {
@@ -404,8 +410,9 @@ fn custom_provider_from_request(
                 mirror_results: Default::default(),
                 country_code: "Unknown".to_string(),
             };
-            let new_get_request = GetRequest {
+            let new_get_request = Request {
                 resume_from: get_request.resume_from,
+                method: get_request.method,
                 path,
             };
             (Some(provider), new_get_request)
@@ -464,7 +471,7 @@ fn handle_client_error(mut client_stream: &mut TcpStream, client_error: ClientEr
     result
 }
 
-fn repo_name_from_get_request(get_request: &GetRequest) -> Option<(String, StrPath)> {
+fn repo_name_from_get_request(get_request: &Request) -> Option<(String, StrPath)> {
     let mut component_iterator = get_request.path.as_ref().components();
     if component_iterator.next()?.as_os_str().to_str()? == "custom_repo" {
         let repo_name = component_iterator.next()?.as_os_str().to_str()?.to_owned();
@@ -911,9 +918,10 @@ fn test_filesize_exceeds_sendfile_count() {
 
 #[test]
 fn custom_provider_from_request_test() {
-    let request = GetRequest {
+    let request = Request {
         resume_from: None,
         path: StrPath::new("/custom_repo/archzfs/foo/bar/baz".to_owned()),
+        method: RequestMethod::Get
     };
     let custom_repo = CustomRepo {
         name: "archzfs".to_owned(),
@@ -927,9 +935,10 @@ fn custom_provider_from_request_test() {
         mirror_results: Default::default(),
         country_code: "Unknown".to_string(),
     };
-    let expected_get_request = GetRequest {
+    let expected_get_request = Request {
         resume_from: None,
         path: StrPath::new("/foo/bar/baz".to_owned()),
+        method: RequestMethod::Get
     };
 
     assert_eq!(provider, Some(expected_provider));

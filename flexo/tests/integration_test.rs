@@ -192,7 +192,7 @@ struct DummyJobSuccess {
 }
 
 struct DummyJobFailure {
-    failures: HashMap<DummyProvider, i64>
+    failures: HashMap<DummyProvider, ProviderMetrics>
 }
 
 fn successful_providers() -> Vec<DummyProvider> {
@@ -490,7 +490,7 @@ fn no_downgrade_if_all_providers_fail() {
     let result1 = job_context.try_schedule(DummyOrder::Success(0), None, None);
     let DummyJobFailure { failures } = wait_until_job_failed(result1);
     let failures = failures.get(&p1);
-    assert_eq!(failures, Some(&0));
+    assert_eq!(failures, Some(&ProviderMetrics::default()));
 }
 
 #[test]

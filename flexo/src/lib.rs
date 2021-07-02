@@ -16,8 +16,12 @@ const NUM_MAX_ATTEMPTS: i32 = 25;
 // Otherwise, if we keep doing our retries for too long, the other thread stops waiting.
 const TIMEOUT_ALL_RETRIES: Duration = Duration::from_secs(4);
 
-static LOGICAL_CLOCK: AtomicU32 = AtomicU32::new(1);
+pub const LOGICAL_CLOCK_INITIAL_VALUE: u32 = 1;
+pub static LOGICAL_CLOCK: AtomicU32 = AtomicU32::new(LOGICAL_CLOCK_INITIAL_VALUE);
 
+pub fn reset_logical_clock() {
+    LOGICAL_CLOCK.swap(LOGICAL_CLOCK_INITIAL_VALUE, Ordering::Relaxed);
+}
 
 #[derive(Debug)]
 pub struct JobPartiallyCompleted<J> where J: Job {
@@ -400,6 +404,10 @@ pub struct ProviderMetrics {
 impl <J> JobContext<J> where J: Job {
     pub fn provider_metrics(&self) -> HashMap<J::P, ProviderMetrics> {
         return self.provider_metrics.lock().unwrap().clone();
+    }
+
+    pub fn reset_provider_metrics(&mut self) {
+        self.provider_metrics.lock().unwrap().clear();
     }
 }
 pub struct ScheduledItem<J> where J: Job {

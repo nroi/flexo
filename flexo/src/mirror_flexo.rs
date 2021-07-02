@@ -25,6 +25,7 @@ use crate::mirror_fetch;
 use crate::mirror_fetch::{MirrorProtocol, Mirror};
 use crate::str_path::StrPath;
 use uuid::Uuid;
+use crate::mirror_flexo::RequestMethod::{Get, Post};
 
 // Since a restriction for the size of header fields is also implemented by web servers like NGINX or Apache,
 // we keep things simple by just setting a fixed buffer length.
@@ -133,17 +134,24 @@ fn parse_range_header_value(s: &str) -> Result<u64, ClientError> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientResponse {
-    GetRequest(GetRequest),
+    Request(Request),
     SocketClosed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct GetRequest {
+pub struct Request {
     pub resume_from: Option<u64>,
     pub path: StrPath,
+    pub method: RequestMethod,
 }
 
-impl GetRequest {
+#[derive(Debug, PartialEq, Eq)]
+pub enum RequestMethod {
+    Get,
+    Post,
+}
+
+impl Request {
     fn new(request: httparse::Request) -> Result<Self, ClientError> {
         let range_header = request.headers
             .iter()
@@ -163,8 +171,16 @@ impl GetRequest {
                 Some(parse_range_header_value(v?)?)
             }
         };
-        match request.method {
-            Some("GET") => {},
+        let path = match request.path {
+            None => {
+                let client_status = ClientStatus { response_headers_sent: false };
+                Err(ClientError::InvalidHeader(client_status))
+            }
+            Some(p) => Ok(p)
+        }?;
+        let request_method = match request.method {
+            Some("GET") => Get,
+            Some("POST") if path == "/reset-metrics" => Post,
             Some(method) => {
                 error!("Unsupported HTTP method: {}", method);
                 return Err(ClientError::UnsupportedHttpMethod(ClientStatus::no_response_headers_sent()));
@@ -173,16 +189,11 @@ impl GetRequest {
                 error!("Expected the request method to be set.");
                 return Err(ClientError::InvalidHeader(ClientStatus::no_response_headers_sent()));
             },
-        }
-        let path = match request.path {
-            None => {
-                let client_status = ClientStatus { response_headers_sent: false };
-                Err(ClientError::InvalidHeader(client_status))
-            }
-            Some(p) => Ok(p)
         };
+        let request_path = StrPath::new(path.to_owned());
         Ok(Self {
-            path: StrPath::new(path?.to_owned()),
+            path: request_path,
+            method: request_method,
             resume_from,
         })
     }
@@ -979,7 +990,7 @@ pub fn read_client_header<T>(client_stream: &mut T) -> Result<ClientResponse, Cl
         match res {
             Ok(Status::Complete(_result)) => {
                 debug!("Received header from client");
-                break(Ok(ClientResponse::GetRequest(GetRequest::new(req)?)))
+                break(Ok(ClientResponse::Request(Request::new(req)?)))
             }
             Ok(Status::Partial) => {
                 {}
