@@ -7,12 +7,17 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::sync::atomic::{AtomicU32, Ordering};
 use serde::Serialize;
-
+use std::time::{Instant, Duration};
 use crossbeam::channel::{Receiver, Sender, unbounded};
+
+const NUM_MAX_ATTEMPTS: i32 = 25;
+
+// It's important that this value is lower than the TIMEOUT_RECEIVE_CONTENT_LENGTH value:
+// Otherwise, if we keep doing our retries for too long, the other thread stops waiting.
+const TIMEOUT_ALL_RETRIES: Duration = Duration::from_secs(4);
 
 static LOGICAL_CLOCK: AtomicU32 = AtomicU32::new(1);
 
-const NUM_MAX_ATTEMPTS: i32 = 100;
 
 #[derive(Debug)]
 pub struct JobPartiallyCompleted<J> where J: Job {
@@ -97,7 +102,6 @@ pub trait Provider where
             .and_modify(|p| p.num_failures += 1)
             .or_insert(ProviderMetrics::default());
     }
-
 }
 
 pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
@@ -187,10 +191,18 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
+        let start_time = Instant::now();
+        let mut unsuccessful_providers = HashSet::<&<<Self as Order>::J as Job>::P>::new();
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            let (provider, is_last_provider) = self.select_provider(provider_stats, &custom_provider);
+            if num_attempt > 1 && start_time.elapsed() > TIMEOUT_ALL_RETRIES {
+                warn!("Unable to complete attempt number {}: The timeout has elapsed.", num_attempt);
+            }
+            let (provider, is_last_provider) = self.select_provider(
+                provider_stats,
+                &custom_provider,
+                &unsuccessful_providers);
             debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
@@ -241,6 +253,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             if result.is_success() || provider_stats.providers.is_empty() || last_chance {
                 break result;
             }
+            if !result.is_success() {
+                unsuccessful_providers.insert(provider);
+            }
         };
         if !result.is_success() {
             Self::pardon(punished_providers, provider_stats.provider_metrics.lock().unwrap());
@@ -253,12 +268,17 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         &self,
         provider_stats: &'a ProvidersWithMetrics<<Self as Order>::J>,
         custom_provider: &'a Option<<<Self as Order>::J as Job>::P>,
+        exclude_providers: &HashSet<&<<Self as Order>::J as Job>::P>,
     ) -> (&'a <<Self as Order>::J as Job>::P, bool) {
         match custom_provider {
             Some(p) => (p, true),
             None => {
                 let mut provider_metrics = provider_stats.provider_metrics.lock().unwrap();
-                let (idx, _) = provider_stats.providers
+                let providers_not_excluded = provider_stats.providers
+                    .iter()
+                    .filter(|p| !exclude_providers.contains(p))
+                    .collect::<Vec<&<<Self as Order>::J as Job>::P>>();
+                let (idx, _) = providers_not_excluded
                     .iter()
                     .map(|provider| {
                         let metric = *(provider_metrics.get(provider)).unwrap_or(&ProviderMetrics::default());
@@ -271,7 +291,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     .enumerate()
                     .min_by_key(|(_idx, dynamic_score)| *dynamic_score)
                     .unwrap();
-                let provider = provider_stats.providers.get(idx).unwrap();
+                let provider: &<<Self as Order>::J as Job>::P = providers_not_excluded.get(idx).unwrap();
                 debug!("Selected provider: {:?}", provider);
                 // TODO make sure this compiles on a raspberry pi
                 let timestamp = LOGICAL_CLOCK.fetch_add(1, Ordering::Relaxed);
@@ -285,7 +305,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                         most_recent_usage: timestamp,
                         num_failures: 0
                     });
-                (provider, provider_stats.providers.is_empty())
+                (provider, providers_not_excluded.len() <= 1)
             }
         }
     }
@@ -307,13 +327,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 }
 
 /// A score that incorporates information that we have gained while using this provider.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 struct DynamicScore <S> where S: Ord {
     num_failures: u32,
     most_recent_usage: u32,
     initial_score: S,
 }
-
 pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job;
 
@@ -383,7 +402,6 @@ impl <J> JobContext<J> where J: Job {
         return self.provider_metrics.lock().unwrap().clone();
     }
 }
-
 pub struct ScheduledItem<J> where J: Job {
     pub join_handle: JoinHandle<JobOutcome<J>>,
     pub rx: Receiver<FlexoMessage<J::P>>,
