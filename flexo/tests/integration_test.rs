@@ -283,7 +283,7 @@ fn provider_lowest_score() {
     let providers = vec![p1.clone(), p2.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.try_schedule(DummyOrder::Success(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx_integration_test: _, rx_progress: _ }) => {
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, ..}) => {
             // wait for the job to complete.
             join_handle.join()
         },
@@ -299,7 +299,7 @@ fn second_provider_success_after_first_provider_failure() {
     let providers = vec![p1.clone(), p2.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     match job_context.try_schedule(DummyOrder::Success(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx_integration_test: _, rx_progress: _ }) => {
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, ..}) => {
             // wait for the job to complete.
             join_handle.join().unwrap();
         },
@@ -319,7 +319,7 @@ fn next_order_success_after_first_order_failed() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(successful_providers(), DummyProperties{});
     job_context.try_schedule(DummyOrder::Failure(0), None, None);
     match job_context.try_schedule(DummyOrder::Success(1), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx_integration_test: _, rx_progress: _ }) => {
+        ScheduleOutcome::Scheduled(ScheduledItem { join_handle, ..}) => {
             let result = join_handle.join().unwrap();
             match result {
                 JobOutcome::Success(_) => {},
@@ -341,15 +341,15 @@ fn provider_no_two_simultaneous_jobs() {
     let providers = vec![p1.clone(), p2.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: rx, rx_progress: _ }) => {
-            rx.recv().unwrap()
-        },
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
     let provider_order2 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: rx, rx_progress: _ }) => {
-            rx.recv().unwrap()
-        },
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_ne!(provider_order1, provider_order2);
@@ -363,15 +363,15 @@ fn provider_two_simultaneous_jobs_if_required() {
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: rx, rx_progress: _ }) => {
-            rx.recv().unwrap()
-        },
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
     let provider_order2 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: rx, rx_progress: _ }) => {
-            rx.recv().unwrap()
-        },
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
     assert_eq!(provider_order1, provider_order2);
@@ -423,20 +423,21 @@ fn job_continued_after_partial_completion() {
     let p3 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 3 });
     let providers = vec![p1.clone(), p2.clone(), p3.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let (provider_first_scheduled, provider_finally_scheduled) = match job_context.try_schedule(DummyOrder::Success(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx_integration_test: rx, rx_progress: _ }) => {
-            let provider_first_scheduled = match rx.recv().unwrap() {
-                IntegrationTestMessage::ProviderSelected(p) => p,
-                _ => panic!("Did not expect this message")
-            };
-            let provider_finally_scheduled = match join_handle.join().unwrap() {
-                JobOutcome::Success(p) => p,
-                JobOutcome::Error(_) => panic!("Expected success"),
-            };
-            (provider_first_scheduled, provider_finally_scheduled)
-        },
-        _ => panic!("{}", EXPECT_SCHEDULED),
-    };
+    let (provider_first_scheduled, provider_finally_scheduled) =
+        match job_context.try_schedule(DummyOrder::Success(0), None, None) {
+            ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx_integration_test, ..}) => {
+                let provider_first_scheduled = match rx_integration_test.recv().unwrap() {
+                    IntegrationTestMessage::ProviderSelected(p) => p,
+                    _ => panic!("Did not expect this message")
+                };
+                let provider_finally_scheduled = match join_handle.join().unwrap() {
+                    JobOutcome::Success(p) => p,
+                    JobOutcome::Error(_) => panic!("Expected success"),
+                };
+                (provider_first_scheduled, provider_finally_scheduled)
+            }
+            _ => panic!("{}", EXPECT_SCHEDULED),
+        };
     assert_eq!(provider_first_scheduled, p1);
     assert_eq!(provider_finally_scheduled, p2);
 }
@@ -448,7 +449,7 @@ fn no_infinite_loop() {
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.try_schedule(DummyOrder::Success(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, rx_integration_test: _, rx_progress: _ }) => {
+        ScheduleOutcome::Scheduled(ScheduledItem {join_handle, ..}) => {
             join_handle.join().unwrap()
         },
         _ => panic!("{}", EXPECT_SCHEDULED),
@@ -570,7 +571,7 @@ fn read_progress() {
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: _, rx_progress }) => {
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
             rx_progress.recv_timeout(std::time::Duration::from_millis(50)).unwrap()
         },
         _ => panic!("{}", EXPECT_SCHEDULED),
