@@ -312,10 +312,10 @@ fn second_provider_success_after_first_provider_failure() {
 
 #[test]
 fn next_order_success_after_first_order_failed() {
-    // After a first order has failed, a subsequent order succeeds: this test case is intended to ensure
+    // After a first job has failed, a subsequent job succeeds: this test case is intended to ensure
     // that a failing job does not cause all available providers to be "blacklisted", i.e., when some mechanism
-    // is used to downgrade a provider after it has failed to complete an order, a subsequent order should still
-    // be able to use this provider, even though it has been downgraded.
+    // is used to downgrade a provider after it has failed to complete a job, a subsequent job should still
+    // succeed with this provider, even though it has been downgraded.
     let mut job_context: JobContext<DummyJob> = JobContext::new(successful_providers(), DummyProperties{});
     job_context.try_schedule(DummyOrder::Failure(0), None, None);
     match job_context.try_schedule(DummyOrder::Success(1), None, None) {
@@ -335,7 +335,7 @@ fn provider_no_two_simultaneous_jobs() {
     // Once an order has been assigned to a provider, this provider will not be used again as long as the job
     // is still in progress. The intention is to reduce load on the provider by not running multiple jobs
     // simultaneously (or, to speak in more specific terms: we don't want to strain the same web server with more
-    // more than one download).
+    // than one download).
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1.clone(), p2.clone()];
