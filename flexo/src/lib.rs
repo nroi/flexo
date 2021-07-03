@@ -548,7 +548,7 @@ impl <J> JobContext<J> where J: Job {
         }).collect();
         self.panic_monitor.push(mutex);
 
-        let (tx, rx_integration_test) = unbounded::<IntegrationTestMessage<J::P>>();
+        let (tx_integration_test, rx_integration_test) = unbounded::<IntegrationTestMessage<J::P>>();
         let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
         let channels_cloned = Arc::clone(&self.channels);
         let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
@@ -569,7 +569,7 @@ impl <J> JobContext<J> where J: Job {
                 &mut provider_stats,
                 custom_provider,
                 channels_cloned.clone(),
-                tx,
+                tx_integration_test,
                 tx_progress,
                 properties,
                 cached_size,
