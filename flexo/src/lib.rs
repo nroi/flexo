@@ -183,7 +183,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         provider_stats: &mut ProvidersWithMetrics<<Self as Order>::J>,
         custom_provider: Option<<<Self as Order>::J as Job>::P>,
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
-        tx: Sender<FlexoMessage<<<Self as Order>::J as Job>::P>>,
+        tx: Sender<IntegrationTestMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
         cached_size: u64,
@@ -208,20 +208,19 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
-            let message = FlexoMessage::ProviderSelected(provider.clone());
-            let _ = tx.send(message);
+            let _ = tx.send(IntegrationTestMessage::ProviderSelected(provider.clone()));
             let self_cloned: Self = self.clone();
             let job = provider.new_job(&properties, self_cloned);
             debug!("Attempt to establish new connection");
             let channel_result = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let result = match channel_result {
                 Ok((channel, channel_establishment)) => {
-                    let _ = tx.send(FlexoMessage::ChannelEstablished(channel_establishment));
+                    let _ = tx.send(IntegrationTestMessage::ChannelEstablished(channel_establishment));
                     job.serve_from_provider(channel, &properties, cached_size)
                 }
                 Err(e) => {
                     warn!("Error while attempting to establish a new connection: {:?}", e);
-                    let _ = tx.send(FlexoMessage::OrderError);
+                    let _ = tx.send(IntegrationTestMessage::OrderError);
                     let _ = tx_progress.send(FlexoProgress::OrderError);
                     job.handle_error(e)
                 }
@@ -342,12 +341,6 @@ pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker
     fn job_state(&mut self) -> &mut JobState<Self::J>;
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
-pub enum ChannelEstablishment {
-    NewChannel,
-    ExistingChannel,
-}
-
 /// Marker trait.
 pub trait Properties {}
 
@@ -418,7 +411,7 @@ impl <J> JobContext<J> where J: Job {
 }
 pub struct ScheduledItem<J> where J: Job {
     pub join_handle: JoinHandle<JobOutcome<J>>,
-    pub rx: Receiver<FlexoMessage<J::P>>,
+    pub rx_integration_test: Receiver<IntegrationTestMessage<J::P>>,
     pub rx_progress: Receiver<FlexoProgress>,
 }
 
@@ -434,7 +427,8 @@ pub enum ScheduleOutcome<J> where J: Job {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub enum FlexoMessage <P> {
+/// Messages sent to monitor the state of Flexo during our integration tests.
+pub enum IntegrationTestMessage<P> {
     ProviderSelected(P),
     ChannelEstablished(ChannelEstablishment),
     OrderError,
@@ -448,6 +442,12 @@ pub enum FlexoProgress {
     Progress(u64),
     Completed,
     OrderError,
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+pub enum ChannelEstablishment {
+    NewChannel,
+    ExistingChannel,
 }
 
 impl <J> JobContext<J> where J: Job {
@@ -548,7 +548,7 @@ impl <J> JobContext<J> where J: Job {
         }).collect();
         self.panic_monitor.push(mutex);
 
-        let (tx, rx) = unbounded::<FlexoMessage<J::P>>();
+        let (tx, rx_integration_test) = unbounded::<IntegrationTestMessage<J::P>>();
         let (tx_progress, rx_progress) = unbounded::<FlexoProgress>();
         let channels_cloned = Arc::clone(&self.channels);
         let providers_cloned: Vec<J::P> = self.providers.lock().unwrap().clone();
@@ -562,7 +562,7 @@ impl <J> JobContext<J> where J: Job {
             providers: providers_cloned,
             provider_metrics: provider_metrics_cloned,
         };
-        let t = thread::spawn(move || {
+        let thread = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
             let order: <J as Job>::O = order.clone();
             let result = order.try_until_success(
@@ -610,7 +610,13 @@ impl <J> JobContext<J> where J: Job {
             }
         });
 
-        ScheduleOutcome::Scheduled(ScheduledItem { join_handle: t, rx, rx_progress })
+        ScheduleOutcome::Scheduled(
+            ScheduledItem {
+                join_handle: thread,
+                rx_integration_test,
+                rx_progress
+            }
+        )
     }
 }
 
