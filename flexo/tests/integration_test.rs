@@ -378,6 +378,36 @@ fn provider_two_simultaneous_jobs_if_required() {
 }
 
 #[test]
+fn provider_reused_after_job_completed() {
+    // By default, we want to reuse a previously used provider, rather than choosing a new provider for a new job
+    // (unless that new job arrives before the previous job has completed, in which case we want to reduce the strain
+    // on the currently used provider and select a new one).
+    // This is due to the fact that we intend to use persistent connections: If the client downloads the files
+    // sequentially, rather than starting a new download before the previous download has finished, we don't gain
+    // anything by starting this next download from a new mirror. Instead, we want to use the old mirror again because
+    // we expect this to be faster due to persistent connections.
+    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
+    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
+    let providers = vec![p1.clone(), p2.clone()];
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
+    let provider_order1 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
+        _ => panic!("{}", EXPECT_SCHEDULED),
+    };
+    let provider_order2 = match job_context.try_schedule(DummyOrder::Success(2), None, None) {
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
+        _ => panic!("{}", EXPECT_SCHEDULED),
+    };
+    let expected = IntegrationTestMessage::ProviderSelected(p1);
+    assert_eq!(provider_order1, expected);
+    assert_eq!(provider_order2, expected);
+}
+
+#[test]
 fn order_skipped_if_already_in_progress() {
     // If an order is already in progress, scheduling the same order again will not cause a new job to be
     // executed. The intention here is that, since the library will be used for downloads, we don't ever want to
