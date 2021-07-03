@@ -183,7 +183,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         provider_stats: &mut ProvidersWithMetrics<<Self as Order>::J>,
         custom_provider: Option<<<Self as Order>::J as Job>::P>,
         channels: Arc<Mutex<HashMap<<<Self as Order>::J as Job>::P, <<Self as Order>::J as Job>::C>>>,
-        tx: Sender<IntegrationTestMessage<<<Self as Order>::J as Job>::P>>,
+        tx_integration_test: Sender<IntegrationTestMessage<<<Self as Order>::J as Job>::P>>,
         tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
         cached_size: u64,
@@ -208,19 +208,28 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
-            let _ = tx.send(IntegrationTestMessage::ProviderSelected(provider.clone()));
+            send::<<Self as Order>::J>(
+                IntegrationTestMessage::ProviderSelected(provider.clone()),
+                &tx_integration_test
+            );
             let self_cloned: Self = self.clone();
             let job = provider.new_job(&properties, self_cloned);
             debug!("Attempt to establish new connection");
             let channel_result = job.get_channel(&channels, tx_progress.clone(), last_chance);
             let result = match channel_result {
                 Ok((channel, channel_establishment)) => {
-                    let _ = tx.send(IntegrationTestMessage::ChannelEstablished(channel_establishment));
+                    send::<<Self as Order>::J>(
+                        IntegrationTestMessage::ChannelEstablished(channel_establishment),
+                        &tx_integration_test
+                    );
                     job.serve_from_provider(channel, &properties, cached_size)
                 }
                 Err(e) => {
                     warn!("Error while attempting to establish a new connection: {:?}", e);
-                    let _ = tx.send(IntegrationTestMessage::OrderError);
+                    send::<<Self as Order>::J>(
+                        IntegrationTestMessage::OrderError,
+                        &tx_integration_test
+                    );
                     let _ = tx_progress.send(FlexoProgress::OrderError);
                     job.handle_error(e)
                 }
@@ -618,6 +627,22 @@ impl <J> JobContext<J> where J: Job {
             }
         )
     }
+}
+
+#[cfg(debug_assertions)]
+fn send<J>(
+    message: IntegrationTestMessage<J::P>,
+    tx_integration_test: &Sender<IntegrationTestMessage<J::P>>
+) where J: Job {
+    let _ = tx_integration_test.send(message);
+}
+
+#[cfg(not(debug_assertions))]
+fn send<J>(
+    _message: IntegrationTestMessage<J::P>,
+    _tx_integration_test: &Sender<IntegrationTestMessage<J::P>>
+) where J: Job {
+    // Nothing to do - no messages will be sent unless we're running tests.
 }
 
 #[test]
