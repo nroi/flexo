@@ -17,11 +17,6 @@ const NUM_MAX_ATTEMPTS: i32 = 25;
 const TIMEOUT_ALL_RETRIES: Duration = Duration::from_secs(4);
 
 pub const LOGICAL_CLOCK_INITIAL_VALUE: u32 = 1;
-pub static LOGICAL_CLOCK: AtomicU32 = AtomicU32::new(LOGICAL_CLOCK_INITIAL_VALUE);
-
-pub fn reset_logical_clock() {
-    LOGICAL_CLOCK.swap(LOGICAL_CLOCK_INITIAL_VALUE, Ordering::Relaxed);
-}
 
 #[derive(Debug)]
 pub struct JobPartiallyCompleted<J> where J: Job {
@@ -192,6 +187,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
         cached_size: u64,
+        clock: Arc<AtomicU32>,
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -206,7 +202,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             let (provider, is_last_provider) = self.select_provider(
                 provider_stats,
                 &custom_provider,
-                &unsuccessful_providers);
+                &unsuccessful_providers,
+                &clock,
+            );
             debug!("Trying to serve {} via {:?}", &self.description(), &provider);
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
@@ -273,6 +271,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         provider_stats: &'a ProvidersWithMetrics<<Self as Order>::J>,
         custom_provider: &'a Option<<<Self as Order>::J as Job>::P>,
         exclude_providers: &HashSet<&<<Self as Order>::J as Job>::P>,
+        clock: &AtomicU32,
     ) -> (&'a <<Self as Order>::J as Job>::P, bool) {
         match custom_provider {
             Some(p) => (p, true),
@@ -297,8 +296,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     .unwrap();
                 let provider: &<<Self as Order>::J as Job>::P = providers_not_excluded.get(idx).unwrap();
                 debug!("Selected provider: {:?}", provider);
-                // TODO make sure this compiles on a raspberry pi
-                let timestamp = LOGICAL_CLOCK.fetch_add(1, Ordering::Relaxed);
+                let timestamp = clock.fetch_add(1, Ordering::Relaxed);
                 provider_metrics.entry(provider.clone())
                     .and_modify(|e| {
                         e.most_recent_usage = timestamp;
@@ -392,13 +390,21 @@ pub struct JobContext<J> where J: Job {
     provider_metrics: Arc<Mutex<HashMap<J::P, ProviderMetrics>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     pub properties: J::PR,
+    pub clock: Arc<AtomicU32>,
+}
+
+impl <J> JobContext<J> where J: Job {
+    pub fn reset_logical_clock(&self) {
+        AtomicU32::new(LOGICAL_CLOCK_INITIAL_VALUE);
+        self.clock.swap(LOGICAL_CLOCK_INITIAL_VALUE, Ordering::Relaxed);
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy, Default, Serialize)]
 pub struct ProviderMetrics {
-    num_usages: u32,
-    most_recent_usage: u32,
-    num_failures: u32,
+    pub num_usages: u32,
+    pub most_recent_usage: u32,
+    pub num_failures: u32,
 }
 
 impl <J> JobContext<J> where J: Job {
@@ -458,6 +464,7 @@ impl <J> JobContext<J> where J: Job {
             provider_metrics,
             panic_monitor: thread_mutexes,
             properties,
+            clock: Arc::new(AtomicU32::new(LOGICAL_CLOCK_INITIAL_VALUE)),
         }
     }
 
@@ -549,6 +556,7 @@ impl <J> JobContext<J> where J: Job {
         let order_states = Arc::clone(&self.orders_in_progress);
         let order_cloned = order.clone();
         let properties = self.properties.clone();
+        let clock = Arc::clone(&self.clock);
 
         let mut provider_stats = ProvidersWithMetrics {
             providers: providers_cloned,
@@ -565,6 +573,7 @@ impl <J> JobContext<J> where J: Job {
                 tx_progress,
                 properties,
                 cached_size,
+                clock,
             );
             order_states.lock().unwrap().remove(&order_cloned);
             match result {

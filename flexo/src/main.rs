@@ -257,8 +257,11 @@ fn serve_request(
         client_stream.write_all(serialized.as_bytes())?;
         Ok(PayloadOrigin::NoPayload)
     } else if request.path.to_str() == "reset-metrics" && request.method == Post {
-        job_context.lock().unwrap().reset_provider_metrics();
-        reset_logical_clock();
+        {
+            let mut jc = job_context.lock().unwrap();
+            jc.reset_logical_clock();
+            jc.reset_provider_metrics();
+        }
         serve_200_ok_empty(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
     } else {

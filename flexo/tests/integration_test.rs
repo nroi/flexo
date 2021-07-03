@@ -192,7 +192,7 @@ struct DummyJobSuccess {
 }
 
 struct DummyJobFailure {
-    failures: HashMap<DummyProvider, ProviderMetrics>
+    metrics: HashMap<DummyProvider, ProviderMetrics>
 }
 
 fn successful_providers() -> Vec<DummyProvider> {
@@ -270,7 +270,7 @@ fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJo
     match result {
         JobOutcome::Success(_) => panic!("{}", EXPECT_FAILURE),
         JobOutcome::Error(failures) => DummyJobFailure {
-            failures,
+            metrics: failures,
         }
     }
 }
@@ -358,7 +358,7 @@ fn provider_no_two_simultaneous_jobs() {
 #[test]
 fn provider_two_simultaneous_jobs_if_required() {
     // While we generally want to avoid to have one provider handling more than one job simultaneously, this can be
-    // necessary if the number of providers is low and the frequency of newly arriving jobs is high.
+    // necessary if the number of providers is low and the frequency of newly arriving orders is high.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
@@ -488,9 +488,12 @@ fn no_downgrade_if_all_providers_fail() {
     let providers = vec![p1.clone()];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.try_schedule(DummyOrder::Success(0), None, None);
-    let DummyJobFailure { failures } = wait_until_job_failed(result1);
-    let failures = failures.get(&p1);
-    assert_eq!(failures, Some(&ProviderMetrics::default()));
+    let DummyJobFailure { metrics } = wait_until_job_failed(result1);
+    let metrics = metrics.get(&p1);
+    match metrics {
+        Some(ProviderMetrics { num_failures: 0, .. }) => {}
+        e => panic!("Expected a metric with no failures, got instead: {:?}", e)
+    }
 }
 
 #[test]
