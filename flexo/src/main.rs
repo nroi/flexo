@@ -250,7 +250,7 @@ fn serve_request(
     } else if request.path.to_str() == "metrics" {
         let metrics_map: HashMap<String, ProviderMetrics> = job_context.lock().unwrap().provider_metrics()
             .iter()
-            .map(|(k, v)| (k.description(), *v))
+            .map(|(k, v)| (k.identifier.clone(), *v))
             .collect();
         let serialized = serde_json::to_string_pretty(&metrics_map).unwrap();
         serve_200_ok_body(client_stream, serialized.as_bytes())?;
@@ -335,9 +335,9 @@ fn serve_request(
                 serve_from_complete_file(file, request.resume_from, client_stream)?;
                 Ok(PayloadOrigin::Cache)
             }
-            ScheduleOutcome::Uncacheable(p) => {
+            ScheduleOutcome::Uncacheable(guard) => {
                 debug!("Serve file via redirect.");
-                let uri_string = uri_from_components(&p.uri, order.requested_path.to_str());
+                let uri_string = uri_from_components(&guard.guarded_provider.uri, order.requested_path.to_str());
                 serve_via_redirect(uri_string, client_stream)?;
                 Ok(PayloadOrigin::NoPayload)
             }

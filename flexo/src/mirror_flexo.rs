@@ -228,8 +228,10 @@ impl Provider for DownloadProvider {
         self.mirror_results
     }
 
-    fn description(&self) -> String {
-        self.uri.clone()
+    fn identifier(&self) -> ProviderIdentifier {
+        ProviderIdentifier {
+            identifier: self.uri.clone()
+        }
     }
 }
 
@@ -381,11 +383,11 @@ impl Job for DownloadJob {
                 channel.handle.resume_from(start).unwrap();
             }
         }
-        debug!("Start download from {}", self.provider.description());
+        debug!("Start download from {}", self.provider.identifier());
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
-                debug!("{} replied with status code {}.", self.provider.description(), response_code);
+                debug!("{} replied with status code {}.", self.provider.identifier(), response_code);
                 if (200..300).contains(&response_code) {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))

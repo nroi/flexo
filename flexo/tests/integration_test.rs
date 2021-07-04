@@ -50,8 +50,16 @@ impl Provider for DummyProvider {
         }
     }
 
-    fn description(&self) -> String {
-        "DummyProvider".to_owned()
+    fn identifier(&self) -> ProviderIdentifier {
+        let i = match self {
+            DummyProvider::Success(DummyProviderItem { identifier, .. } ) => identifier,
+            DummyProvider::PartialCompletion(DummyProviderItem { identifier, .. } ) => identifier,
+            DummyProvider::Failure(DummyProviderItem { identifier, .. } ) => identifier,
+        };
+        let identifier = format!("DummyProvider {}", i);
+        ProviderIdentifier {
+            identifier
+        }
     }
 }
 
@@ -192,7 +200,7 @@ struct DummyJobSuccess {
 }
 
 struct DummyJobFailure {
-    metrics: HashMap<DummyProvider, ProviderMetrics>
+    metrics: HashMap<ProviderIdentifier, ProviderMetrics>
 }
 
 fn successful_providers() -> Vec<DummyProvider> {
@@ -204,9 +212,9 @@ fn successful_providers() -> Vec<DummyProvider> {
 }
 
 fn wait_until_message_received <F, R>(
-    rx: Receiver<IntegrationTestMessage<DummyProvider>>,
+    rx: Receiver<IntegrationTestMessage>,
     message_cmp: F
-) -> R where F: Fn(&IntegrationTestMessage<DummyProvider>) -> Option<R> {
+) -> R where F: Fn(&IntegrationTestMessage) -> Option<R> {
     match rx.recv().unwrap() {
         received_message => {
             match message_cmp(&received_message) {
@@ -217,10 +225,10 @@ fn wait_until_message_received <F, R>(
     }
 }
 
-fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyProvider {
+fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> ProviderIdentifier {
     match schedule_outcome {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: rx, rx_progress: _ }) => {
-            let message_cmp = |msg: &IntegrationTestMessage<DummyProvider>| {
+            let message_cmp = |msg: &IntegrationTestMessage| {
                 match msg {
                     IntegrationTestMessage::ProviderSelected(p) => Some(p.clone()),
                     _ => None
@@ -235,7 +243,7 @@ fn wait_until_provider_selected(schedule_outcome: ScheduleOutcome<DummyJob>) -> 
 fn wait_until_channel_established(schedule_outcome: ScheduleOutcome<DummyJob>) {
     match schedule_outcome {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle: _, rx_integration_test: rx, rx_progress: _  }) => {
-            let message_cmp = |msg: &IntegrationTestMessage<DummyProvider>| {
+            let message_cmp = |msg: &IntegrationTestMessage| {
                 match msg {
                     IntegrationTestMessage::ChannelEstablished(_) => Some(true),
                     _ => None,
@@ -279,7 +287,7 @@ fn wait_until_job_failed(schedule_outcome: ScheduleOutcome<DummyJob>) -> DummyJo
 fn provider_lowest_score() {
     // Given more than one available provider, the provider with the lowest score is selected.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
-    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
+    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result = match job_context.try_schedule(DummyOrder::Success(0), None, None) {
@@ -295,7 +303,7 @@ fn provider_lowest_score() {
 #[test]
 fn second_provider_success_after_first_provider_failure() {
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 0 });
-    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
+    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     match job_context.try_schedule(DummyOrder::Success(0), None, None) {
@@ -337,7 +345,7 @@ fn provider_no_two_simultaneous_jobs() {
     // simultaneously (or, to speak in more specific terms: we don't want to strain the same web server with more
     // than one download).
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
-    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
+    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let provider_order1 = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
@@ -390,19 +398,20 @@ fn provider_reused_after_job_completed() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let provider_order1 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
-        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
-            rx_integration_test.recv().unwrap()
+    let (provider_order1, join_handle_1) = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, join_handle, ..}) => {
+            (rx_integration_test.recv().unwrap(), join_handle)
         }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
+    join_handle_1.join().unwrap(); // Wait for 1st job to complete.
     let provider_order2 = match job_context.try_schedule(DummyOrder::Success(2), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
             rx_integration_test.recv().unwrap()
         }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
-    let expected = IntegrationTestMessage::ProviderSelected(p1);
+    let expected = IntegrationTestMessage::ProviderSelected(p1.identifier());
     assert_eq!(provider_order1, expected);
     assert_eq!(provider_order2, expected);
 }
@@ -450,7 +459,7 @@ fn job_continued_after_partial_completion() {
     // If a job could be only partially completed, it does not need to be restarted from scratch.
     let p1 = DummyProvider::PartialCompletion(DummyProviderItem { identifier: 1, score: 1 });
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 2 });
-    let p3 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 3 });
+    let p3 = DummyProvider::Success(DummyProviderItem { identifier: 3, score: 3 });
     let providers = vec![p1, p2, p3];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let (provider_first_scheduled, provider_finally_scheduled) =
@@ -468,7 +477,7 @@ fn job_continued_after_partial_completion() {
             }
             _ => panic!("{}", EXPECT_SCHEDULED),
         };
-    assert_eq!(provider_first_scheduled, p1);
+    assert_eq!(provider_first_scheduled, p1.identifier());
     assert_eq!(provider_finally_scheduled, p2);
 }
 
@@ -505,7 +514,7 @@ fn downgrade_provider() {
     wait_until_job_completed(result1);
     let result2 = job_context.try_schedule(DummyOrder::Success(1), None, None);
     let first_provider_selected = wait_until_provider_selected(result2);
-    assert_eq!(first_provider_selected, p2);
+    assert_eq!(first_provider_selected, p2.identifier());
 }
 
 #[test]
@@ -520,7 +529,7 @@ fn no_downgrade_if_all_providers_fail() {
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.try_schedule(DummyOrder::Success(0), None, None);
     let DummyJobFailure { metrics } = wait_until_job_failed(result1);
-    let metrics = metrics.get(&p1);
+    let metrics = metrics.get(&p1.identifier());
     match metrics {
         Some(ProviderMetrics { num_failures: 0, .. }) => {}
         e => panic!("Expected a metric with no failures, got instead: {:?}", e)
