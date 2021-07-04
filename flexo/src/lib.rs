@@ -102,7 +102,7 @@ pub trait Provider where
     fn punish(&self, mut provider_metrics: MutexGuard<HashMap<ProviderIdentifier, ProviderMetrics>>) {
         provider_metrics.entry(self.identifier())
             .and_modify(|p| p.num_failures += 1)
-            .or_insert(ProviderMetrics::default());
+            .or_insert_with(ProviderMetrics::default);
     }
 }
 
@@ -468,7 +468,7 @@ impl <J> JobContext<J> where J: Job {
         }
     }
 
-    fn check_duplicates(providers: &Vec<J::P>) {
+    fn check_duplicates(providers: &[J::P]) {
         let mut identifiers: HashSet<ProviderIdentifier> = HashSet::new();
         for p in providers.iter() {
             let identifier = p.identifier();
