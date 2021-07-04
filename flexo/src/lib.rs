@@ -7,7 +7,6 @@ use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::{thread, fmt};
 use std::thread::JoinHandle;
-use std::sync::atomic::{AtomicU32, Ordering};
 use serde::Serialize;
 use std::time::{Instant, Duration};
 use crossbeam::channel::{Receiver, Sender, unbounded};
@@ -198,7 +197,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
         cached_size: u64,
-        clock: Arc<AtomicU32>,
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -215,7 +213,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 &mut provider_metrics.lock().unwrap(),
                 &custom_provider,
                 &unsuccessful_providers,
-                &clock,
             );
             debug!("Trying to serve {} via {}", &self.description(), provider_guard.guarded_provider.identifier());
             debug!("No providers are left after this provider? {}", is_last_provider);
@@ -293,7 +290,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         provider_metrics: &'a mut HashMap<ProviderIdentifier, ProviderMetrics>,
         custom_provider: &'a Option<<<Self as Order>::J as Job>::P>,
         exclude_providers: &HashSet<ProviderIdentifier>,
-        clock: &AtomicU32,
     ) -> (ProviderGuard<<<Self as Order>:: J as Job>::P>, bool) {
         match custom_provider {
             Some(p) => (ProviderGuard::new(p.clone()), true),
@@ -311,15 +307,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                     }
                 });
                 debug!("Selected provider: {:?}", provider_guard);
-                let timestamp = clock.fetch_add(1, Ordering::Relaxed);
                 provider_metrics.entry(provider_guard.guarded_provider.identifier())
                     .and_modify(|e| {
-                        e.most_recent_usage = timestamp;
                         e.num_usages += 1;
                     })
                     .or_insert(ProviderMetrics {
                         num_usages: 1,
-                        most_recent_usage: timestamp,
                         num_failures: 0
                     });
                 (provider_guard, num_remaining <= 1)
@@ -398,20 +391,11 @@ pub struct JobContext<J> where J: Job {
     provider_metrics: Arc<Mutex<HashMap<ProviderIdentifier, ProviderMetrics>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     pub properties: J::PR,
-    pub clock: Arc<AtomicU32>,
-}
-
-impl <J> JobContext<J> where J: Job {
-    pub fn reset_logical_clock(&self) {
-        AtomicU32::new(LOGICAL_CLOCK_INITIAL_VALUE);
-        self.clock.swap(LOGICAL_CLOCK_INITIAL_VALUE, Ordering::Relaxed);
-    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy, Default, Serialize)]
 pub struct ProviderMetrics {
     pub num_usages: u32,
-    pub most_recent_usage: u32, // TODO reconsider if we still need this, along with the clock.
     pub num_failures: u32,
 }
 
@@ -481,7 +465,6 @@ impl <J> JobContext<J> where J: Job {
             provider_metrics,
             panic_monitor: thread_mutexes,
             properties,
-            clock: Arc::new(AtomicU32::new(LOGICAL_CLOCK_INITIAL_VALUE)), // TODO reconsider if we still need this
         }
     }
 
@@ -589,7 +572,6 @@ impl <J> JobContext<J> where J: Job {
         let provider_guards = Arc::clone(&self.provider_guards);
         let order_cloned = order.clone();
         let properties = self.properties.clone();
-        let clock = Arc::clone(&self.clock);
 
         let thread = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
@@ -603,7 +585,6 @@ impl <J> JobContext<J> where J: Job {
                 tx_progress,
                 properties,
                 cached_size,
-                clock,
             );
             order_states.lock().unwrap().remove(&order_cloned);
             match result {
