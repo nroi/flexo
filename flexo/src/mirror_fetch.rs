@@ -193,7 +193,6 @@ pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Resul
     let mut mirrors = vec![];
     for mirror in mirror_list.urls {
         if mirrors.iter().any(|m: &Mirror| m.url == mirror.url) {
-            // TODO this is untested.
             warn!("Skip mirror, because a mirror with the URL {} already exists.", mirror.url)
         } else {
             mirrors.push(mirror);
