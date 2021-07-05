@@ -141,12 +141,6 @@ Alternatively, if you use Docker, set the environment variable instead of modify
 FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ```
 
-## Contribute
-If you know Rust, feel free to dive into the code base and send a PR. Smaller improvements
-to make the code base cleaner, more idiomatic or efficient are always welcome. Before submitting
-larger changes, including new features or design changes, you should first open an issue to see
-if that feature is desired and if it fits into the design goals of flexo.
-
 ## Attributes & Design Goals
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
 * Robust: As long as *most* mirrors work fine, Flexo should be able to handle the download process
@@ -155,68 +149,24 @@ if that feature is desired and if it fits into the design goals of flexo.
 * Simple: Users should not require more than a few minutes to set up Flexo and understand what it does.
 
 
+## Contribute
+
+If you know Rust, feel free to dive into the code base and send a PR. Smaller improvements
+to make the code base cleaner, more idiomatic or efficient are always welcome. Before submitting
+larger changes, including new features or design changes, you should first open an issue to see
+if that feature is desired and if it fits into the design goals of Flexo.
+
+Other than code, you can contribute by submitting feedback. One aspect of Flexo where feedback is particularly
+valuable is the mirror selection process. If you notice that downloads are too slow because the selected mirrors
+are not fast, please open an issue. You can determine the primary mirror chosen by Flexo with the journal:
+
+```bash
+journalctl --since '7 days ago' --unit=flexo | grep 'Primary mirror'
+```
 
 ## Development
 
 Details about design decisions, and the terminology used in the code,
 are described [here](flexo/terminology.md).
 
-The following packages are required to build and test flexo:
-
-```bash
-pacman -S rustup docker docker-compose curl
-```
-
-The [./docker-compose](test/docker-test-local/docker-compose) script may require you to be able to use Docker
-without root privileges. Add your user to the Docker group to do so. You may want to read
-the [wiki](https://wiki.archlinux.org/index.php/Docker) for more details on the security
-implications of doing so.
-
-```
-gpasswd -a <user> docker
-```
-
-Furthermore, Docker BuildKit is required to run the integration tests inside Docker, so make sure you have enabled it.
-One way to enable it is to modify your `~/.docker/config.json` to include the following:
-```json
-{
-    "experimental": "enabled"
-}
-```
-
-Make sure to restart the Docker daemon after modifying this file.
-
-We have two types of test cases:
-1. Tests written in Rust: [integration_tests.rs](flexo/tests/integration_test.rs). These tests run quickly,
-and they are fully deterministic (afaik). You can run them with `cargo`:
-    ```
-   cd flexo
-   cargo test
-    ```
-2. end-to-end tests using Docker.
-We try to avoid flaky test cases, but we cannot guarantee that all our Docker test cases are deterministic,
-since their outcome depends on various factors outside our control (e.g. how the scheduler runs OS processes,
-how the kernel's TCP stack assembles TCP packets, etc.).
-As a result, a failing end-to-end test may indicate that a new bug was introduced, but it might also have been bad luck
-or a badly written test case.
-
-Also notice that the Docker test cases currently require at least 32 GB of RAM, because all files are downloaded
-in a tmpfs.
-
-In order to run the Docker test cases, run the shell script to set up everything:
-
-```
-cd test/docker-test-local
-./docker-compose
-```
-
-Most of the output is relevant only if you need to investigate failing test cases. The outcome
-of all test cases is shown towards the end:
-
-```
-flexo-client_1  | Test summary:
-flexo-client_1  | flexo-test-install                       [SUCCESS]
-flexo-client_1  | flexo-test-install-cached                [SUCCESS]
-flexo-client_1  | flexo-test-download-cached-concurrently  [SUCCESS]
-flexo-client_1  | flexo-test-download-concurrently         [SUCCESS]
-```
+Before submitting a PR, please run `cargo test` inside the `flexo` directory to make sure that all tests pass.
