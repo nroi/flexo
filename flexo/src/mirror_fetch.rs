@@ -190,7 +190,15 @@ pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Resul
     let json = fetch_json(mirror_config)?;
     let mirror_list_option: MirrorListOption = serde_json::from_str(&json)?;
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
-    Ok(mirror_list.urls)
+    let mut mirrors = vec![];
+    for mirror in mirror_list.urls {
+        if mirrors.iter().any(|m: &Mirror| m.url == mirror.url) {
+            warn!("Skip mirror, because a mirror with the URL {} already exists.", mirror.url)
+        } else {
+            mirrors.push(mirror);
+        }
+    }
+    Ok(mirrors)
 }
 
 pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, curl::Error> {
