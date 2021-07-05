@@ -9,7 +9,7 @@ a low-latency mirror for you and switches to another mirror if the selected mirr
 In addition, Flexo uses multiple mirrors for parallel downloads, which can increase download speeds substantially
   if you use Pacman's `ParallelDownloads`   setting.
 * If you have multiple machines running ArchLinux, and you don't want each machine to download
-and store the packages: You can just set flexo as your new ArchLinux mirror so that no file needs
+and store the packages: You can just set Flexo as your new ArchLinux mirror so that no file needs
 to be downloaded more often than once.
 * If you run ArchLinux inside Docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just install Flexo on the host and run this command on the Docker container:
     ````
@@ -21,13 +21,13 @@ A package for Arch Linux is available on [AUR](https://aur.archlinux.org/package
 Alternatively, you can use the [docker image](https://hub.docker.com/r/nroi/flexo) instead.
 Flexo needs to be installed on a single machine (the server) so that it can be accessed by
 multiple clients.
-Once you have installed flexo on the server, start and enable the systemd service:
+Once you have installed Flexo on the server, start and enable the systemd service:
 ```
 systemctl start flexo.service
 systemctl enable flexo.service
 ```
 Next, set the new mirror in `/etc/pacman.d/mirrorlist` on all clients.
-In most cases, the server that runs flexo will also be a client that uses flexo, so
+In most cases, the server that runs Flexo will also be a client that uses Flexo, so
 add the following entry to the top of your mirrorlist:
 ```bash
 Server = http://localhost:7878/$repo/os/$arch
@@ -63,7 +63,7 @@ The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self-explanatory (open an issue in case you disagree).
 In most cases, you will want to leave all settings unchanged, with two exceptions:
 
-1. The setting `low_speed_limit` is commented by default, which means that flexo will *not* attempt
+1. The setting `low_speed_limit` is commented by default, which means that Flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
 uncomment the setting and enter an appropriate value.
 
