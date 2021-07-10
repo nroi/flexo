@@ -141,6 +141,33 @@ Alternatively, if you use Docker, set the environment variable instead of modify
 FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ```
 
+## ARM support
+
+### Running Flexo on ARM devices
+Flexo can be built on various ARM platforms, including the Raspberry Pi. So far, no problems have been reported with
+building and running Flexo on ARM. If you run into problems, please open an issue.
+
+
+### Serving packages for ARM clients
+With its default configuration, Flexo only serves packages from the official ArchLinux mirrors, which means packages
+built for x86. However, we can configure an ARM mirror as a `custom_repo` in order to fetch ARM packages from Flexo.
+
+First, visit https://archlinuxarm.org/about/mirrors and choose a mirror. Once you have decided for an ARM mirror,
+configure it as a `custom_repo` in your `/etc/flexo.toml`. In this example, we have chosen the mirror
+`de3.mirror.archlinuxarm.org` and we have given it the name `arm`:
+
+```toml
+[[custom_repo]]
+name = "arm"
+url = "https://de3.mirror.archlinuxarm.org"
+```
+
+Next, configure the mirrorlist on all clients that are going to fetch ARM packages from this server. For example,
+if the server that runs Flexo should fetch the package from Flexo, configure your `/etc/pacman.d/mirrorlist` as follows:
+```
+Server = http://localhost:7878/custom_repo/arm/$arch/$repo
+```
+
 ## Attributes & Design Goals
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
 * Robust: As long as *most* mirrors work fine, Flexo should be able to handle the download process
