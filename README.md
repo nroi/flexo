@@ -1,4 +1,4 @@
-# Flexo <img src="flexo_beard.svg" width="50">
+# Flexo <img align="right" width="80" src="flexo_beard.svg" alt="Flexo logo">
 
 Flexo is a caching proxy for pacman, the package manager of Arch Linux.
 
