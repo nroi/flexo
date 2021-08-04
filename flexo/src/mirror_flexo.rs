@@ -634,7 +634,7 @@ impl Order for DownloadOrder {
     fn is_cacheable(&self) -> bool {
         !(self.requested_path.to_str().ends_with(".db") ||
           self.requested_path.to_str().ends_with(".files") ||
-          self.requested_path.to_str().ends_with(".sig"))
+          self.requested_path.to_str().ends_with(".db.sig"))
     }
 
     fn retryable(&self) -> bool {

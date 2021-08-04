@@ -75,17 +75,29 @@ num_versions_retain = 3
 [mirrors_auto]
     # The URI of the JSON endpoint that delivers information about all official mirrors.
     mirrors_status_json_endpoint = "https://archlinux.org/mirrors/status/json/"
+
+    # A list of fallback URIs that will be used if Flexo is unable to fetch and
+    # parse the JSON from the primary endpoint. Useful if the primary mirror is
+    # down for maintenance, or if the format was changed and Flexo has not yet
+    # been upgraded to parse the new format.
+    mirrors_status_json_endpoint_fallbacks = [
+        "https://raw.githubusercontent.com/nroi/archlinux-mirrors-status-fallback/main/mirrorlist.json",
+    ]
+
     # The method to choose suitable mirrors automatically may not always work
     # perfectly. If one of the automatically chosen mirrors turns out to be slow or
     # unstable, add it to this list.
     mirrors_blacklist = [ ]
+
     # The maximum speed limit for all downloads. Leave it commented to allow
     # flexo to utilize all available bandwidth.
     # max_speed_limit = 102400
     # only use mirrors with HTTPS support.
     https_required = true
+
     # mirrors must support IPv4.
     ipv4 = true
+
     # mirrors must support IPv6. Notice that this setting does not force
     # connection establishment via IPv6, so having this setting enabled does not
     # cause any issues on IPv4-only clients, and having it disabled does not
@@ -93,10 +105,12 @@ num_versions_retain = 3
     # Setting this to true can yield small benefits if your ISP uses "Dual Stack Lite",
     # and frequently has issues with IPv4 connections, but it will also exlude many mirrors.
     ipv6 = false
+
     # The maximum score allowed from a mirror. See
     # https://archlinux.org/mirrors/status/ for an explanation of this
     # metric.
     max_score = 2.5
+
     # When Flexo is started for the first time, latency tests run against *all*
     # mirrors, so the num_mirrors setting is ignored. The test results gained
     # from this first latency test are then used when Flexo is started again:
@@ -110,6 +124,7 @@ num_versions_retain = 3
     # (due to the increased number of latency tests), but it might also give you
     # a faster mirror.
     num_mirrors = 8
+
     # Valid values for this setting include "sort" and "random".  After the
     # mirrors have been filtered according to your chosen criteria (e.g. ipv6
     # supported, score not more than 2.5), you will most likely still have more
@@ -121,11 +136,14 @@ num_versions_retain = 3
     # mirror. Choose "random" if you want to avoid to always use the same
     # mirror, and instead balance the load among many mirrors.
     mirrors_random_or_sort = "sort"
+
     # timeout, in milliseconds, when testing the mirrors' performance.
     # Mirros which exceed the timeout will not be considered further, regardless
     # of their score.
     timeout = 350
+
     refresh_latency_tests_after = "8 days"
+
     # A list of 2-letter ISO country codes to restrict the selection to only
     # choose mirrors located at those countries. If this list is empty or
     # commented, the latency test will be run on mirrors from all locations.

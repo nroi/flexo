@@ -1,6 +1,6 @@
 extern crate serde;
 use serde::Deserialize;
-use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
+use crate::mirror_config::MirrorsAutoConfig;
 use curl::easy::{Easy, HttpVersion};
 use std::time::Duration;
 use std::str;
@@ -144,14 +144,13 @@ impl Mirror {
     }
 }
 
-fn fetch_json(mirror_config: &MirrorConfig) -> Result<String, MirrorFetchError> {
-    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
-    debug!("Fetch json from {:?}", &mirrors_auto.mirrors_status_json_endpoint);
+fn fetch_json(json_endpoint_uri: &str) -> Result<String, MirrorFetchError> {
+    debug!("Fetch json from {:?}", json_endpoint_uri);
     try_num_attempts(INITIAL_CONNECTIVITY_NUM_ATTEMPTS, || {
         let mut received = Vec::new();
         let mut easy = Easy::new();
         easy.follow_location(true).unwrap();
-        easy.url(&mirrors_auto.mirrors_status_json_endpoint)?;
+        easy.url(json_endpoint_uri)?;
         {
             let mut transfer = easy.transfer();
             transfer.write_function(|data| {
@@ -186,8 +185,8 @@ fn try_num_attempts<T, F, E>(max_num_attempts: i32, action: F) -> Result<T, E>
     }
 }
 
-pub fn fetch_providers_from_json_endpoint(mirror_config: &MirrorConfig) -> Result<Vec<Mirror>, MirrorFetchError> {
-    let json = fetch_json(mirror_config)?;
+pub fn fetch_providers_from_json_endpoint(json_endpoint_uri: &str) -> Result<Vec<Mirror>, MirrorFetchError> {
+    let json = fetch_json(json_endpoint_uri)?;
     let mirror_list_option: MirrorListOption = serde_json::from_str(&json)?;
     let mirror_list: MirrorList = MirrorList::from(mirror_list_option);
     let mut mirrors = vec![];

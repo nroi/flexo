@@ -4,6 +4,7 @@ extern crate http;
 extern crate log;
 extern crate rand;
 
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -31,10 +32,9 @@ use mirror_flexo::*;
 
 use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
 use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
-use crate::mirror_fetch::Mirror;
-use crate::str_path::StrPath;
-use std::collections::HashMap;
+use crate::mirror_fetch::{Mirror, MirrorFetchError};
 use crate::mirror_flexo::RequestMethod::Post;
+use crate::str_path::StrPath;
 
 mod mirror_config;
 mod mirror_fetch;
@@ -529,8 +529,7 @@ fn rated_providers(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
 
 fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
     let country_codes = mirror_config.mirrors_auto.as_ref()
-        .map(|ma| ma.allowed_countries.clone())
-        .flatten();
+        .map(|ma| ma.allowed_countries.clone());
     let country_filter_uncached = match country_codes {
         None =>
             CountryFilter::AllCountries,
@@ -539,7 +538,24 @@ fn fetch_auto(mirror_config: &MirrorConfig) -> Vec<DownloadProvider> {
         Some(v) =>
             CountryFilter::SelectedCountries(v),
     };
-    match mirror_fetch::fetch_providers_from_json_endpoint(mirror_config) {
+    let mirrors_auto = mirror_config.mirrors_auto.as_ref().unwrap();
+    let mut fallbacks = mirrors_auto.mirrors_status_json_endpoint_fallbacks.iter();
+    let primary_endpoint_uri = &mirrors_auto.mirrors_status_json_endpoint;
+
+    let mut result = mirror_fetch::fetch_providers_from_json_endpoint(primary_endpoint_uri);
+    let final_result: Result<Vec<Mirror>, MirrorFetchError> = loop {
+        let maybe_fallback = fallbacks.next();
+        match (result.is_err(), maybe_fallback) {
+            (true, Some(fallback)) => {
+                result = mirror_fetch::fetch_providers_from_json_endpoint(&fallback);
+            },
+            _ => {
+                break result;
+            }
+        };
+    };
+
+    match final_result {
         Ok(mirror_urls) =>
             rated_mirrors(mirror_urls, country_filter_uncached, &mirror_config),
         Err(e) => {

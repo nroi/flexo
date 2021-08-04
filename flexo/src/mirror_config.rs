@@ -65,6 +65,9 @@ pub enum MirrorsRandomOrSort {
 #[derive(Deserialize, Debug, Clone)]
 pub struct MirrorsAutoConfig {
     pub mirrors_status_json_endpoint: String,
+    #[serde(default)]
+    pub mirrors_status_json_endpoint_fallbacks: Vec<String>,
+    #[serde(default)]
     pub mirrors_blacklist: Vec<String>,
     pub https_required: bool,
     pub ipv4: bool,
@@ -73,7 +76,8 @@ pub struct MirrorsAutoConfig {
     pub num_mirrors: usize,
     pub mirrors_random_or_sort: MirrorsRandomOrSort,
     pub timeout: u64,
-    pub allowed_countries: Option<Vec<String>>,
+    #[serde(default)]
+    pub allowed_countries: Vec<String>,
 }
 
 impl MirrorsAutoConfig {
@@ -168,19 +172,18 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
     let timeout = parse_env_toml::<u64>("FLEXO_MIRRORS_AUTO_TIMEOUT").unwrap();
     let mirrors_status_json_endpoint = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT")
             .unwrap_or_else(|| DEFAULT_JSON_URI.to_owned());
+    let mirrors_status_json_endpoint_fallbacks =
+        parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT_FALLBACKS")
+            .map(|fallbacks| comma_separated_to_vec(fallbacks))
+            .unwrap_or_default();
     let allowed_countries = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES")
-        .map(|country_list|
-            country_list
-                .split(',')
-                .into_iter()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.trim().to_owned())
-                .collect::<Vec<String>>()
-        );
+        .map(|country_list| comma_separated_to_vec(country_list))
+        .unwrap_or_default();
     let mirrors_blacklist =
         parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_AUTO_MIRRORS_BLACKLIST").unwrap_or_else(Vec::new);
     MirrorsAutoConfig {
         mirrors_status_json_endpoint,
+        mirrors_status_json_endpoint_fallbacks,
         mirrors_blacklist,
         https_required,
         ipv4,
@@ -231,6 +234,15 @@ fn mirror_config_from_env() -> MirrorConfig {
         num_versions_retain,
         mirrors_auto
     }
+}
+
+fn comma_separated_to_vec(comma_separated: String) -> Vec<String> {
+    comma_separated
+        .split(',')
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim().to_owned())
+        .collect::<Vec<String>>()
 }
 
 fn custom_repos_from_env(maybe_env: Option<String>) -> Option<Vec<CustomRepo>> {
