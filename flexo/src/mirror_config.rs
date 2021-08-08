@@ -6,6 +6,7 @@ use std::fs;
 use serde::Deserialize;
 use flexo::Properties;
 use std::time::Duration;
+use regex::Regex;
 
 static DEFAULT_JSON_URI: &str = "https://archlinux.org/mirrors/status/json/";
 
@@ -102,12 +103,31 @@ pub struct MirrorConfig {
     pub mirror_selection_method: MirrorSelectionMethod,
     pub mirrors_predefined: Vec<String>,
     pub custom_repo: Option<Vec<CustomRepo>>,
-    pub low_speed_limit: Option<u32>,
+    low_speed_limit: Option<u32>,
+    low_speed_limit_formatted: Option<String>,
     pub low_speed_time_secs: Option<u64>,
     pub connect_timeout: Option<u64>,
     pub max_speed_limit: Option<u64>,
     pub num_versions_retain: Option<u32>,
     pub mirrors_auto: Option<MirrorsAutoConfig>,
+}
+
+impl MirrorConfig {
+    pub fn low_speed_limit(&self) -> Option<u32> {
+        match &self.low_speed_limit_formatted {
+            Some(limit) => {
+                match parse_bandwidth(&limit) {
+                    None => {
+                        warn!("Unable to parse low_speed_limit_formatted <{}>.", limit);
+                        None
+                    }
+                    Some(parsed_limit) => Some(parsed_limit)
+
+                }
+            },
+            None => self.low_speed_limit
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -192,7 +212,7 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
         num_mirrors,
         mirrors_random_or_sort,
         timeout,
-        allowed_countries
+        allowed_countries,
     }
 }
 
@@ -206,6 +226,7 @@ fn mirror_config_from_env() -> MirrorConfig {
     let mirrors_predefined = parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_PREDEFINED").unwrap();
     let connect_timeout = parse_env_toml::<u64>("FLEXO_CONNECT_TIMEOUT");
     let low_speed_limit = parse_env_toml::<u32>("FLEXO_LOW_SPEED_LIMIT");
+    let low_speed_limit_formatted = parse_env_toml::<String>("FLEXO_LOW_SPEED_LIMIT_FORMATTED");
     let low_speed_time_secs = parse_env_toml::<u64>("FLEXO_LOW_SPEED_TIME_SECS");
     let max_speed_limit = parse_env_toml::<u64>("FLEXO_MAX_SPEED_LIMIT");
     let refresh_latency_tests_after = parse_env_toml::<String>("FLEXO_REFRESH_LATENCY_TESTS_AFTER");
@@ -228,11 +249,12 @@ fn mirror_config_from_env() -> MirrorConfig {
         mirrors_predefined,
         custom_repo,
         low_speed_limit,
+        low_speed_limit_formatted,
         low_speed_time_secs,
         connect_timeout,
         max_speed_limit,
         num_versions_retain,
-        mirrors_auto
+        mirrors_auto,
     }
 }
 
@@ -277,4 +299,58 @@ pub fn load_config() -> MirrorConfig {
     } else {
         mirror_config_from_toml()
     }
+}
+
+fn parse_bandwidth(s: &str) -> Option<u32> {
+    let re = Regex::new(r"(?P<numeric_value>\d+) *(?P<si_unit>.*)/s").ok()?;
+    let caps = re.captures(s)?;
+    let numeric_value = caps["numeric_value"].parse::<u32>().ok()?;
+    let si_unit = &caps["si_unit"].to_lowercase();
+
+    parse_si_unit(numeric_value, &si_unit)
+}
+
+fn parse_si_unit(bandwidth_value: u32, si_unit: &str) -> Option<u32> {
+    let (si_prefix, is_bits_not_bytes) = if si_unit.ends_with("bit") {
+        (&si_unit[0..si_unit.len() - 3], true)
+    } else if si_unit.ends_with('b') {
+        (&si_unit[0..si_unit.len() - 1], false)
+    } else {
+        return None
+    };
+    let multiplier = match si_prefix {
+        "" => 1,
+        "ki" => 1024,
+        "mi" => 1024 * 1024,
+        "gi" => 1024 * 1024 * 1024,
+        "k" => 1000,
+        "m" => 1000 * 1000,
+        "g" => 1000 * 1000 * 1000,
+        _ => return None
+    };
+
+    let result = if is_bits_not_bytes {
+        (bandwidth_value * multiplier) / 8
+    } else {
+        bandwidth_value * multiplier
+    };
+
+    Some(result)
+}
+
+#[test]
+fn test_parse_bandwidth() {
+    assert_eq!(Some(1), parse_bandwidth("8 Bit/s"));
+    assert_eq!(Some(8), parse_bandwidth("8 B/s"));
+    assert_eq!(Some(125), parse_bandwidth("1000 Bit/s"));
+
+    assert_eq!(Some(125), parse_bandwidth("1 KBit/s"));
+    assert_eq!(Some(25_600), parse_bandwidth("25 KiB/s"));
+    assert_eq!(Some(125_000), parse_bandwidth("1000 KBit/s"));
+
+    assert_eq!(Some(125_000), parse_bandwidth("1 MBit/s"));
+    assert_eq!(Some(26_214_400), parse_bandwidth("25 MiB/s"));
+    assert_eq!(Some(125_000_000), parse_bandwidth("1000 MBit/s"));
+
+    assert_eq!(Some(125_000_000), parse_bandwidth("1 GBit/s"));
 }

@@ -208,7 +208,7 @@ pub fn measure_latency(url: &str, timeout: Duration) -> Result<MirrorResults, cu
     easy.follow_location(true)?;
     // Use a sufficiently large DNS timeout to avoid that latency tests are influenced by DNS lookups and caching
     // behavior. For example, we don't want one mirror to be recognized as fast when, in fact, it was only faster
-    // than other mirrors because the DNS name was already cached.
+    // than other mirrors because the DNS lookup result was already cached.
     let dns_cache_timeout = Duration::from_secs(3600 * 24);
     easy.dns_cache_timeout(dns_cache_timeout)?;
     easy.timeout(timeout)?;

@@ -357,7 +357,7 @@ impl Job for DownloadJob {
             Some(timeout) => Duration::from_millis(timeout),
         };
         channel.handle.connect_timeout(connect_timeout).unwrap();
-        match properties.low_speed_limit {
+        match properties.low_speed_limit() {
             None => {},
             Some(speed) => {
                 channel.handle.low_speed_limit(speed).unwrap();
