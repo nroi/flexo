@@ -194,10 +194,10 @@ fn mirrors_auto_config_from_env() -> MirrorsAutoConfig {
             .unwrap_or_else(|| DEFAULT_JSON_URI.to_owned());
     let mirrors_status_json_endpoint_fallbacks =
         parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_MIRRORS_STATUS_JSON_ENDPOINT_FALLBACKS")
-            .map(|fallbacks| comma_separated_to_vec(fallbacks))
+            .map(comma_separated_to_vec)
             .unwrap_or_default();
     let allowed_countries = parse_env_toml::<String>("FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES")
-        .map(|country_list| comma_separated_to_vec(country_list))
+        .map(comma_separated_to_vec)
         .unwrap_or_default();
     let mirrors_blacklist =
         parse_env_toml::<Vec<String>>("FLEXO_MIRRORS_AUTO_MIRRORS_BLACKLIST").unwrap_or_else(Vec::new);
