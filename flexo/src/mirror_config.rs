@@ -272,7 +272,7 @@ fn custom_repos_from_env(maybe_env: Option<String>) -> Option<Vec<CustomRepo>> {
         None => None,
         Some(cr) => {
             cr.split(' ').map(|s| {
-                split_once(s, "@").map(|(name, url)| {
+                s.split_once('@').map(|(name, url)| {
                     CustomRepo {
                         name: name.to_owned(),
                         url: url.to_owned(),
@@ -280,16 +280,6 @@ fn custom_repos_from_env(maybe_env: Option<String>) -> Option<Vec<CustomRepo>> {
                 })
             }).collect()
         }
-    }
-}
-
-// FIXME replace with split_once from the stdlib once it is stable.
-pub fn split_once<'a>(s: &'a str, delimiter: &'a str) -> Option<(&'a str, &'a str)> {
-    let v = s.splitn(2, delimiter).collect::<Vec<&str>>();
-    if v.len() == 2 {
-        Some((v[0], v[1]))
-    } else {
-        None
     }
 }
 
