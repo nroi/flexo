@@ -4,19 +4,17 @@
 # write-access.
 cache_directory = "/var/cache/flexo/pkg"
 
-# The low speed limit in bytes per second.
 # If the download speed falls below this threshold, a new mirror is selected,
-# hoping that this will increase the download speed.
-# For example, if your ISP provides 100 MBit per second, you might assume that
-# mirrors are too slow if they do not utilize at least 80% of your bandwidth,
-# so set this value to 80 MBit per second  = 10 Megabytes per second
-# = 10 * 1000000 = 10000000
-# Commenting this line will disable this feature.
-# low_speed_limit = 10000000
-
-# The mirror will be switched if the download speed has fallen below low_speed_limit
-# for the given amount of seconds.
-low_speed_time_secs = 3
+# hoping that the new mirror is faster than the previous one.
+# Notice that this limit is per connection, which is especially important if you
+# use pacman's ParallelDownloads feature. For example, if you set
+# ParallelDownloads = 5, then your bandwidth will be divided by 5. Make sure to
+# take this factor into account when setting the limit.
+# For example, if your ISP provides up to 100 MBit/s, and you expect not more
+# than 5 parallel downloads, and you expect your ISP to be able to provide at
+# least 50% of the promised bandwidth, then you could set something like:
+# 100 MBit/s * 50% / 5 = 10 MBit/s
+# low_speed_limit_formatted = "2 MBit/s"
 
 # The timeout, in milliseconds, when connecting to a remote mirror.
 connect_timeout = 3000
