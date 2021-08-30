@@ -633,8 +633,9 @@ impl Order for DownloadOrder {
 
     fn is_cacheable(&self) -> bool {
         !(self.requested_path.to_str().ends_with(".db") ||
+          self.requested_path.to_str().ends_with(".db.sig") ||
           self.requested_path.to_str().ends_with(".files") ||
-          self.requested_path.to_str().ends_with(".db.sig"))
+          self.requested_path.to_str().ends_with(".files.sig"))
     }
 
     fn retryable(&self) -> bool {
@@ -646,7 +647,8 @@ impl Order for DownloadOrder {
         // behavior because no mirror has those files, so Flexo would cause a small latency for the client
         // while it attempts to fetch the signature file from the various remote mirrors.
         // For this reason, we choose to not do any retries for all files ending with .db.sig.
-        !self.requested_path.to_str().ends_with(".db.sig")
+        !(self.requested_path.to_str().ends_with(".db.sig") ||
+          self.requested_path.to_str().ends_with(".files.sig"))
     }
 
     fn description(&self) -> &str {
