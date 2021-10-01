@@ -778,13 +778,20 @@ impl Handler for DownloadState {
                 let code = req.code.unwrap();
                 debug!("HTTP response code is {}", code);
                 if code == 200 || code == 206 {
-                    let content_length = req.headers.iter().find_map(|header|
+                    let maybe_content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
                             Some(str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
                         } else {
                             None
                         }
-                    ).unwrap();
+                    );
+                    let content_length = match maybe_content_length {
+                        None => {
+                            warn!("Remote mirror did not send a valid Content-Length header.");
+                            return false
+                        }
+                        Some(cl) => cl
+                    };
                     debug!("Content length is {}", content_length);
                     job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
