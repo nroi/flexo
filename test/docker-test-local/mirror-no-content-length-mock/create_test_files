@@ -1,0 +1,7 @@
+#!/bin/bash
+
+for i in {0..999}; do
+    echo "test_$i" > "/usr/share/nginx/html/test_$i"
+done
+
+echo "core.db testfile" > "/usr/share/nginx/html/core.db"
