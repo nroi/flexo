@@ -12,6 +12,9 @@ services:
   mirror-stalling-mock:
     build: mirror-stalling-mock
     container_name: mirror-stalling-mock
+  mirror-no-content-length-mock:
+    build: mirror-no-content-length-mock
+    container_name: mirror-no-content-length-mock
   flexo-server:
     build: flexo-server
     container_name: flexo-server
@@ -63,6 +66,14 @@ services:
     container_name: flexo-server-delay-primary
     depends_on:
       - mirror-delay-mock
+  flexo-server-no-content-length-primary:
+    tmpfs:
+      - /tmp
+    build: flexo-server-no-content-length-primary
+    container_name: flexo-server-no-content-length-primary
+    depends_on:
+      - mirror-fast-mock
+      - mirror-no-content-length-mock
   flexo-server-mirror-stalling:
     tmpfs:
       - /tmp

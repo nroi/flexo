@@ -8,6 +8,7 @@ docker-compose down
 tar -C ../../ -czvf flexo-server/flexo.tar.gz flexo/src flexo/Cargo.toml flexo/Cargo.lock
 cp flexo-server/flexo.tar.gz flexo-server-slow-primary/
 cp flexo-server/flexo.tar.gz flexo-server-delay-primary/
+cp flexo-server/flexo.tar.gz flexo-server-no-content-length-primary/
 cp flexo-server/flexo.tar.gz flexo-server-fast/
 cp flexo-server/flexo.tar.gz flexo-server-mirror-stalling/
 
