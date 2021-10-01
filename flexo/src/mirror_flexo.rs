@@ -780,7 +780,7 @@ impl Handler for DownloadState {
                 if code == 200 || code == 206 {
                     let maybe_content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
-                            Some(str::from_utf8(header.value).unwrap().parse::<u64>().unwrap())
+                            str::from_utf8(header.value).ok().and_then(|h| h.parse::<u64>().ok())
                         } else {
                             None
                         }
