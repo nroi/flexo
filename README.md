@@ -120,7 +120,7 @@ Server = http://localhost:7878/custom_repo/archzfs/$repo/$arch
 [eschwartz]
 Server = http://localhost:7878/custom_repo/eschwartz/~eschwartz/repo/$arch
 ```
-Next, add the corresponding entries to your `/etc/flexo/flexo/toml` before the `[mirrors_auto]` section:
+Next, add the corresponding entries to your `/etc/flexo/flexo.toml` before the `[mirrors_auto]` section:
 
 ```toml
 [[custom_repo]]

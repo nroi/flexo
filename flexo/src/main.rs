@@ -72,7 +72,7 @@ fn main() {
     let properties = mirror_config::load_config();
     debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
     inspect_and_initialize_cache(&properties);
-    match properties.low_speed_limit {
+    match properties.low_speed_limit() {
         None => {}
         Some(limit) => {
             info!("Will switch mirror if download speed falls below {}/s", size_to_human_readable(limit.into()));
