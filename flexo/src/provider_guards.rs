@@ -17,28 +17,28 @@ impl <P> ProviderGuards<P> where P: Debug {
         }
     }
 
-    pub fn get_provider_guard<F, O>(&self, f: F) -> (ProviderGuard<P>, usize)
+    pub fn get_provider_guard<F, O>(&self, mirror_score: F) -> (ProviderGuard<P>, usize)
         where F: Fn(&P) -> ProviderChoice<O>, O: Ord + Copy
     {
         let _lock = self.mutex.lock().unwrap();
-        let intermediate = self.guards.iter()
+        let guards_with_scores = self.guards.iter()
             .filter_map(|g| {
-                match f(&g.guarded_provider) {
-                    ProviderChoice::Include(o) => Some((g, o)),
+                match mirror_score(&g.guarded_provider) {
+                    ProviderChoice::Include(score) => Some((g, score)),
                     ProviderChoice::Exclude => None,
                 }
             }).collect::<Vec<(&ProviderGuard<P>, O)>>();
         // Avoid multiple parallel downloads from the same remote mirror: We prefer to download from different mirrors
         // instead, to increase the chance that the client's bandwidth is saturated.
-        let (guard, _) = intermediate.iter().min_by_key(|(g, o)| {
-            (g.num_current_usages(), *o)
+        let (guard, _) = guards_with_scores.iter().min_by_key(|(g, score)| {
+            (g.num_current_usages(), *score)
         }).unwrap();
         debug!("Selected {:?}, number of usages: {} [{:?}]",
                  &guard.guarded_provider, guard.num_current_usages(), std::thread::current().id());
         let guard = ProviderGuard {
             guarded_provider: Arc::clone(&guard.guarded_provider)
         };
-        (guard, intermediate.len())
+        (guard, guards_with_scores.len())
     }
 }
 
