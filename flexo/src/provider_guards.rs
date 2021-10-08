@@ -28,6 +28,8 @@ impl <P> ProviderGuards<P> where P: Debug {
                     ProviderChoice::Exclude => None,
                 }
             }).collect::<Vec<(&ProviderGuard<P>, O)>>();
+        // Avoid multiple parallel downloads from the same remote mirror: We prefer to download from different mirrors
+        // instead, to increase the chance that the client's bandwidth is saturated.
         let (guard, _) = intermediate.iter().min_by_key(|(g, o)| {
             (g.num_current_usages(), *o)
         }).unwrap();
