@@ -488,6 +488,15 @@ impl Job for DownloadJob {
 pub fn inspect_and_initialize_cache(mirror_config: &MirrorConfig) {
     let mut sum_size = 0;
     let mut count_cache_items = 0;
+    match fs::create_dir_all(&mirror_config.cache_directory) {
+        Ok(_) => {
+            info!("Directory {} did not exist yet, has been created.", &mirror_config.cache_directory);
+        },
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
+        Err(e) => {
+            panic!("Unexpected I/O error occurred: {:?}", e);
+        }
+    }
     for entry in WalkDir::new(&mirror_config.cache_directory) {
         let entry = entry.expect("Error while reading directory entry");
         if entry.file_type().is_file() && !entry.file_name().as_bytes().starts_with(b".") {
