@@ -94,6 +94,11 @@ pub trait Provider where
         order: <<Self as Provider>::J as Job>::O
     ) -> Self::J;
 
+    /// The initial score (as opposed to the dynamic score) is obtained using information that is available without ever
+    /// having used this provider ourselves. It does not include our own experience with this provider, for example, a
+    /// provider can have an excellent initial_score, but for some reason, fail miserably when we try to use it.
+    /// The initial_score should give some insight as to which providers are worth trying out, while the dynamic score
+    /// is used to subsequently filter out bad providers among those providers with a good initial_score.
     fn initial_score(&self) -> <<Self as Provider>::J as Job>::S;
 
     /// A unique identifier
@@ -127,6 +132,8 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     type PI: std::cmp::Eq;
     type PR: Properties + std::marker::Send + std::marker::Sync + std::clone::Clone;
     type OE: std::fmt::Debug;
+    type DSU: DynamicScoreUncacheable<Self::S> + std::marker::Copy;
+    type DSC: DynamicScoreCacheable<Self::S> + std::marker::Copy;
 
     fn provider(&self) -> &Self::P;
     fn order(&self) -> Self::O;
@@ -294,18 +301,41 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         match custom_provider {
             Some(p) => (ProviderGuard::new(p.clone()), true),
             None => {
-                let (provider_guard, num_remaining) = provider_guards.get_provider_guard(|p| {
-                    if exclude_providers.contains(&p.identifier()) {
-                        ProviderChoice::Exclude
-                    } else {
-                        let metric = *(provider_metrics.get(&p.identifier())).unwrap_or(&ProviderMetrics::default());
-                        let score = DynamicScore {
-                            num_failures: metric.num_failures,
-                            initial_score: p.initial_score(),
-                        };
-                        ProviderChoice::Include(score)
-                    }
-                });
+                let (provider_guard, num_remaining) = if self.is_cacheable() {
+                    provider_guards.get_provider_guard(|p, num_current_usages| {
+                        if exclude_providers.contains(&p.identifier()) {
+                            ProviderChoice::Exclude
+                        } else {
+                            let provider_metric = *(provider_metrics.get(&p.identifier()))
+                                .unwrap_or(&ProviderMetrics::default());
+                            let dynamic_metric = DynamicProviderMetrics {
+                                num_failures: provider_metric.num_failures,
+                                num_current_usages,
+                                initial_score: p.initial_score(),
+                            };
+                            let score: <<Self as Order>:: J as Job>::DSC =
+                                DynamicScoreCacheable::from_dynamic_provider_metrics(dynamic_metric);
+                            ProviderChoice::Include(score)
+                        }
+                    })
+                } else {
+                    provider_guards.get_provider_guard(|p, num_current_usages| {
+                        if exclude_providers.contains(&p.identifier()) {
+                            ProviderChoice::Exclude
+                        } else {
+                            let provider_metric = *(provider_metrics.get(&p.identifier()))
+                                .unwrap_or(&ProviderMetrics::default());
+                            let dynamic_metric = DynamicProviderMetrics {
+                                num_failures: provider_metric.num_failures,
+                                num_current_usages,
+                                initial_score: p.initial_score(),
+                            };
+                            let score: <<Self as Order>:: J as Job>::DSU =
+                                DynamicScoreUncacheable::from_dynamic_provider_metrics(dynamic_metric);
+                            ProviderChoice::Include(score)
+                        }
+                    })
+                };
                 debug!("Selected provider: {:?}", provider_guard);
                 provider_metrics.entry(provider_guard.guarded_provider.identifier())
                     .and_modify(|e| {
@@ -336,12 +366,23 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     }
 }
 
-/// A score that incorporates information that we have gained while using this provider.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
-struct DynamicScore <S> where S: Ord {
-    num_failures: u32,
-    initial_score: S,
+#[derive(PartialEq, Eq, PartialOrd, Clone, Copy, Debug)]
+pub struct DynamicProviderMetrics<S> where S: Ord {
+    pub num_failures: u32,
+    pub num_current_usages: usize,
+    pub initial_score: S,
 }
+
+/// A score used to compare providers when the order is cacheable.
+pub trait DynamicScoreCacheable<S> : Ord where S: Ord {
+    fn from_dynamic_provider_metrics(metrics: DynamicProviderMetrics<S>) -> Self;
+}
+
+/// A score used to compare providers when the order is uncacheable.
+pub trait DynamicScoreUncacheable<S> : Ord where S: Ord {
+    fn from_dynamic_provider_metrics(metrics: DynamicProviderMetrics<S>) -> Self;
+}
+
 pub trait Channel where Self: std::marker::Sized + std::fmt::Debug + std::marker::Send + 'static {
     type J: Job;
 
@@ -485,7 +526,7 @@ impl <J> JobContext<J> where J: Job {
             None => {
                 // no custom provider is required to fulfil this order: We can just choose the best provider
                 // among all available providers.
-                let (guard, _) = self.provider_guards.get_provider_guard(|g| {
+                let (guard, _) = self.provider_guards.get_provider_guard(|g, _| {
                     ProviderChoice::Include(g.initial_score())
                 });
                 guard
@@ -642,31 +683,5 @@ fn send(
     _tx_integration_test: &Sender<IntegrationTestMessage>
 ) where {
     // Nothing to do - no messages will be sent unless we're running tests.
-}
-
-#[test]
-fn test_no_failures_preferred() {
-    let s1 = DynamicScore {
-        num_failures: 2,
-        initial_score: 0,
-    };
-    let s2 = DynamicScore {
-        num_failures: 0,
-        initial_score: -1,
-    };
-    assert!(s2 < s1);
-}
-
-#[test]
-fn test_initial_score_lower_is_better() {
-    let s1 = DynamicScore {
-        num_failures: 0,
-        initial_score: 0,
-    };
-    let s2 = DynamicScore {
-        num_failures: 0,
-        initial_score: -1,
-    };
-    assert!(s2 < s1);
 }
 
