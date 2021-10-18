@@ -81,6 +81,36 @@ impl Properties for DummyProperties {}
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 struct DummyOrderError {}
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct DynamicScoreUncacheableDummy {
+    score: i32,
+}
+
+impl DynamicScoreUncacheable<i32> for DynamicScoreUncacheableDummy {
+    fn from_dynamic_provider_metrics(metrics: DynamicProviderMetrics<i32>) -> Self {
+        DynamicScoreUncacheableDummy {
+            score: metrics.initial_score,
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct DynamicScoreCacheableDummy {
+    num_failures: u32,
+    num_current_usages: usize,
+    initial_score: i32,
+}
+
+impl DynamicScoreCacheable<i32> for DynamicScoreCacheableDummy {
+    fn from_dynamic_provider_metrics(metrics: DynamicProviderMetrics<i32>) -> Self {
+        DynamicScoreCacheableDummy {
+            num_failures: metrics.num_failures,
+            num_current_usages: metrics.num_current_usages,
+            initial_score: metrics.initial_score,
+        }
+    }
+}
+
 impl Job for DummyJob {
     type S = i32;
     type JS = DummyState;
@@ -91,6 +121,8 @@ impl Job for DummyJob {
     type PI = i32;
     type PR = DummyProperties;
     type OE = DummyOrderError;
+    type DSU = DynamicScoreUncacheableDummy;
+    type DSC = DynamicScoreCacheableDummy;
 
     fn provider(&self) -> &DummyProvider {
         &self.provider
@@ -110,19 +142,19 @@ impl Job for DummyJob {
 
     fn serve_from_provider(self, channel: DummyChannel, _properties: &DummyProperties, _cached_size: u64) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
-            (DummyOrder::Success(_), DummyProvider::Success(_)) => {
+            (DummyOrder { variant: DummyOrderVariant::Success, ..}, DummyProvider::Success(_)) => {
                 let jc = JobCompleted::new(channel, self.provider, 1);
                 JobResult::Complete(jc)
             },
-            (DummyOrder::Success(_), DummyProvider::PartialCompletion(_)) => {
+            (DummyOrder { variant: DummyOrderVariant::Success, ..}, DummyProvider::PartialCompletion(_)) => {
                 JobResult::Partial(JobPartiallyCompleted { channel, continue_at: 1 })
             },
-            (DummyOrder::InfiniteBlocking(_), DummyProvider::Success(_)) => {
+            (DummyOrder { variant: DummyOrderVariant::InfiniteBlocking, .. }, DummyProvider::Success(_)) => {
                 let _result = channel.collector.tx.send(FlexoProgress::Progress(0));
                 std::thread::park(); // block forever.
                 JobResult::Complete(JobCompleted::new(channel, self.provider, 1))
             }
-            (DummyOrder::Panic(_), _) => panic!("{}", ORDER_PANIC),
+            (DummyOrder { variant: DummyOrderVariant::Panic, ..}, _) => panic!("{}", ORDER_PANIC),
             _ => JobResult::Error(JobTerminated { channel, error: DummyJobError {} }),
         }
     }
@@ -136,16 +168,55 @@ impl Job for DummyJob {
     }
 }
 
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
-enum DummyOrder {
+struct DummyOrder {
+    variant: DummyOrderVariant,
+    identifier: i32,
+    is_cacheable: bool,
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+enum DummyOrderVariant {
     /// an order which immediately completes successfully (unless the provider fails).
-    Success(i32),
+    Success,
     /// an order which fails immediately.
-    Failure(i32),
+    Failure,
     /// an order which never finishes (unless the provider fails).
-    InfiniteBlocking(i32),
+    InfiniteBlocking,
     /// an order which results in a panic!
-    Panic(i32),
+    Panic,
+}
+
+impl DummyOrder {
+    fn success(identifier: i32) -> DummyOrder {
+        DummyOrder {
+            variant: DummyOrderVariant::Success,
+            identifier,
+            is_cacheable: true,
+        }
+    }
+    fn failure(identifier: i32) -> DummyOrder {
+        DummyOrder {
+            variant: DummyOrderVariant::Failure,
+            identifier,
+            is_cacheable: true,
+        }
+    }
+    fn infinite_blocking(identifier: i32) -> DummyOrder {
+        DummyOrder {
+            variant: DummyOrderVariant::InfiniteBlocking,
+            identifier,
+            is_cacheable: true,
+        }
+    }
+    fn panic(identifier: i32) -> DummyOrder {
+        DummyOrder {
+            variant: DummyOrderVariant::Panic,
+            identifier,
+            is_cacheable: true,
+        }
+    }
 }
 
 impl Order for DummyOrder {
@@ -168,7 +239,7 @@ impl Order for DummyOrder {
     }
 
     fn is_cacheable(&self) -> bool {
-        true
+        self.is_cacheable
     }
 
     fn description(&self) -> &str {
@@ -290,7 +361,7 @@ fn provider_lowest_score() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result = match job_context.try_schedule(DummyOrder::Success(0), None, None) {
+    let result = match job_context.try_schedule(DummyOrder::success(0), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, ..}) => {
             // wait for the job to complete.
             join_handle.join()
@@ -306,14 +377,14 @@ fn second_provider_success_after_first_provider_failure() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    match job_context.try_schedule(DummyOrder::Success(0), None, None) {
+    match job_context.try_schedule(DummyOrder::success(0), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, ..}) => {
             // wait for the job to complete.
             join_handle.join().unwrap();
         },
         _ => panic!("{}", EXPECT_SCHEDULED),
     }
-    let result = job_context.try_schedule(DummyOrder::Success(1), None, None);
+    let result = job_context.try_schedule(DummyOrder::success(1), None, None);
     let DummyJobSuccess { provider } = wait_until_job_completed(result);
     assert_eq!(provider, p2);
 }
@@ -325,8 +396,8 @@ fn next_order_success_after_first_order_failed() {
     // is used to downgrade a provider after it has failed to complete a job, a subsequent job should still
     // succeed with this provider, even though it has been downgraded.
     let mut job_context: JobContext<DummyJob> = JobContext::new(successful_providers(), DummyProperties{});
-    job_context.try_schedule(DummyOrder::Failure(0), None, None);
-    match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+    job_context.try_schedule(DummyOrder::failure(0), None, None);
+    match job_context.try_schedule(DummyOrder::success(1), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { join_handle, ..}) => {
             let result = join_handle.join().unwrap();
             match result {
@@ -348,13 +419,13 @@ fn provider_no_two_simultaneous_jobs() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let provider_order1 = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
+    let provider_order1 = match job_context.try_schedule(DummyOrder::infinite_blocking(0), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
             rx_integration_test.recv().unwrap()
         }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
-    let provider_order2 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+    let provider_order2 = match job_context.try_schedule(DummyOrder::success(1), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
             rx_integration_test.recv().unwrap()
         }
@@ -364,19 +435,54 @@ fn provider_no_two_simultaneous_jobs() {
 }
 
 #[test]
+fn provider_two_simultaneous_jobs_if_uncacheable() {
+    // Uncacheable requests (e.g. the core.db file) should be served from the same mirror, even with multiple
+    // parallel requests. Serving database files from different mirrors can result in pacman showing warnings such
+    // as the following:
+    //   warning: python-more-itertools: local (8.10.0-1) is newer than community (8.9.0-1)
+    let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
+    let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
+    let providers = vec![p1, p2];
+    let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
+    let order1 = DummyOrder {
+        variant: DummyOrderVariant::InfiniteBlocking,
+        identifier: 0,
+        is_cacheable: false,
+    };
+    let order2 = DummyOrder {
+        variant: DummyOrderVariant::Success,
+        identifier: 1,
+        is_cacheable: false,
+    };
+    let provider_order1 = match job_context.try_schedule(order1, None, None) {
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
+        _ => panic!("{}", EXPECT_SCHEDULED),
+    };
+    let provider_order2 = match job_context.try_schedule(order2, None, None) {
+        ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
+            rx_integration_test.recv().unwrap()
+        }
+        _ => panic!("{}", EXPECT_SCHEDULED),
+    };
+    assert_eq!(provider_order1, provider_order2);
+}
+
+#[test]
 fn provider_two_simultaneous_jobs_if_required() {
     // While we generally want to avoid to have one provider handling more than one job simultaneously, this can be
     // necessary if the number of providers is low and the frequency of newly arriving orders is high.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let provider_order1 = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
+    let provider_order1 = match job_context.try_schedule(DummyOrder::infinite_blocking(0), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
             rx_integration_test.recv().unwrap()
         }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
-    let provider_order2 = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+    let provider_order2 = match job_context.try_schedule(DummyOrder::success(1), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
             rx_integration_test.recv().unwrap()
         }
@@ -398,14 +504,14 @@ fn provider_reused_after_job_completed() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 1 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let (provider_order1, join_handle_1) = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+    let (provider_order1, join_handle_1) = match job_context.try_schedule(DummyOrder::success(1), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, join_handle, ..}) => {
             (rx_integration_test.recv().unwrap(), join_handle)
         }
         _ => panic!("{}", EXPECT_SCHEDULED),
     };
     join_handle_1.join().unwrap(); // Wait for 1st job to complete.
-    let provider_order2 = match job_context.try_schedule(DummyOrder::Success(2), None, None) {
+    let provider_order2 = match job_context.try_schedule(DummyOrder::success(2), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_integration_test, ..}) => {
             rx_integration_test.recv().unwrap()
         }
@@ -422,7 +528,7 @@ fn order_skipped_if_already_in_progress() {
     // executed. The intention here is that, since the library will be used for downloads, we don't ever want to
     // have two simultaneous downloads of the same file in order to conserve bandwidth.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
-    let order = DummyOrder::InfiniteBlocking(0);
+    let order = DummyOrder::infinite_blocking(0);
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     wait_until_provider_selected(job_context.try_schedule(order, None, None));
@@ -448,7 +554,7 @@ fn best_provider_selected() {
     let p3 = DummyProvider::Success(DummyProviderItem { identifier: 3, score: 2 });
     let providers = vec![p1, p2, p3];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result = job_context.try_schedule(DummyOrder::Success(0), None, None);
+    let result = job_context.try_schedule(DummyOrder::success(0), None, None);
 
     let DummyJobSuccess { provider } = wait_until_job_completed(result);
     assert_eq!(provider, p2);
@@ -463,7 +569,7 @@ fn job_continued_after_partial_completion() {
     let providers = vec![p1, p2, p3];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let (provider_first_scheduled, provider_finally_scheduled) =
-        match job_context.try_schedule(DummyOrder::Success(0), None, None) {
+        match job_context.try_schedule(DummyOrder::success(0), None, None) {
             ScheduleOutcome::Scheduled(ScheduledItem { join_handle, rx_integration_test, ..}) => {
                 let provider_first_scheduled = match rx_integration_test.recv().unwrap() {
                     IntegrationTestMessage::ProviderSelected(p) => p,
@@ -487,7 +593,7 @@ fn no_infinite_loop() {
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result = match job_context.try_schedule(DummyOrder::Success(0), None, None) {
+    let result = match job_context.try_schedule(DummyOrder::success(0), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem {join_handle, ..}) => {
             join_handle.join().unwrap()
         },
@@ -510,9 +616,9 @@ fn downgrade_provider() {
     let p2 = DummyProvider::Success(DummyProviderItem { identifier: 2, score: 2 });
     let providers = vec![p1, p2];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result1 = job_context.try_schedule(DummyOrder::Success(0), None, None);
+    let result1 = job_context.try_schedule(DummyOrder::success(0), None, None);
     wait_until_job_completed(result1);
-    let result2 = job_context.try_schedule(DummyOrder::Success(1), None, None);
+    let result2 = job_context.try_schedule(DummyOrder::success(1), None, None);
     let first_provider_selected = wait_until_provider_selected(result2);
     assert_eq!(first_provider_selected, p2.identifier());
 }
@@ -527,7 +633,7 @@ fn no_downgrade_if_all_providers_fail() {
     let p1 = DummyProvider::Failure(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result1 = job_context.try_schedule(DummyOrder::Success(0), None, None);
+    let result1 = job_context.try_schedule(DummyOrder::success(0), None, None);
     let DummyJobFailure { metrics } = wait_until_job_failed(result1);
     let metrics = metrics.get(&p1.identifier());
     match metrics {
@@ -543,9 +649,9 @@ fn no_new_channel_established() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result1 = job_context.try_schedule(DummyOrder::Success(0), None, None);
+    let result1 = job_context.try_schedule(DummyOrder::success(0), None, None);
     wait_until_job_completed(result1);
-    let channel_establishment = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+    let channel_establishment = match job_context.try_schedule(DummyOrder::success(1), None, None) {
         ScheduleOutcome::Scheduled(p) => {
             wait_until_message_received(p.rx_integration_test, |msg| {
                 match msg {
@@ -566,9 +672,9 @@ fn new_channel_established_because_channel_in_use() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result1 = job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None);
+    let result1 = job_context.try_schedule(DummyOrder::infinite_blocking(0), None, None);
     wait_until_channel_established(result1);
-    let channel_establishment = match job_context.try_schedule(DummyOrder::Success(1), None, None) {
+    let channel_establishment = match job_context.try_schedule(DummyOrder::success(1), None, None) {
         ScheduleOutcome::Scheduled(p) => {
             wait_until_message_received(p.rx_integration_test, |msg| {
                 match msg {
@@ -593,8 +699,8 @@ fn job_panic_results_in_main_panic() {
     // main thread when a child thread completes. But we can detect a panic of a child thread before we schedule
     // a new job.
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 1 });
-    let order1 = DummyOrder::Panic(0);
-    let order2 = DummyOrder::Success(1);
+    let order1 = DummyOrder::panic(0);
+    let order2 = DummyOrder::success(1);
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
     let result1 = job_context.try_schedule(order1, None, None);
@@ -609,7 +715,7 @@ fn read_progress() {
     let p1 = DummyProvider::Success(DummyProviderItem { identifier: 1, score: 0 });
     let providers = vec![p1];
     let mut job_context: JobContext<DummyJob> = JobContext::new(providers, DummyProperties{});
-    let result = match job_context.try_schedule(DummyOrder::InfiniteBlocking(0), None, None) {
+    let result = match job_context.try_schedule(DummyOrder::infinite_blocking(0), None, None) {
         ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
             rx_progress.recv_timeout(std::time::Duration::from_millis(50)).unwrap()
         },

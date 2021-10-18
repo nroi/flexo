@@ -322,6 +322,8 @@ impl Job for DownloadJob {
     type PI = String;
     type PR = MirrorConfig;
     type OE = OrderError;
+    type DSU = DynamicScoreUncacheableDownload;
+    type DSC = DynamicScoreCacheableDownload;
 
     fn provider(&self) -> &DownloadProvider {
         &self.provider
@@ -486,6 +488,15 @@ impl Job for DownloadJob {
 pub fn inspect_and_initialize_cache(mirror_config: &MirrorConfig) {
     let mut sum_size = 0;
     let mut count_cache_items = 0;
+    match fs::create_dir_all(&mirror_config.cache_directory) {
+        Ok(_) => {
+            info!("Directory {} did not exist yet, has been created.", &mirror_config.cache_directory);
+        },
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
+        Err(e) => {
+            panic!("Unexpected I/O error occurred: {:?}", e);
+        }
+    }
     for entry in WalkDir::new(&mirror_config.cache_directory) {
         let entry = entry.expect("Error while reading directory entry");
         if entry.file_type().is_file() && !entry.file_name().as_bytes().starts_with(b".") {
@@ -877,6 +888,59 @@ impl Channel for DownloadChannel {
 
     fn job_state(&mut self) -> &mut JobState<DownloadJob> {
         &mut self.handle.get_mut().job_state
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct DynamicScoreCacheableDownload {
+    num_failures: u32,
+    // Avoid multiple parallel downloads from the same remote mirror: We prefer to download from different mirrors
+    // instead, to increase the chance that the client's bandwidth is saturated.
+    num_current_usages: usize,
+    initial_score: MirrorResults,
+}
+
+impl DynamicScoreCacheable<MirrorResults> for DynamicScoreCacheableDownload {
+    fn from_dynamic_provider_metrics(metrics: DynamicProviderMetrics<MirrorResults>) -> Self {
+        Self {
+            num_failures: metrics.num_failures,
+            num_current_usages: metrics.num_current_usages,
+            initial_score: metrics.initial_score,
+        }
+    }
+}
+
+/// Flexo's caching mechanism is based on the assumption that there's a one-to-one mapping between a file and its
+/// content: For example, if a remote mirror stores the file glibc-2.33-3-x86_64.pkg.tar.zst, then this file will not
+/// be replaced by a different file with the same name: if a new version of glibc is stored on the remote mirror,
+/// then the version string will change as well. However, some files, such as database files (core.db etc.), don't use
+/// version strings: The remote mirror simply replaces the old file by a new file with the same name. This means not
+/// only that Flexo cannot use its caching mechanism for such files, it also needs to avoid that the following situation
+/// occurs:
+///     1. Client requests the uncacheable resource (e.g. core.db) from Flexo. Flexo chooses the remote mirror A to
+///        fetch the resource.
+///     2. A few moments later, the same client fetches the same resources from Flexo. Flexo now chooses a different
+///        remote mirror B to fetch the resource. Mirror B has an older version of the resource than mirror A had
+///        available at step 1.
+/// Now, the client has obtained an older version in step 2 than it had obtained previously in step 1. This is not only
+/// unexpected for the client, it also causes warnings like the following to appear in pacman:
+///     warning: python-more-itertools: local (8.10.0-1) is newer than community (8.9.0-1)
+/// To avoid this, we should not switch from one mirror to another when the requested resource is uncacheable: If we
+/// have used mirror A to serve uncacheable resources in the past, we should continue to do so, unless there's a
+/// good reason to switch the mirror (e.g. if the mirror is completely down or too slow).
+/// To avoid unnecessary mirror-swapping for uncacheable resources, we introduce a separate struct to score the mirror.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct DynamicScoreUncacheableDownload {
+    num_failures: u32,
+    initial_score: MirrorResults,
+}
+
+impl DynamicScoreUncacheable<MirrorResults> for DynamicScoreUncacheableDownload {
+    fn from_dynamic_provider_metrics(metrics: DynamicProviderMetrics<MirrorResults>) -> Self {
+        Self {
+            num_failures: metrics.num_failures,
+            initial_score: metrics.initial_score,
+        }
     }
 }
 
