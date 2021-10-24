@@ -21,7 +21,7 @@ use walkdir::WalkDir;
 use flexo::*;
 
 use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
-use crate::mirror_fetch;
+use crate::{fs_utils, mirror_fetch};
 use crate::mirror_fetch::{MirrorProtocol, Mirror};
 use crate::str_path::StrPath;
 use uuid::Uuid;
@@ -447,23 +447,12 @@ impl Job for DownloadJob {
     ) -> std::io::Result<DownloadJobResources> {
         let path = order.filepath(&properties);
         debug!("Attempt to create file: {:?}", &path);
+        fs_utils::create_dir_unless_exists(path.parent().unwrap());
         let f = match OpenOptions::new().create(true).append(true).open(&path) {
             Ok(f) => f,
             Err(e) => {
-                warn!("Unable to create file: {:?}", e);
-                if e.kind() == ErrorKind::NotFound {
-                    let parent = match path.parent() {
-                        None => {
-                            return Err(std::io::Error::from(ErrorKind::InvalidData));
-                        }
-                        Some(p) => p
-                    };
-                    info!("The directory {:?} will be created.", &parent);
-                    fs::create_dir_all(parent)?;
-                    OpenOptions::new().create(true).append(true).open(&path)?
-                } else {
-                    return Err(e);
-                }
+                warn!("Unable to create file {:?}: {:?}", &path, e);
+                return Err(e);
             }
         };
         let size_written = f.metadata()?.len();
@@ -488,15 +477,7 @@ impl Job for DownloadJob {
 pub fn inspect_and_initialize_cache(mirror_config: &MirrorConfig) {
     let mut sum_size = 0;
     let mut count_cache_items = 0;
-    match fs::create_dir_all(&mirror_config.cache_directory) {
-        Ok(_) => {
-            info!("Directory {} did not exist yet, has been created.", &mirror_config.cache_directory);
-        },
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
-        Err(e) => {
-            panic!("Unexpected I/O error occurred: {:?}", e);
-        }
-    }
+    fs_utils::create_dir_unless_exists(Path::new(&mirror_config.cache_directory));
     for entry in WalkDir::new(&mirror_config.cache_directory) {
         let entry = entry.expect("Error while reading directory entry");
         if entry.file_type().is_file() && !entry.file_name().as_bytes().starts_with(b".") {
@@ -669,19 +650,12 @@ impl Order for DownloadOrder {
 }
 
 impl DownloadOrder {
-
     pub fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
         if self.is_cacheable() {
             Path::new(&properties.cache_directory).join(&self.requested_path)
         } else {
             let path = Path::join(Path::new(UNCACHEABLE_DIRECTORY), &self.requested_path);
-            match fs::create_dir_all(path.parent().unwrap()) {
-                Ok(_) => {},
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
-                Err(e) => {
-                    panic!("Unexpected I/O error occurred: {:?}", e);
-                }
-            }
+            fs_utils::create_dir_unless_exists(path.parent().unwrap());
             let filename = format!("{}-{}", &self.requested_path.to_str(), self.id);
             Path::new(UNCACHEABLE_DIRECTORY).join(filename)
         }

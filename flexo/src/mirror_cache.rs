@@ -4,11 +4,13 @@
 
 use std::fs;
 use std::io;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::mirror_config::MirrorConfig;
 use crate::mirror_flexo::DownloadProvider;
+use crate::fs_utils::create_dir_unless_exists;
 
 const DEFAULT_LATENCY_TEST_RESULTS_FILE: &str = "/var/cache/flexo/state/latency_test_results.json";
 
@@ -51,6 +53,9 @@ pub fn store_latency_test_results(
     };
     let serialized = serde_json::to_string_pretty(&timestamped).unwrap();
     let file_path = latency_test_results_file(properties);
+    let path = Path::new(file_path);
+    let directory = path.parent().unwrap();
+    create_dir_unless_exists(&directory);
     fs::write(file_path, serialized)
         .unwrap_or_else(|_| panic!("Unable to write file: {}", file_path));
 

@@ -41,6 +41,7 @@ mod mirror_fetch;
 mod mirror_cache;
 mod mirror_flexo;
 mod str_path;
+mod fs_utils;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
