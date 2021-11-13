@@ -44,7 +44,7 @@ const CURLE_OPERATION_TIMEDOUT: u32 = 28;
 
 const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 
-const MAX_REDIRECTIONS: u32 = 3;
+const MAX_REDIRECTIONS: u32 = 40;
 
 const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
 
@@ -803,11 +803,17 @@ impl Handler for DownloadState {
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     let _ = self.job_state.tx.send(FlexoProgress::Completed);
+                } else if (300..400).contains(&code) {
+                    debug!("Server sent a redirect: Waiting for next header.");
+                    // Remove the header data we have received so far: We don't care about the redirect header,
+                    // we're still waiting for the final header we receive after all redirects are finished.
+                    job_resources.header_state.received_header.clear();
                 } else if !job_resources.last_chance {
+                    debug!("Sending HeaderOutcome::Unavailable");
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                 } else if job_resources.last_chance {
+                    debug!("Sending HeaderOutcome::Unavailable and FlexoProgress::Unavailable");
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    debug!("Sending FlexoProgress::Unavailable");
                     let _ = self.job_state.tx.send(FlexoProgress::Unavailable);
                 }
             }
