@@ -803,6 +803,11 @@ impl Handler for DownloadState {
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     let _ = self.job_state.tx.send(FlexoProgress::Completed);
+                } else if (300..400).contains(&code) {
+                    debug!("Server sent a redirect: Waiting for next header.");
+                    // Remove the header data we have received so far: We don't care about the redirect header,
+                    // we're still waiting for the final header we receive after all redirects are finished.
+                    job_resources.header_state.received_header.clear();
                 } else if !job_resources.last_chance {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                 } else if job_resources.last_chance {
