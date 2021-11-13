@@ -809,10 +809,11 @@ impl Handler for DownloadState {
                     // we're still waiting for the final header we receive after all redirects are finished.
                     job_resources.header_state.received_header.clear();
                 } else if !job_resources.last_chance {
+                    debug!("Sending HeaderOutcome::Unavailable");
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                 } else if job_resources.last_chance {
+                    debug!("Sending HeaderOutcome::Unavailable and FlexoProgress::Unavailable");
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    debug!("Sending FlexoProgress::Unavailable");
                     let _ = self.job_state.tx.send(FlexoProgress::Unavailable);
                 }
             }
