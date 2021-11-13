@@ -15,6 +15,9 @@ services:
   mirror-no-content-length-mock:
     build: mirror-no-content-length-mock
     container_name: mirror-no-content-length-mock
+  mirror-redirect-mock:
+    build: mirror-redirect-mock
+    container_name: mirror-redirect-mock
   flexo-server:
     build: flexo-server
     container_name: flexo-server
@@ -74,6 +77,13 @@ services:
     depends_on:
       - mirror-fast-mock
       - mirror-no-content-length-mock
+  flexo-server-redirect:
+    tmpfs:
+      - /tmp
+    build: flexo-server-redirect
+    container_name: flexo-server-redirect
+    depends_on:
+      - mirror-redirect-mock
   flexo-server-mirror-stalling:
     tmpfs:
       - /tmp
