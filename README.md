@@ -147,6 +147,10 @@ FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 Flexo can be built on various ARM platforms, including the Raspberry Pi. So far, no problems have been reported with
 building and running Flexo on ARM. If you run into problems, please open an issue.
 
+Options to use Flexo on ARM devices include:
+* Build and install the [AUR](https://aur.archlinux.org/packages/flexo-git/) package on your ARM device (recommended).
+* Build and run the Docker image on your ARM device.
+* Cross-compile Flexo on an x86-device and move the binary to the ARM device. Requires [cross](https://github.com/rust-embedded/cross). Also requires adding openssl as a vendored dependency: Add `openssl = { version = "0.10", features = ["vendored"] }` to the `[dependencies]` section in `Cargo.toml`.
 
 ### Serving packages for ARM clients
 With its default configuration, Flexo only serves packages from the official ArchLinux mirrors, which means packages
