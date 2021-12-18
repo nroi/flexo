@@ -160,7 +160,7 @@ fn body_result(stream: &mut TcpStream, content_length: usize) -> BodyResult {
                 size_read += size;
                 hasher.update(&payload[..size]);
             }
-            Err(e) => panic!("Unable to read header: {:?}", e),
+            Err(e) => panic!("Unable to read body: {:?}", e),
         }
     }
     BodyResult {
