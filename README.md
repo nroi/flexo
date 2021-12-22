@@ -23,8 +23,7 @@ Flexo needs to be installed on a single machine (the server) so that it can be a
 multiple clients.
 Once you have installed Flexo on the server, start and enable the systemd service:
 ```
-systemctl start flexo.service
-systemctl enable flexo.service
+systemctl enable --now flexo.service
 ```
 Next, set the new mirror in `/etc/pacman.d/mirrorlist` on all clients.
 In most cases, the server that runs Flexo will also be a client that uses Flexo, so
