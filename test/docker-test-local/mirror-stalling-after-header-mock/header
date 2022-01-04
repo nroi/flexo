@@ -1,0 +1,6 @@
+HTTP/1.1 200 OK
+server: server-stalling-after-header-mock
+date: Sun, 02 Jan 2022 20:46:28 GMT
+content-type: application/octet-stream
+content-length: 7
+

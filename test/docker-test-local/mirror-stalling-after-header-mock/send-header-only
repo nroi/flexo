@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Send the header, and then do nothing. We simulate an HTTP server with
+# technical difficulties which is able to send the header, but then doesn't send
+# a single byte of the payload.
+while true; do
+    nc -l 0.0.0.0 80 < /root/header
+done

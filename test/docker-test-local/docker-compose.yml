@@ -12,6 +12,9 @@ services:
   mirror-stalling-mock:
     build: mirror-stalling-mock
     container_name: mirror-stalling-mock
+  mirror-stalling-after-header-mock:
+    build: mirror-stalling-after-header-mock
+    container_name: mirror-stalling-after-header-mock
   mirror-no-content-length-mock:
     build: mirror-no-content-length-mock
     container_name: mirror-no-content-length-mock
@@ -91,6 +94,13 @@ services:
     container_name: flexo-server-mirror-stalling
     depends_on:
       - mirror-stalling-mock
+  flexo-server-mirror-stalling-after-header:
+    tmpfs:
+      - /tmp
+    build: flexo-server-mirror-stalling-after-header
+    container_name: flexo-server-mirror-stalling-after-header
+    depends_on:
+      - mirror-stalling-after-header-mock
   flexo-client:
     tmpfs:
       - /tmp
