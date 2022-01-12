@@ -590,7 +590,27 @@ fn cfs_path_from_pkg_path(path: &Path) -> Option<PathBuf> {
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
     pub requested_path: StrPath,
-    pub id: Uuid,
+    pub non_cacheable_unique_id: Option<Uuid>,
+}
+
+impl DownloadOrder {
+    pub fn new(requested_path: StrPath) -> Self {
+        if !(requested_path.to_str().ends_with(".db") ||
+            requested_path.to_str().ends_with(".db.sig") ||
+            requested_path.to_str().ends_with(".files") ||
+            requested_path.to_str().ends_with(".files.sig")) {
+            Self {
+                requested_path: requested_path,
+                non_cacheable_unique_id: None
+            }
+        } else {
+            Self {
+                requested_path: requested_path,
+                non_cacheable_unique_id: Some(Uuid::new_v4())
+            }
+        }
+
+    }
 }
 
 impl Order for DownloadOrder {
@@ -624,10 +644,10 @@ impl Order for DownloadOrder {
     }
 
     fn is_cacheable(&self) -> bool {
-        !(self.requested_path.to_str().ends_with(".db") ||
-          self.requested_path.to_str().ends_with(".db.sig") ||
-          self.requested_path.to_str().ends_with(".files") ||
-          self.requested_path.to_str().ends_with(".files.sig"))
+        match self.non_cacheable_unique_id {
+            None => true,
+            _ => false,
+        }
     }
 
     fn retryable(&self) -> bool {
@@ -656,7 +676,7 @@ impl DownloadOrder {
         } else {
             let path = Path::join(Path::new(UNCACHEABLE_DIRECTORY), &self.requested_path);
             fs_utils::create_dir_unless_exists(path.parent().unwrap());
-            let filename = format!("{}-{}", &self.requested_path.to_str(), self.id);
+            let filename = format!("{}-{}", &self.requested_path.to_str(), self.non_cacheable_unique_id.unwrap());
             Path::new(UNCACHEABLE_DIRECTORY).join(filename)
         }
     }
