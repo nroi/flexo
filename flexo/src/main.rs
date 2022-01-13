@@ -25,7 +25,6 @@ use humantime::format_duration;
 use libc::off64_t;
 #[cfg(test)]
 use tempfile::tempfile;
-use uuid::Uuid;
 
 use flexo::*;
 use mirror_flexo::*;
@@ -265,10 +264,7 @@ fn serve_request(
         serve_200_ok_empty(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
     } else {
-        let order = DownloadOrder {
-            id: Uuid::new_v4(),
-            requested_path: request.path,
-        };
+        let order = DownloadOrder::new(request.path);
         debug!("Schedule new job");
         let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, request.resume_from);
         match result {
