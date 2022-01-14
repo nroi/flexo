@@ -590,7 +590,13 @@ fn cfs_path_from_pkg_path(path: &Path) -> Option<PathBuf> {
 pub struct DownloadOrder {
     /// This path is relative to the given root directory.
     pub requested_path: StrPath,
-    pub non_cacheable_unique_id: Option<Uuid>,
+    pub cacheability: Cacheability,
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub enum Cacheability {
+    NonCacheable(Uuid),
+    Cacheable,
 }
 
 impl DownloadOrder {
@@ -601,12 +607,12 @@ impl DownloadOrder {
             requested_path.to_str().ends_with(".files.sig")) {
             Self {
                 requested_path,
-                non_cacheable_unique_id: None
+                cacheability: Cacheability::Cacheable,
             }
         } else {
             Self {
                 requested_path,
-                non_cacheable_unique_id: Some(Uuid::new_v4())
+                cacheability: Cacheability::NonCacheable(Uuid::new_v4())
             }
         }
 
@@ -644,9 +650,9 @@ impl Order for DownloadOrder {
     }
 
     fn is_cacheable(&self) -> bool {
-        match self.non_cacheable_unique_id {
-            None => true,
-            _ => false,
+        match self.cacheability {
+            Cacheability::NonCacheable(_) => false,
+            Cacheability::Cacheable => true,
         }
     }
 
@@ -671,17 +677,19 @@ impl Order for DownloadOrder {
 
 impl DownloadOrder {
     pub fn filepath(&self, properties: &MirrorConfig) -> PathBuf {
-        if self.is_cacheable() {
-            Path::new(&properties.cache_directory).join(&self.requested_path)
-        } else {
-            let path = Path::join(Path::new(UNCACHEABLE_DIRECTORY), &self.requested_path);
-            fs_utils::create_dir_unless_exists(path.parent().unwrap());
-            let filename = format!("{}-{}", &self.requested_path.to_str(), self.non_cacheable_unique_id.unwrap());
-            Path::new(UNCACHEABLE_DIRECTORY).join(filename)
+        match self.cacheability {
+            Cacheability::Cacheable => {
+                Path::new(&properties.cache_directory).join(&self.requested_path)
+            }
+            Cacheability::NonCacheable(unique_id) => {
+                let path = Path::join(Path::new(UNCACHEABLE_DIRECTORY), &self.requested_path);
+                fs_utils::create_dir_unless_exists(path.parent().unwrap());
+                let filename = format!("{}-{}", &self.requested_path.to_str(), unique_id);
+                Path::new(UNCACHEABLE_DIRECTORY).join(filename)
+            }
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct FileState {
