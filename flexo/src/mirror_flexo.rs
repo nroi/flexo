@@ -600,12 +600,12 @@ impl DownloadOrder {
             requested_path.to_str().ends_with(".files") ||
             requested_path.to_str().ends_with(".files.sig")) {
             Self {
-                requested_path: requested_path,
+                requested_path,
                 non_cacheable_unique_id: None
             }
         } else {
             Self {
-                requested_path: requested_path,
+                requested_path,
                 non_cacheable_unique_id: Some(Uuid::new_v4())
             }
         }
