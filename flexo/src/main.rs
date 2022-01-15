@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use std::cmp;
 
 use crossbeam::channel::Receiver;
 use crossbeam::channel::RecvTimeoutError;
@@ -908,7 +909,8 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
     let size = unsafe {
         let mut offset = bytes_sent as off64_t;
         while (offset as u64) < filesize {
-            let size: isize = libc::sendfile64(sfd, fd, &mut offset, MAX_SENDFILE_COUNT);
+            let count = cmp::min( filesize as usize - offset as usize, MAX_SENDFILE_COUNT as usize);
+            let size: isize = libc::sendfile64(sfd, fd, &mut offset, count);
             if size == -1 {
                 return Err(std::io::Error::last_os_error());
             }
