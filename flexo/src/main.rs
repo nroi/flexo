@@ -909,8 +909,8 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
     let size = unsafe {
         let mut offset = bytes_sent as off64_t;
         while (offset as u64) < filesize {
-            let count = cmp::min( filesize as usize - offset as usize, MAX_SENDFILE_COUNT as usize);
-            debug!("Sendfile count: {}",count);
+            let count = cmp::min(filesize as usize - offset as usize, MAX_SENDFILE_COUNT as usize);
+            debug!("Sendfile count: {}", count);
             let size: isize = libc::sendfile64(sfd, fd, &mut offset, count);
             if size == -1 {
                 return Err(std::io::Error::last_os_error());
