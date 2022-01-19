@@ -601,10 +601,7 @@ pub enum Cacheability {
 
 impl DownloadOrder {
     pub fn new(requested_path: StrPath) -> Self {
-        if !(requested_path.to_str().ends_with(".db") ||
-            requested_path.to_str().ends_with(".db.sig") ||
-            requested_path.to_str().ends_with(".files") ||
-            requested_path.to_str().ends_with(".files.sig")) {
+        if DownloadOrder::is_cacheable_path(&requested_path) {
             Self {
                 requested_path,
                 cacheability: Cacheability::Cacheable,
@@ -615,7 +612,13 @@ impl DownloadOrder {
                 cacheability: Cacheability::NonCacheable(Uuid::new_v4())
             }
         }
+    }
 
+    fn is_cacheable_path(path: &StrPath) -> bool {
+        !(path.to_str().ends_with(".db") ||
+            path.to_str().ends_with(".db.sig") ||
+            path.to_str().ends_with(".files") ||
+            path.to_str().ends_with(".files.sig"))
     }
 }
 
