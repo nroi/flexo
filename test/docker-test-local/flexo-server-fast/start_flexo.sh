@@ -14,4 +14,10 @@ mkdir -p /tmp/var/cache/flexo/pkg/multilib-testing/os/x86_64 && \
 mkdir -p /tmp/var/cache/flexo/pkg/staging/os/x86_64 && \
 mkdir -p /tmp/var/cache/flexo/pkg/testing/os/x86_64
 
+# Notice that mirror-fast-mock has a file with the same name of size of 100
+# bytes: We use this file to test Flexo's behavior when the file is locally
+# cached, but only partially.
+truncate -s 50 /tmp/var/cache/flexo/pkg/partially-cached
+echo '100' > /tmp/var/cache/flexo/pkg/.partially-cached.cfs
+
 exec /usr/bin/flexo
