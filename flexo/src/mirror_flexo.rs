@@ -389,7 +389,8 @@ impl Job for DownloadJob {
         match channel.handle.perform() {
             Ok(()) => {
                 let response_code = channel.handle.response_code().unwrap();
-                debug!("{} replied with status code {}.", self.provider.identifier(), response_code);
+                debug!("Download completed: {} replied with status code {}.",
+                    self.provider.identifier(), response_code);
                 if (200..300).contains(&response_code) {
                     let size = channel.progress_indicator().unwrap();
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
