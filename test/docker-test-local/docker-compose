@@ -6,13 +6,15 @@ export COMPOSE_DOCKER_CLI_BUILD=1
 docker-compose down
 
 tar -C ../../ -czvf flexo-server/flexo.tar.gz flexo/src flexo/Cargo.toml flexo/Cargo.lock
-cp flexo-server/flexo.tar.gz flexo-server-slow-primary/
-cp flexo-server/flexo.tar.gz flexo-server-delay-primary/
-cp flexo-server/flexo.tar.gz flexo-server-no-content-length-primary/
-cp flexo-server/flexo.tar.gz flexo-server-fast/
-cp flexo-server/flexo.tar.gz flexo-server-mirror-stalling/
-cp flexo-server/flexo.tar.gz flexo-server-redirect/
-cp flexo-server/flexo.tar.gz flexo-server-mirror-stalling-after-header
+cp flexo-server/flexo.tar.gz flexo-base-integration-test
+
+cd flexo-base-integration-test || exit 1
+FLEXO_VERSION="$(tar -axf flexo.tar.gz flexo/Cargo.toml -O  | sed -n 's/^version = "\(.*\)"$/\1/p')"
+
+IMAGE_ID="$(docker build -q -t flexo-base-integration-test .)"
+CREATION_DATE="$(docker inspect -f '{{ .Created }}' "$IMAGE_ID")"
+
+cd ../
 
 tar -C .. -czvf flexo-server-delay/tcp-proxy-delay.tar.gz tcp-proxy-delay/src tcp-proxy-delay/Cargo.toml
 cp flexo-server-delay/tcp-proxy-delay.tar.gz mirror-delay-mock/
@@ -23,4 +25,10 @@ tar -C .. -czvf flexo-client/integration-test-client.tar.gz \
     integration-test-client/Cargo.toml
 
 /usr/bin/docker-compose build || exit 1
+
 /usr/bin/docker-compose up --exit-code-from flexo-client
+
+# Seeing the compilation timestamp can be useful to detect issues with our
+# Docker setup: If, for some reason, Flexo is not recompiled after changes are
+# made, we will see that the timestamp is too old.
+echo -e "\nTests ran with Flexo version $FLEXO_VERSION, compiled at $CREATION_DATE"

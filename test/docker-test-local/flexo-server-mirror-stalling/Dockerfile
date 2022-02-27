@@ -1,22 +1,4 @@
 # syntax=docker/dockerfile:experimental
-
-FROM rust:1.54.0-buster as build
-
-WORKDIR /tmp
-
-RUN mkdir /tmp/build_output
-
-COPY flexo.tar.gz /tmp
-
-RUN tar xf flexo.tar.gz
-
-WORKDIR /tmp/flexo
-
-RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.54.0-buster,source=/usr/local/cargo \
-    --mount=type=cache,target=/tmp/flexo/target \
-    cargo build --release && \
-    cp /tmp/flexo/target/release/flexo /tmp/build_output/
-
 FROM debian:buster-slim
 
 EXPOSE 7878
@@ -41,7 +23,7 @@ ENV FLEXO_CACHE_DIRECTORY="/tmp/var/cache/flexo/pkg" \
 ENV RUST_BACKTRACE="full" \
     RUST_LOG="debug"
 
-COPY --from=build /tmp/build_output/flexo /usr/bin/flexo
+COPY --from=flexo-base-integration-test /tmp/build_output/flexo /usr/bin/flexo
 
 COPY start_flexo.sh /usr/bin
 

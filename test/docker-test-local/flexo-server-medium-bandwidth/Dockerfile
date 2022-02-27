@@ -1,5 +1,4 @@
 # syntax=docker/dockerfile:experimental
-
 FROM debian:buster-slim
 
 EXPOSE 7878
@@ -16,10 +15,8 @@ ENV FLEXO_CACHE_DIRECTORY="/tmp/var/cache/flexo/pkg" \
     FLEXO_LISTEN_IP_ADDRESS="0.0.0.0" \
     FLEXO_CONNECT_TIMEOUT=3000 \
     FLEXO_MIRROR_SELECTION_METHOD="predefined" \
-    FLEXO_MIRRORS_PREDEFINED="['http://mirror-delay-mock']" \
-    FLEXO_MIRRORS_BLACKLIST=[] \
-    FLEXO_LOW_SPEED_TIME_SECS=1 \
-    FLEXO_LOW_SPEED_LIMIT=1048576
+    FLEXO_MIRRORS_PREDEFINED="['http://mirror-medium-bandwidth-mock']" \
+    FLEXO_MIRRORS_BLACKLIST=[]
 
 ENV RUST_BACKTRACE="full" \
     RUST_LOG="debug"
