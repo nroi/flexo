@@ -346,11 +346,9 @@ impl Job for DownloadJob {
     fn serve_from_provider(
         self, mut channel: DownloadChannel,
         properties: &MirrorConfig,
-        resume_from: u64,
     ) -> JobResult<DownloadJob> {
-        debug!("Fetch package from remote mirror: {}. Resume from byte {}.", &self.uri, resume_from);
+        debug!("Fetch package from remote mirror: {}.", &self.uri);
         channel.handle.url(&self.uri).unwrap();
-        channel.handle.resume_from(resume_from).unwrap();
         // we use httparse to parse the headers, but httparse doesn't support HTTP/2 yet. HTTP/2 shouldn't provide
         // any benefit for our use case (afaik), so this setting should not have any downsides.
         channel.handle.http_version(HttpVersion::V11).unwrap();
