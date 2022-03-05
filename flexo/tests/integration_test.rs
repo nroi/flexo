@@ -140,7 +140,7 @@ impl Job for DummyJob {
         None
     }
 
-    fn serve_from_provider(self, channel: DummyChannel, _properties: &DummyProperties, _cached_size: u64) -> JobResult<DummyJob> {
+    fn serve_from_provider(self, channel: DummyChannel, _properties: &DummyProperties) -> JobResult<DummyJob> {
         match (&self.order, &self.provider) {
             (DummyOrder { variant: DummyOrderVariant::Success, ..}, DummyProvider::Success(_)) => {
                 let jc = JobCompleted::new(channel, self.provider, 1);

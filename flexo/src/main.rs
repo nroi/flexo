@@ -198,7 +198,6 @@ fn purge_uncacheable_files() -> io::Result<()> {
     for glob_result in glob(&format!("{}/**/*", UNCACHEABLE_DIRECTORY)).unwrap() {
         match &glob_result {
             Ok(path) if path.is_file() => {
-                debug!("Check if file {:?} is stale", &path);
                 let modification_time = path.metadata()?.modified()?;
                 let duration = match SystemTime::now().duration_since(modification_time) {
                     Ok(d) => d,
@@ -910,7 +909,6 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
         let mut offset = bytes_sent as off64_t;
         while (offset as u64) < filesize {
             let count = cmp::min(filesize as usize - offset as usize, MAX_SENDFILE_COUNT);
-            debug!("Sendfile count: {}", count);
             let size: isize = libc::sendfile64(sfd, fd, &mut offset, count);
             if size == -1 {
                 return Err(std::io::Error::last_os_error());

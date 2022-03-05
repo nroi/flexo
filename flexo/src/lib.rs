@@ -139,7 +139,7 @@ pub trait Job where Self: std::marker::Sized + std::fmt::Debug + std::marker::Se
     fn order(&self) -> Self::O;
     fn properties(&self)-> Self::PR;
     fn cache_state(order: &<Self as Job>::O, properties: &Self::PR) -> Option<CachedItem>;
-    fn serve_from_provider(self, channel: Self::C, properties: &Self::PR, cached_size: u64) -> JobResult<Self>;
+    fn serve_from_provider(self, channel: Self::C, properties: &Self::PR) -> JobResult<Self>;
     fn handle_error(self, error: Self::OE) -> JobResult<Self>;
     fn acquire_resources(order: &Self::O, properties: &Self::PR, last_chance: bool) -> std::io::Result<Self::JS>;
 
@@ -203,7 +203,6 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         tx_integration_test: Sender<IntegrationTestMessage>,
         tx_progress: Sender<FlexoProgress>,
         properties: <<Self as Order>::J as Job>::PR,
-        cached_size: u64,
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
@@ -238,7 +237,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                         IntegrationTestMessage::ChannelEstablished(channel_establishment),
                         &tx_integration_test
                     );
-                    job.serve_from_provider(channel, &properties, cached_size)
+                    job.serve_from_provider(channel, &properties)
                 }
                 Err(e) => {
                     warn!("Error while attempting to establish a new connection: {:?}", e);
@@ -550,9 +549,9 @@ impl <J> JobContext<J> where J: Job {
         where <J as Job>::P: Sync
     {
         let resume_from = resume_from.unwrap_or(0);
-        let cached_size: u64 = {
+        {
             let mut orders_in_progress = self.orders_in_progress.lock().unwrap();
-            let cached_size = if orders_in_progress.contains(&order) {
+            if orders_in_progress.contains(&order) {
                 debug!("order {:?} already in progress: nothing to do.", &order);
                 return ScheduleOutcome::AlreadyInProgress;
             } else {
@@ -566,7 +565,7 @@ impl <J> JobContext<J> where J: Job {
                         // Cannot store this order in cache: See issue #7
                         return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
                     },
-                    None => 0,
+                    None => {},
                     Some(CachedItem { cached_size, .. }) if cached_size < resume_from => {
                         // Cannot serve this order from cache: See issue #7
                         return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
@@ -575,17 +574,16 @@ impl <J> JobContext<J> where J: Job {
                         debug!("Order {:?} is already cached.", &order);
                         return ScheduleOutcome::Cached;
                     },
-                    Some(CachedItem { cached_size, .. }) => cached_size,
+                    Some(CachedItem { cached_size: _cached_size, .. }) => {}
                 }
-            };
+            }
             orders_in_progress.insert(order.clone());
-            cached_size
-        };
-        self.schedule(order, custom_provider, cached_size)
+        }
+        self.schedule(order, custom_provider)
     }
 
     /// Schedules the job so that the order will be fetched from the provider.
-    fn schedule(&mut self, order: J::O, custom_provider: Option<J::P>, cached_size: u64) -> ScheduleOutcome<J>
+    fn schedule(&mut self, order: J::O, custom_provider: Option<J::P>) -> ScheduleOutcome<J>
         where <J as Job>::P: Sync
     {
         let mutex = Arc::new(Mutex::new(0));
@@ -625,7 +623,6 @@ impl <J> JobContext<J> where J: Job {
                 tx_integration_test,
                 tx_progress,
                 properties,
-                cached_size,
             );
             order_states.lock().unwrap().remove(&order_cloned);
             match result {
