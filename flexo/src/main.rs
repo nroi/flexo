@@ -232,6 +232,13 @@ fn permitted_path(path: &Path) -> bool {
     path.components().all(|c| matches!(c, path::Component::Normal(_) | path::Component::RootDir))
 }
 
+fn valid_path(path: &Path) -> bool {
+    match path.components().last() {
+        Some(path::Component::Normal(_)) => true,
+        _ => false
+    }
+}
+
 fn serve_request(
     job_context: Arc<Mutex<JobContext<DownloadJob>>>,
     client_stream: &mut TcpStream,
@@ -243,6 +250,10 @@ fn serve_request(
     if !permitted_path(&request.path.as_ref()) {
         info!("Forbidden path: Serve 403");
         serve_403_header(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
+    } else if !valid_path(&request.path.as_ref()) {
+        info!("Invalid path: Serve 400");
+        serve_400_header(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
     } else if request.path.to_str() == "status" {
         serve_200_ok_empty(client_stream)?;
