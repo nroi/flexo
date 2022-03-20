@@ -228,8 +228,15 @@ fn str_from_vec(v: Vec<u8>) -> Option<String> {
     }
 }
 
-fn valid_path(path: &Path) -> bool {
+fn permitted_path(path: &Path) -> bool {
     path.components().all(|c| matches!(c, path::Component::Normal(_) | path::Component::RootDir))
+}
+
+fn valid_path(path: &Path) -> bool {
+    match path.components().last() {
+        Some(path::Component::Normal(_)) => true,
+        _ => false
+    }
 }
 
 fn serve_request(
@@ -240,9 +247,13 @@ fn serve_request(
 ) -> Result<PayloadOrigin, ClientError> {
     let (custom_provider, request) =
         custom_provider_from_request(get_request, &properties.custom_repo.as_ref().unwrap_or(&vec![]));
-    if !valid_path(&request.path.as_ref()) {
-        info!("Invalid path: Serve 403");
+    if !permitted_path(&request.path.as_ref()) {
+        info!("Forbidden path: Serve 403");
         serve_403_header(client_stream)?;
+        Ok(PayloadOrigin::NoPayload)
+    } else if !valid_path(&request.path.as_ref()) {
+        info!("Invalid path: Serve 400");
+        serve_400_header(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
     } else if request.path.to_str() == "status" {
         serve_200_ok_empty(client_stream)?;

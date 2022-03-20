@@ -127,4 +127,5 @@ services:
     # if the server uses persistent connections.
     network_mode: "service:flexo-server"
     # Enable colorized output for our test cases.
-    tty: true
+    # Commented for now due to a bug in docker-compose: https://github.com/docker/compose/issues/9288
+    # tty: true
