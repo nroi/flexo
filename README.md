@@ -64,7 +64,7 @@ The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self-explanatory (open an issue in case you disagree).
 If you use Docker, the settings can be modified with environment variables. Environment variables
 are prefixed with `FLEXO_`, for example, `listen_ip_address` corresponds to the `FLEXO_LISTEN_IP_ADDRESS`
-environment variables.
+environment variable.
 
 In most cases, you will want to leave all settings unchanged, with two exceptions:
 
