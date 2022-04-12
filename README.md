@@ -31,11 +31,13 @@ add the following entry to the top of your mirrorlist:
 ```bash
 Server = http://localhost:7878/$repo/os/$arch
 ```
-If you have additional ArchLinux clients in your LAN, then modify their mirrorlist as well.
-Instead of referring to localhost, use the appropriate IP address or hostname:
-```bash
-Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
-```
+If you have additional ArchLinux clients in your LAN, proceed as follows to download packages from Flexo:
+1. Set `listen_ip_address` to `0.0.0.0` in `/etc/flexo/flexo.toml` (alternatively, you can put a reverse proxy in front of Flexo).
+2. Modify the mirrorlist files of all clients on your LAN.
+    Instead of referring to localhost, use the appropriate IP address or hostname:
+    ```bash
+    Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
+    ```
 
 Notice that if you start Flexo for the first time, it will run latency tests to select
 fast mirrors, which will take half a minute or so. During that time, Flexo is not available
