@@ -62,15 +62,22 @@ to serve any requests. Subsequent starts will be faster.
 
 The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self-explanatory (open an issue in case you disagree).
+If you use Docker, the settings can be modified with environment variables. Environment variables
+are prefixed with `FLEXO_`, for example, `listen_ip_address` corresponds to the `FLEXO_LISTEN_IP_ADDRESS`
+environment variables.
+
 In most cases, you will want to leave all settings unchanged, with two exceptions:
 
 1. The setting `low_speed_limit` is commented by default, which means that Flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
-uncomment the setting and enter an appropriate value.
+uncomment the setting and enter an appropriate value. If you use Docker, use the `FLEXO_LOW_SPEED_LIMIT`
+environment variable.
 
 2. The setting `allowed_countries` is set to the empty list by default, which means that at the first start and at
    regular intervals, Flexo will run latency tests on all official mirrors from all continents. Add the ISO code
    of your own country (and perhaps a few neighboring countries) to improve the startup time of Flexo.
+   If you use Docker, use the `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES` environment variable. Multiple countries can be separated by
+   comma, for example, `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES=DE,AT,CZ`
 
 In addition, if you have a high-bandwidth connection, you may want to consider enabling Pacman's
 [ParallelDownloads](https://wiki.archlinux.org/title/Pacman#Enabling_parallel_downloads)
