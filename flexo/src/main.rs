@@ -246,7 +246,7 @@ fn serve_request(
     get_request: Request,
 ) -> Result<PayloadOrigin, ClientError> {
     let (custom_provider, request) =
-        custom_provider_from_request(get_request, &properties.custom_repo.as_ref().unwrap_or(&vec![]));
+        custom_provider_from_request(get_request.clone(), &properties.custom_repo.as_ref().unwrap_or(&vec![]));
     if !permitted_path(&request.path.as_ref()) {
         info!("Forbidden path: Serve 403");
         serve_403_header(client_stream)?;
@@ -293,7 +293,7 @@ fn serve_request(
                 debug!("Job was scheduled, will serve from growing file");
                 match receive_content_length(rx_progress) {
                     Ok(ContentLengthResult::ContentLength(content_length)) => {
-                        debug!("Received content length via channel: {}", content_length);
+                        info!("Content length of path \"{}\" is {}", get_request.path.to_str(), content_length);
                         let file = File::open(order.filepath(&properties))?;
                         serve_from_growing_file(file, content_length, request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::RemoteMirror)
@@ -363,6 +363,12 @@ fn serve_client(
         debug!("Reading header from client.");
         match read_client_header(&mut client_stream) {
             Ok(ClientResponse::Request(get_request)) => {
+                if get_request.path.to_str() != "status" {
+                    // FIXME including the range start seems a bit too noisy for log level INFO, but we include
+                    // this for now to help troubleshoot issue https://github.com/nroi/flexo/issues/93.
+                    let resume_from = get_request.resume_from.unwrap_or(0);
+                    info!("Received request for path \"{}\". Range start: {}", get_request.path.to_str(), resume_from);
+                }
                 let request_path = get_request.path.clone();
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
                     Ok(payload_origin) => {

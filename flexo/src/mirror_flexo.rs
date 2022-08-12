@@ -138,14 +138,14 @@ pub enum ClientResponse {
     SocketClosed,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Request {
     pub resume_from: Option<u64>,
     pub path: StrPath,
     pub method: RequestMethod,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RequestMethod {
     Get,
     Post,
