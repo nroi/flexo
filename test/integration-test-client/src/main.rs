@@ -275,7 +275,7 @@ fn flexo_test_persistent_connections_c2s(path_generator: &mut PathGenerator, tes
         // Setting a timeout that slightly exceeds the connection delay from flexo-server-delay: This is used as
         // proof that the connection establishment happens only once, not 3 times. If each request would require
         // a new connection establishment, then a timeout would occur and the test case would fail.
-        timeout: Some(Duration::from_millis(120)),
+        timeout: Some(Duration::from_millis(220)),
     };
     let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 3);
@@ -301,7 +301,7 @@ fn flexo_test_persistent_connections_s2s(path_generator: &mut PathGenerator, tes
             port: DEFAULT_PORT,
         },
         get_requests,
-        timeout: Some(Duration::from_secs(1)),
+        timeout: Some(Duration::from_secs(5)),
     };
     let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 100);
