@@ -767,11 +767,11 @@ impl Handler for DownloadState {
             debug!("Begin to transfer body to file {}", self.job_state.order.requested_path.to_str());
         }
         job_resources.file_state.size_written += data.len() as u64;
-        match job_resources.file_state.buf_writer.write(data) {
-            Ok(size) => {
+        match job_resources.file_state.buf_writer.write_all(data) {
+            Ok(()) => {
                 let len = job_resources.file_state.buf_writer.get_ref().metadata().unwrap().len();
                 let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
-                Ok(size)
+                Ok(data.len())
             },
             Err(e) => {
                 error!("Error while writing data: {:?}", e);
