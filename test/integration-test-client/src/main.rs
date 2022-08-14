@@ -327,7 +327,10 @@ fn flexo_test_mirror_selection_slow_mirror(_path_generator: &mut PathGenerator, 
     let results = http_get(request_test, testcase).unwrap();
     assert_eq!(results.len(), 1);
     let result = results.get(0).unwrap();
+    let sha: String = hex::encode(result.payload_result.as_ref().unwrap().clone().sha);
     assert_eq!(result.header_result.status_code, 200);
+    assert_eq!(result.payload_result.as_ref().unwrap().size, 31457280);
+    assert_eq!(sha, "75c91b29d5522c8a97c779e50bc33f11e07ed37b2baa31c8c727016e92915c1d");
 }
 
 fn flexo_test_download_large_file(_path_generator: &mut PathGenerator, testcase: &'static str) {
