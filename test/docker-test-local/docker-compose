@@ -28,7 +28,11 @@ tar -C .. -czvf flexo-client/integration-test-client.tar.gz \
 
 /usr/bin/docker-compose up --exit-code-from flexo-client
 
+DOCKER_COMPOSE_EXIT_CODE="$?"
+
 # Seeing the compilation timestamp can be useful to detect issues with our
 # Docker setup: If, for some reason, Flexo is not recompiled after changes are
 # made, we will see that the timestamp is too old.
 echo -e "\nTests ran with Flexo version $FLEXO_VERSION, compiled at $CREATION_DATE"
+
+exit $DOCKER_COMPOSE_EXIT_CODE
