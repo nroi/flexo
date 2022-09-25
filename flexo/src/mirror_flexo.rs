@@ -380,6 +380,7 @@ impl Job for DownloadJob {
         match channel.progress_indicator() {
             None => {},
             Some(start) => {
+                info!("Resume download of {} from byte {}", &self.uri, start);
                 channel.handle.resume_from(start).unwrap();
             }
         }
