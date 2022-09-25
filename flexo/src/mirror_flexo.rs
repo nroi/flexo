@@ -461,9 +461,11 @@ impl Job for DownloadJob {
             received_header: vec![],
             header_success: None,
         };
+        let filename = path.file_name().unwrap().to_str().unwrap().to_owned();
         let file_state = FileState  {
             buf_writer,
             size_written,
+            filename,
         };
         let download_job_resources = DownloadJobResources {
             file_state,
@@ -521,7 +523,7 @@ fn persist_and_get_cache_state(path: &Path) -> Option<CachedItem> {
             // size is usually a safe fallback. For example, this case can occur if files have been
             // copied to Flexo's package directory, or if the user removed the files with the cfs
             // extension.
-            debug!("Unable to fetch file size from CFS file for {:?}", path);
+            info!("Unable to fetch file size from CFS file for {:?}", path);
             match path.metadata().expect("Unable to fetch file metadata").len() {
                 0 => {
                     info!("File {:?} is empty. Apparently, a previous download was aborted. This file will be removed",
@@ -530,6 +532,7 @@ fn persist_and_get_cache_state(path: &Path) -> Option<CachedItem> {
                     return None;
                 },
                 s => {
+                    info!("No CFS file exists for {:?} yet, continue to create it.", &path);
                     create_cfs_file(path, s);
                     Some(s)
                 }
@@ -698,6 +701,7 @@ impl DownloadOrder {
 pub struct FileState {
     buf_writer: BufWriter<File>,
     size_written: u64,
+    filename: String,
 }
 
 #[derive(Debug)]
@@ -794,7 +798,8 @@ impl Handler for DownloadState {
             Ok(Status::Complete(_header_size)) => {
                 debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
-                debug!("HTTP response code is {}", code);
+                // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
+                info!("HTTP response code is {}", code);
                 if code == 200 || code == 206 {
                     let maybe_content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
@@ -810,7 +815,9 @@ impl Handler for DownloadState {
                         }
                         Some(cl) => cl
                     };
-                    debug!("Content length is {}", content_length);
+                    // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
+                    info!("Server replied with content length {} for {}",
+                        content_length, self.job_state.order.requested_path.to_str());
                     job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current
@@ -872,7 +879,10 @@ fn create_cfs_file(path: &Path, complete_filesize: u64) {
         }
     };
     match cfs_file.write_all(format!("{}\n", complete_filesize).as_bytes()) {
-        Ok(_) => {}
+        Ok(_) => {
+            // FIXME this is a little too verbose. Remove this once #93 is solved.
+            info!("Created CFS file: {:?} has size {}", &path, complete_filesize);
+        }
         Err(e) => {
             error!("Unable to write to CFS file {:?}: {:?}", &cfs_path, e);
         }
@@ -891,8 +901,12 @@ impl Channel for DownloadChannel {
         let job_resources = self.handle.get_ref().job_state.job_resources.as_ref().unwrap();
         let size_written = job_resources.file_state.size_written;
         if size_written > 0 {
+            // FIXME this is a little too verbose. Remove this once #93 is solved.
+            info!("File size of {} is {}", job_resources.file_state.filename, size_written);
             Some(size_written)
         } else {
+            // FIXME this is a little too verbose. Remove this once #93 is solved.
+            info!("File is still empty: {}", job_resources.file_state.filename);
             None
         }
     }
