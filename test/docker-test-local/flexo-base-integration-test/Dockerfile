@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:1.54.0-buster as build
+FROM rust:1.64.0-buster as build
 
 WORKDIR /tmp
 
