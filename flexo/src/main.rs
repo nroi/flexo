@@ -42,6 +42,7 @@ mod mirror_cache;
 mod mirror_flexo;
 mod str_path;
 mod fs_utils;
+mod http_headers;
 
 // man 2 read: read() (and similar system calls) will transfer at most 0x7ffff000 bytes.
 #[cfg(not(test))]
@@ -809,27 +810,29 @@ fn serve_200_ok_body(client_stream: &mut TcpStream, body: &[u8]) -> io::Result<(
 }
 
 fn reply_header_success(content_length: u64, payload_origin: PayloadOrigin) -> String {
-    reply_header("200 OK", content_length, None, payload_origin)
+    reply_header("200 OK", content_length, None, payload_origin, SystemTime::now())
 }
 
 fn reply_header_partial(content_length: u64, resume_from: u64, payload_origin: PayloadOrigin) -> String {
-    reply_header("206 Partial Content", content_length, Some(resume_from), payload_origin)
+    reply_header(
+        "206 Partial Content", content_length, Some(resume_from), payload_origin, SystemTime::now()
+    )
 }
 
 fn reply_header_not_found() -> String {
-    reply_header("404 Not Found", 0, None, PayloadOrigin::NoPayload)
+    reply_header("404 Not Found", 0, None, PayloadOrigin::NoPayload, SystemTime::now())
 }
 
 fn reply_header_bad_request() -> String {
-    reply_header("400 Bad Request", 0, None, PayloadOrigin::NoPayload)
+    reply_header("400 Bad Request", 0, None, PayloadOrigin::NoPayload, SystemTime::now())
 }
 
 fn reply_header_internal_server_error() -> String {
-    reply_header("500 Internal Server Error", 0, None, PayloadOrigin::NoPayload)
+    reply_header("500 Internal Server Error", 0, None, PayloadOrigin::NoPayload, SystemTime::now())
 }
 
 fn reply_header_forbidden() -> String {
-    reply_header("403 Forbidden", 0, None, PayloadOrigin::NoPayload)
+    reply_header("403 Forbidden", 0, None, PayloadOrigin::NoPayload, SystemTime::now())
 }
 
 fn reply_header(
@@ -837,9 +840,9 @@ fn reply_header(
     content_length: u64,
     resume_from: Option<u64>,
     payload_origin: PayloadOrigin,
+    now: SystemTime,
 ) -> String {
-    let now = time::now_utc();
-    let timestamp = now.rfc822();
+    let timestamp = httpdate::fmt_http_date(now);
     let content_range_header = resume_from.map(|r| {
         let complete_size = content_length + r;
         let last_byte = complete_size - 1;
@@ -863,9 +866,8 @@ fn reply_header(
     header
 }
 
-fn redirect_header(path: &str) -> String {
-    let now = time::now_utc();
-    let timestamp = now.rfc822();
+fn redirect_header(path: &str, now: SystemTime) -> String {
+    let timestamp = httpdate::fmt_http_date(now);
     let header = format!("\
         HTTP/1.1 301 Moved Permanently\r\n\
         Server: flexo\r\n\
@@ -899,7 +901,7 @@ fn serve_from_complete_file(
 
 fn serve_via_redirect(uri: String, client_stream: &mut TcpStream) -> io::Result<()> {
     debug!("Attempting to serve from {}", &uri);
-    let header = redirect_header(&uri);
+    let header = redirect_header(&uri, SystemTime::now());
     client_stream.write_all(header.as_bytes())
 }
 
@@ -978,3 +980,28 @@ fn custom_provider_from_request_test() {
     assert_eq!(new_get_request, expected_get_request);
 }
 
+#[test]
+fn test_reply_header() {
+    let timestamp = httpdate::parse_http_date("Thu, 06 Apr 2023 20:00:18 GMT").unwrap();
+    let expected = "HTTP/1.1 OK\r\n\
+        Server: flexo\r\n\
+        Date: Thu, 06 Apr 2023 20:00:18 GMT\r\n\
+        Flexo-Payload-Origin: NoPayload\r\n\
+        Content-Length: 0\r\n\r\n";
+    let actual = reply_header("OK", 0, None, PayloadOrigin::NoPayload, timestamp);
+
+    assert_eq!(expected, actual)
+}
+
+#[test]
+fn test_redirect_header() {
+    let timestamp = httpdate::parse_http_date("Thu, 06 Apr 2023 20:00:18 GMT").unwrap();
+    let expected = "HTTP/1.1 301 Moved Permanently\r\n\
+        Server: flexo\r\n\
+        Date: Thu, 06 Apr 2023 20:00:18 GMT\r\n\
+        Content-Length: 0\r\n\
+        Location: /new/location\r\n\r\n";
+    let actual = redirect_header("/new/location", timestamp);
+
+    assert_eq!(expected, actual)
+}
