@@ -199,6 +199,7 @@ dependencies = [
  "glob",
  "http",
  "httparse",
+ "httpdate",
  "humantime",
  "libc",
  "log",
@@ -207,7 +208,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "time",
  "toml",
  "uuid",
  "walkdir",
@@ -261,6 +261,12 @@ name = "httparse"
 version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "496ce29bb5a52785b44e0f7ca2847ae0bb839c9bd28f69acac9b99d461c0c04c"
+
+[[package]]
+name = "httpdate"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "humantime"
