@@ -47,6 +47,7 @@ pub enum MirrorProtocol {
     Http,
     Https,
     Rsync,
+    Ftp,
 }
 
 #[derive(Debug)]
