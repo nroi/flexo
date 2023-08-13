@@ -754,7 +754,7 @@ impl DownloadState {
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
-        let mut job_resources = self.job_state.job_resources.as_mut().unwrap();
+        let job_resources = self.job_state.job_resources.as_mut().unwrap();
         match job_resources.header_state.header_success {
             Some(HeaderOutcome::Ok(_content_length)) => {},
             Some(HeaderOutcome::Unavailable) => {
