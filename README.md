@@ -66,7 +66,7 @@ If you use Docker, the settings can be modified with environment variables. Envi
 are prefixed with `FLEXO_`, for example, `listen_ip_address` corresponds to the `FLEXO_LISTEN_IP_ADDRESS`
 environment variable. More details about configuring Flexo are listed [in the wiki](https://github.com/nroi/flexo/wiki/Flexo-with-Docker).
 
-In most cases, you will want to leave all settings unchanged, with two exceptions:
+In most cases, you will want to leave all settings unchanged, with the following exceptions:
 
 1. The setting `low_speed_limit` is commented by default, which means that Flexo will *not* attempt
 to switch to a faster mirror if a download is extremely slow. To make use of this feature,
@@ -79,10 +79,14 @@ environment variable.
    If you use Docker, use the `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES` environment variable. Multiple countries can be separated by
    comma, for example, `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES=DE,AT,CZ`
 
+3. If you have additional ArchLinux clients in your LAN, you probably want to change the
+   `listen_ip_address` setting. It's set to `127.0.0.1` by default for security reasons, change it
+   to `0.0.0.0` to make Flexo accessible to all clients in your LAN.
+
 In addition, if you have a high-bandwidth connection, you may want to consider enabling Pacman's
 [ParallelDownloads](https://wiki.archlinux.org/title/Pacman#Enabling_parallel_downloads)
 setting.
-With `ParallelDownloads` enabled, Flexo will receive multiple requests concurrently and therefore 
+With `ParallelDownloads` enabled, Flexo will receive multiple requests concurrently and therefore
 fetch the packages from multiple mirrors in parallel, thus making it more likely that your entire bandwidth
 is utilized.
 
