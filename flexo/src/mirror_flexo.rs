@@ -378,7 +378,10 @@ impl Job for DownloadJob {
         channel.handle.follow_location(true).unwrap();
         channel.handle.max_redirections(MAX_REDIRECTIONS).unwrap();
         match channel.progress_indicator() {
-            None => {},
+            None => {
+                // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
+                info!("No range request will be used, i.e., the entire file will be downloaded")
+            },
             Some(start) => {
                 info!("Resume download of {} from byte {}", &self.uri, start);
                 channel.handle.resume_from(start).unwrap();
