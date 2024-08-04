@@ -799,7 +799,8 @@ impl Handler for DownloadState {
                 debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
                 // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
-                info!("HTTP response code is {}", code);
+                
+                info!("HTTP response code for {} is {}", &self.job_state.order.requested_path.to_str(), code);
                 if code == 200 || code == 206 {
                     let maybe_content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
