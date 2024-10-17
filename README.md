@@ -16,6 +16,7 @@ to be downloaded more often than once.
     echo 'Server = http://172.17.0.1:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     ````
   so that packages that have already been downloaded will be fetched from the cache.
+
 ## Installation
 A package for Arch Linux is available on [AUR](https://aur.archlinux.org/packages/flexo-git/).
 Alternatively, you can use the [docker image](https://hub.docker.com/r/nroi/flexo) instead.
@@ -89,6 +90,18 @@ setting.
 With `ParallelDownloads` enabled, Flexo will receive multiple requests concurrently and therefore
 fetch the packages from multiple mirrors in parallel, thus making it more likely that your entire bandwidth
 is utilized.
+
+## Supported Platforms
+
+Flexo obviously runs on a standard Arch Linux x86_64 platform. In addition, it runs on many ARM
+platforms (more details [here](#arm-support)).
+
+If you intend to compile and run Flexo on any operating system other than ArchLinux (and without
+Flexo's Docker image), please note that:
+* Flexo requires either [paccache](https://man.archlinux.org/man/paccache.8) or
+  [scruffy](https://github.com/nroi/scruffy) to clean the cache. On any system other than ArchLinux,
+  installing scruffy will probably be easier than installing paccache.
+* Linux is the only supported operating system at the moment.
 
 ## Troubleshooting
 
