@@ -4,7 +4,6 @@ extern crate http;
 extern crate log;
 extern crate rand;
 
-use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -28,7 +27,9 @@ use libc::off64_t;
 use tempfile::tempfile;
 
 use flexo::*;
+use flexo::metrics::*;
 use mirror_flexo::*;
+use prometheus::{Encoder, TextEncoder};
 use crate::http_headers::{PayloadOrigin, redirect_header, reply_header_bad_request, reply_header_forbidden, reply_header_internal_server_error, reply_header_not_found, reply_header_partial, reply_header_success};
 
 use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
@@ -254,13 +255,11 @@ fn serve_request(
         serve_200_ok_empty(client_stream)?;
         Ok(PayloadOrigin::NoPayload)
     } else if request.path.to_str() == "metrics" {
-        let metrics_map: HashMap<String, ProviderMetrics> = job_context.lock().unwrap().provider_metrics()
-            .iter()
-            .map(|(k, v)| (k.identifier.clone(), *v))
-            .collect();
-        let serialized = serde_json::to_string_pretty(&metrics_map).unwrap();
-        serve_200_ok_body(client_stream, serialized.as_bytes())?;
-        client_stream.write_all(serialized.as_bytes())?;
+        let mut buffer = Vec::new();
+        let encoder = TextEncoder::new();
+        let metric_families = REGISTRY.gather();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+        serve_200_ok_body(client_stream, &buffer)?;
         Ok(PayloadOrigin::NoPayload)
     } else if request.path.to_str() == "reset-metrics" && request.method == Post {
         {
@@ -271,6 +270,14 @@ fn serve_request(
         Ok(PayloadOrigin::NoPayload)
     } else {
         let order = DownloadOrder::new(request.path);
+        let req_type = if order.requested_path.to_str().ends_with(".pkg.tar.zst") {
+            "package"
+        } else if order.requested_path.to_str().ends_with(".db") {
+            "db"
+        } else {
+            "other"
+        };
+        REQUESTS_TOTAL.with_label_values(&[req_type]).inc();
         debug!("Schedule new job");
         let result = job_context.lock().unwrap().try_schedule(order.clone(), custom_provider, request.resume_from);
         match result {
@@ -368,8 +375,12 @@ fn serve_client(
                 match serve_request(job_context.clone(), &mut client_stream, properties.clone(), get_request) {
                     Ok(payload_origin) => {
                         let payload_origin_human_readable = match payload_origin {
-                            PayloadOrigin::Cache => "CACHE HIT",
+                            PayloadOrigin::Cache => {
+                                CACHE_HITS.inc();
+                                "CACHE HIT"
+                            },
                             PayloadOrigin::RemoteMirror => {
+                                CACHE_MISSES.inc();
                                 // When the payload is downloaded from a remote mirror, a new file is stored in the
                                 // cache.
                                 cache_tainted = true;
@@ -751,6 +762,7 @@ fn serve_from_growing_file(
             let result = send_payload_and_flush(&mut file, filesize, client_received as i64, client_stream);
             match result {
                 Ok(size) => {
+                    BYTES_SERVED_FROM_MIRROR.inc_by(size as u64 - client_received);
                     client_received = size as u64;
                 }
                 Err(e) => {
@@ -815,10 +827,13 @@ fn serve_from_complete_file(
         Some(r) => reply_header_partial(content_length, r, PayloadOrigin::Cache)
     };
     client_stream.write_all(header.as_bytes())?;
-    let bytes_sent = resume_from.unwrap_or(0) as i64;
-    let result = send_payload_and_flush(&mut file, filesize, bytes_sent, client_stream);
+    let bytes_sent_before = resume_from.unwrap_or(0) as i64;
+    let result = send_payload_and_flush(&mut file, filesize, bytes_sent_before, client_stream);
     match &result {
-        Ok(s) => debug!("{} bytes have been transmitted to the client.", s),
+        Ok(s) => {
+            BYTES_SERVED_FROM_CACHE.inc_by((*s - bytes_sent_before) as u64);
+            debug!("{} bytes have been transmitted to the client.", s)
+        },
         Err(e) => warn!("Error while sending payload: {:?}", e),
     }
     result

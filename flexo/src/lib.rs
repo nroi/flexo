@@ -1,4 +1,5 @@
 mod provider_guards;
+pub mod metrics;
 
 #[macro_use] extern crate log;
 
@@ -10,6 +11,7 @@ use std::thread::JoinHandle;
 use serde::Serialize;
 use std::time::{Instant, Duration};
 use crossbeam::channel::{Receiver, Sender, unbounded};
+use crate::metrics::*;
 use crate::provider_guards::{ProviderGuards, ProviderChoice, ProviderGuard};
 use std::fmt::{Display, Formatter};
 
@@ -221,6 +223,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 &unsuccessful_providers,
             );
             debug!("Trying to serve {} via {}", &self.description(), provider_guard.guarded_provider.identifier());
+            MIRROR_USAGES.with_label_values(&[&provider_guard.guarded_provider.identifier().identifier]).inc();
             debug!("No providers are left after this provider? {}", is_last_provider);
             let last_chance = num_attempt >= NUM_MAX_ATTEMPTS || is_last_provider || !self.retryable();
             send(
@@ -256,14 +259,17 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 JobResult::Partial(partial_job) => {
                     provider_guard.guarded_provider.punish(provider_metrics.lock().unwrap());
                     punished_providers.push(provider_guard.guarded_provider.identifier());
+                    MIRROR_FAILURES.with_label_values(&[&provider_guard.guarded_provider.identifier().identifier, "partial"]).inc();
                     debug!("Job only partially finished until size {:?}", partial_job.continue_at);
                 },
                 JobResult::Error(e) => {
                     provider_guard.guarded_provider.punish(provider_metrics.lock().unwrap());
                     punished_providers.push(provider_guard.guarded_provider.identifier());
+                    MIRROR_FAILURES.with_label_values(&[&provider_guard.guarded_provider.identifier().identifier, "error"]).inc();
                     info!("Error: {:?}, try again", e)
                 },
                 JobResult::Unavailable(_) => {
+                    MIRROR_FAILURES.with_label_values(&[&provider_guard.guarded_provider.identifier().identifier, "unavailable"]).inc();
                     info!("{} is not available at {}",
                           &self.description(), provider_guard.guarded_provider.identifier());
                 },
@@ -612,6 +618,7 @@ impl <J> JobContext<J> where J: Job {
         let order_cloned = order.clone();
         let properties = self.properties.clone();
 
+        CONCURRENT_DOWNLOADS.inc();
         let thread = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
             let order: <J as Job>::O = order.clone();
@@ -624,6 +631,7 @@ impl <J> JobContext<J> where J: Job {
                 tx_progress,
                 properties,
             );
+            CONCURRENT_DOWNLOADS.dec();
             order_states.lock().unwrap().remove(&order_cloned);
             match result {
                 JobResult::Complete(mut complete_job) => {
