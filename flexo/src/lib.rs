@@ -213,6 +213,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             debug!("Attempt number {}", num_attempt);
             if num_attempt > 1 && start_time.elapsed() > TIMEOUT_ALL_RETRIES {
                 warn!("Unable to complete attempt number {}: The timeout has elapsed.", num_attempt);
+                // TODO we just log a warning here without actually breaking out oof the loop…?
+                //  This seems unintended. Need to take a closer look and verify the fix with
+                //  a proper e2e test.
             }
             let (provider_guard, is_last_provider) = self.select_provider(
                 &provider_guards,
