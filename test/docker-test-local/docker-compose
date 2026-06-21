@@ -2,6 +2,9 @@
 
 export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
+# Compose v5+ uses bake by default, which has a known hang at the provenance
+# metadata step (docker/compose#12998). Disabling bake avoids it.
+export COMPOSE_BAKE=0
 
 docker-compose down
 

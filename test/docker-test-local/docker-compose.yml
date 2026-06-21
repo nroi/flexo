@@ -111,6 +111,21 @@ services:
     container_name: flexo-server-mirror-stalling-after-header
     depends_on:
       - mirror-stalling-after-header-mock
+  flexo-server-mirror-stalling-no-fallback:
+    tmpfs:
+      - /tmp
+    build: flexo-server-mirror-stalling-no-fallback
+    container_name: flexo-server-mirror-stalling-no-fallback
+    depends_on:
+      - mirror-stalling-after-header-mock
+  flexo-server-mirror-stalling-with-fallback:
+    tmpfs:
+      - /tmp
+    build: flexo-server-mirror-stalling-with-fallback
+    container_name: flexo-server-mirror-stalling-with-fallback
+    depends_on:
+      - mirror-stalling-after-header-mock
+      - mirror-fast-mock
   flexo-client:
     tmpfs:
       - /tmp

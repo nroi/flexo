@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 
 EXPOSE 7878
 
