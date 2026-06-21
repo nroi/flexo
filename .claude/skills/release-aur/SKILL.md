@@ -10,7 +10,13 @@ Do **not** manually edit `flexo/Cargo.lock`. Instead, run this from the `flexo/`
 cargo check
 ```
 
-Commit both files with a message like `chore: bump flexo version to X.Y.Z`, then push to the master branch.
+Commit both files with a message like `chore: bump flexo version to X.Y.Z`. Then tag that commit with the version number and push both the commit and the tag:
+
+```bash
+git tag X.Y.Z
+git push origin master
+git push origin X.Y.Z
+```
 
 ## Step 2 — Update the AUR package
 
