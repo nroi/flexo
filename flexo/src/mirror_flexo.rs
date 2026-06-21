@@ -20,7 +20,7 @@ use walkdir::WalkDir;
 
 use flexo::*;
 
-use crate::mirror_config::{MirrorConfig, MirrorsAutoConfig};
+use crate::mirror_config::{LowSpeedConfiguration, MirrorConfig, MirrorsAutoConfig};
 use crate::{fs_utils, mirror_fetch};
 use crate::mirror_fetch::{MirrorProtocol, Mirror};
 use crate::str_path::StrPath;
@@ -41,8 +41,6 @@ const TEST_CHUNK_SIZE: usize = 128;
 const TEST_REQUEST_HEADER: &[u8] = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
 
 const CURLE_OPERATION_TIMEDOUT: u32 = 28;
-
-const DEFAULT_LOW_SPEED_TIME_SECS: u64 = 2;
 
 const MAX_REDIRECTIONS: u32 = 40;
 
@@ -357,15 +355,22 @@ impl Job for DownloadJob {
             Some(timeout) => Duration::from_millis(timeout),
         };
         channel.handle.connect_timeout(connect_timeout).unwrap();
-        match properties.low_speed_limit() {
-            None => {},
-            Some(speed) => {
-                channel.handle.low_speed_limit(speed).unwrap();
-                let low_speed_time_secs = properties.low_speed_time_secs.unwrap_or(DEFAULT_LOW_SPEED_TIME_SECS);
-                debug!("Set low_speed_time to {} seconds.", low_speed_time_secs);
-                channel.handle.low_speed_time(std::time::Duration::from_secs(low_speed_time_secs)).unwrap();
-            },
-        }
+        let low_speed_limit = match properties.effective_low_speed_limit() {
+            LowSpeedConfiguration::ConfiguredByUser(limit) => limit,
+            LowSpeedConfiguration::SensibleMinimumFallback(fallback) => {
+                info!("No low_speed_limit was configured, using {} as fallback.", fallback);
+                fallback
+            }
+        };
+        channel.handle.low_speed_limit(low_speed_limit).unwrap();
+        let low_speed_time_secs = match properties.effective_low_speed_time_secs() {
+            LowSpeedConfiguration::ConfiguredByUser(low_speed_time_secs) => low_speed_time_secs,
+            LowSpeedConfiguration::SensibleMinimumFallback(fallback) => {
+                info!("No low_speed_time was configured, using {} as fallback.", fallback);
+                fallback
+            }
+        };
+        channel.handle.low_speed_time(Duration::from_secs(low_speed_time_secs)).unwrap();
         match properties.max_speed_limit {
             None => {
                 debug!("No speed limit was set.")

@@ -32,7 +32,7 @@ use mirror_flexo::*;
 use crate::http_headers::{PayloadOrigin, redirect_header, reply_header_bad_request, reply_header_forbidden, reply_header_internal_server_error, reply_header_not_found, reply_header_partial, reply_header_success};
 
 use crate::mirror_cache::{DemarshallError, TimestampedDownloadProviders};
-use crate::mirror_config::{CustomRepo, MirrorConfig, MirrorSelectionMethod};
+use crate::mirror_config::{CustomRepo, LowSpeedConfiguration, MirrorConfig, MirrorSelectionMethod};
 use crate::mirror_fetch::{Mirror, MirrorFetchError};
 use crate::mirror_flexo::RequestMethod::Post;
 use crate::str_path::StrPath;
@@ -55,6 +55,10 @@ const MAX_SENDFILE_COUNT: usize = 128;
 
 const TIMEOUT_RECEIVE_CONTENT_LENGTH: Duration = Duration::from_secs(7);
 
+/// How long the file served from an in-progress download may stop growing before flexo gives up on
+/// the stalled transfer.
+const GROWING_FILE_STALL_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn main() {
     env_logger::builder().format_timestamp_millis().init();
 
@@ -68,12 +72,11 @@ fn main() {
     let properties = mirror_config::load_config();
     debug!("The following settings were fetched from the TOML file or environment variables: {:#?}", &properties);
     inspect_and_initialize_cache(&properties);
-    match properties.low_speed_limit() {
-        None => {}
-        Some(limit) => {
-            info!("Will switch mirror if download speed falls below {}/s", size_to_human_readable(limit.into()));
-        }
-    }
+    let low_speed_limit = match properties.effective_low_speed_limit() {
+        LowSpeedConfiguration::ConfiguredByUser(limit) => limit,
+        LowSpeedConfiguration::SensibleMinimumFallback(limit) => limit,
+    };
+    info!("Will switch mirror if download speed falls below {}/s", size_to_human_readable(low_speed_limit.into()));
     let job_context: Arc<Mutex<JobContext<DownloadJob>>> = match initialize_job_context(properties.clone()) {
         Ok(jc) => Arc::new(Mutex::new(jc)),
         Err(ProviderSelectionError::NoProviders) => {
@@ -280,7 +283,9 @@ fn serve_request(
                 let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
                 let content_length = complete_filesize - request.resume_from.unwrap_or(0);
                 let file = File::open(&path)?;
-                serve_from_growing_file(file, content_length, request.resume_from, client_stream)?;
+                serve_from_growing_file(
+                    file, content_length, request.resume_from, client_stream,
+                )?;
                 Ok(PayloadOrigin::RemoteMirror)
             }
             ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
@@ -290,7 +295,9 @@ fn serve_request(
                     Ok(ContentLengthResult::ContentLength(content_length)) => {
                         info!("Content length of path \"{}\" is {}", get_request.path.to_str(), content_length);
                         let file = File::open(order.filepath(&properties))?;
-                        serve_from_growing_file(file, content_length, request.resume_from, client_stream)?;
+                        serve_from_growing_file(
+                            file, content_length, request.resume_from, client_stream,
+                        )?;
                         Ok(PayloadOrigin::RemoteMirror)
                     }
                     Ok(ContentLengthResult::AlreadyCached) => {
@@ -718,7 +725,7 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
             None => {
                 // for the unlikely event that this file has just been created, but the cfs file
                 // has not been created yet.
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                std::thread::sleep(Duration::from_millis(1));
             }
             Some(v) => return Ok(v),
         }
@@ -729,8 +736,94 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
     Err(FileAttrError::TimeoutError)
 }
 
+/// Abstraction over the in-progress download that `serve_growing_file_loop` streams to the client.
+///
+/// Allows the loop be unit-tested with a fake source that simulates a stalled download, without
+/// opening real sockets or files.
+trait GrowingFileSource {
+    fn current_filesize(&mut self) -> io::Result<u64>;
+
+    /// Send the bytes in to the client and return the new total number of bytes sent.
+    fn send(&mut self, filesize: u64, client_received: u64) -> io::Result<u64>;
+}
+
+struct ClientFileSource<'a> {
+    file: File,
+    client_stream: &'a mut TcpStream,
+}
+
+impl GrowingFileSource for ClientFileSource<'_> {
+    fn current_filesize(&mut self) -> io::Result<u64> {
+        Ok(self.file.metadata()?.len())
+    }
+
+    fn send(&mut self, filesize: u64, client_received: u64) -> io::Result<u64> {
+        match send_payload_and_flush(&mut self.file, filesize, client_received as i64, self.client_stream) {
+            Ok(size) => Ok(size as u64),
+            Err(e) => {
+                if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
+                    debug!("Broken Pipe or Connection reset. Connection closed by client?");
+                } else {
+                    error!("Failed to send payload: An unexpected I/O error has occurred: {:?}", e);
+                }
+                Err(e)
+            }
+        }
+    }
+}
+
+const GROWING_FILE_POLL_INTERVAL: Duration = Duration::from_micros(500);
+
+/// Stream a file that is still being downloaded to the client, sending newly arrived bytes as the
+/// file grows.
+fn serve_growing_file_loop<S: GrowingFileSource>(
+    source: &mut S,
+    resume_from: u64,
+    content_length: u64,
+    max_polls_without_progress: u64,
+    mut sleep: impl FnMut(),
+) -> io::Result<()> {
+    let mut client_received = resume_from;
+    let complete_filesize = content_length + resume_from;
+    let mut polls_without_progress: u64 = 0;
+    while client_received < complete_filesize {
+        let filesize = source.current_filesize()?;
+        if filesize > client_received {
+            client_received = source.send(filesize, client_received)?;
+            polls_without_progress = 0;
+        } else {
+            polls_without_progress += 1;
+            if polls_without_progress >= max_polls_without_progress {
+                // This should happen not at all or only in rare circumstances, since we have
+                // configured sensible minimum values for curl's LOW_SPEED_* options. So, if no
+                // progress is made, then curl should drop the connection before we detect the
+                // stalling connection here. But this error branch is still a sensible fallback
+                // to avoid that a regression elsewhere in the code causes this function to run
+                // into an infinite loop.
+                error!(
+                        "Download stalled: file stopped growing at {} of {} bytes",
+                        client_received, complete_filesize,
+                );
+                return Err(io::Error::new(
+                    ErrorKind::TimedOut,
+                    format!(
+                        "Download stalled: file stopped growing at {} of {} bytes",
+                        client_received, complete_filesize,
+                    ),
+                ));
+            }
+        }
+        // Back off before the next poll, unless we already have everything (the loop is about to
+        // exit).
+        if client_received < complete_filesize {
+            sleep();
+        }
+    }
+    Ok(())
+}
+
 fn serve_from_growing_file(
-    mut file: File,
+    file: File,
     content_length: u64,
     resume_from: Option<u64>,
     client_stream: &mut TcpStream,
@@ -742,33 +835,125 @@ fn serve_from_growing_file(
     client_stream.write_all(header.as_bytes())?;
     debug!("Header was sent to the client.");
     let resume_from = resume_from.unwrap_or(0);
-    let mut client_received = resume_from;
-    let complete_filesize = content_length + resume_from;
-    while client_received < complete_filesize {
-        let filesize = file.metadata()?.len();
-        if filesize > client_received {
-            // TODO note that this while loop runs indefinitely if the file stops growing for whatever reason.
-            let result = send_payload_and_flush(&mut file, filesize, client_received as i64, client_stream);
-            match result {
-                Ok(size) => {
-                    client_received = size as u64;
-                }
-                Err(e) => {
-                    if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset {
-                        debug!("Broken Pipe or Connection reset. Connection closed by client?");
-                    } else {
-                        error!("Failed to send payload: An unexpected I/O error has occurred: {:?}", e);
-                    }
-                    return Err(e);
-                }
-            }
+    // Give up serving from the growing file once it has stopped growing for `stall_timeout`. This
+    // bounds the worst case for a stalled download (remote stopped sending, providing thread died)
+    // so the serving thread cannot spin or block forever — see
+    // https://github.com/nroi/flexo/issues/111.
+    let max_polls_without_progress =
+        (GROWING_FILE_STALL_TIMEOUT.as_micros() / GROWING_FILE_POLL_INTERVAL.as_micros()) as u64;
+    let mut source = ClientFileSource { file, client_stream };
+    let result = serve_growing_file_loop(
+        &mut source,
+        resume_from,
+        content_length,
+        max_polls_without_progress,
+        || std::thread::sleep(GROWING_FILE_POLL_INTERVAL),
+    );
+    match result {
+        Ok(()) => {
+            debug!("File completely served from growing file.");
+            Ok(())
         }
-        if client_received < content_length {
-            std::thread::sleep(std::time::Duration::from_micros(500));
+        Err(e) if e.kind() == ErrorKind::TimedOut => {
+            warn!("{}. Aborting transfer to client.", e);
+            Err(e)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod growing_file_tests {
+    use super::*;
+
+    /// A fake `GrowingFileSource` whose backing file never grows past `filesize` — i.e. a download
+    /// that has stalled (the remote stopped sending, or the providing thread died). `cap` bounds the
+    /// number of size polls so a non-terminating loop cannot hang the test; reaching it yields the
+    /// `TEST_CAP` sentinel error so the test can tell "ran into the safety cap" apart from a real exit.
+    struct StalledSource {
+        filesize: u64,
+        size_calls: u64,
+        send_calls: u64,
+        cap: u64,
+    }
+
+    impl StalledSource {
+        fn new(filesize: u64, cap: u64) -> Self {
+            StalledSource { filesize, size_calls: 0, send_calls: 0, cap }
         }
     }
-    debug!("File completely served from growing file.");
-    Ok(())
+
+    impl GrowingFileSource for StalledSource {
+        fn current_filesize(&mut self) -> io::Result<u64> {
+            if self.size_calls >= self.cap {
+                return Err(io::Error::new(ErrorKind::Other, "TEST_CAP"));
+            }
+            self.size_calls += 1;
+            Ok(self.filesize)
+        }
+
+        fn send(&mut self, filesize: u64, _client_received: u64) -> io::Result<u64> {
+            self.send_calls += 1;
+            Ok(filesize)
+        }
+    }
+
+    fn is_test_cap(result: &io::Result<()>) -> bool {
+        matches!(result, Err(e) if e.to_string() == "TEST_CAP")
+    }
+
+    /// Regression test for https://github.com/nroi/flexo/issues/111.
+    ///
+    /// On a range/resume request (`resume_from > 0`) whose download has stalled, the loop must keep
+    /// backing off between polls. The bug: the back-off is gated on `client_received < content_length`,
+    /// but on a resumed request `client_received` starts at `resume_from` which is already >=
+    /// `content_length`, so the loop spins with zero sleep — pegging one core at 100% CPU and flooding
+    /// the kernel with `statx` calls (exactly what the coredumps in the issue show).
+    #[test]
+    fn growing_file_does_not_busy_spin_on_range_request() {
+        // resume_from=900, content_length=100  =>  complete_filesize=1000.
+        // The cache file is stalled at 900 bytes and never grows.
+        // Use an effectively-infinite stall threshold so this test isolates the back-off behavior
+        // (stall termination is covered by the test below); the loop exits via the safety cap.
+        let cap = 1_000;
+        let mut source = StalledSource::new(900, cap);
+        let mut sleep_calls = 0u64;
+
+        let result = serve_growing_file_loop(&mut source, 900, 100, u64::MAX, || sleep_calls += 1);
+
+        // We expect to have exited only because of the test safety cap.
+        assert!(is_test_cap(&result), "unexpected early exit: {:?}", result);
+        // The point of this test: every iteration must back off. A spin is iterations without sleeps.
+        assert_eq!(
+            sleep_calls, source.size_calls,
+            "busy-spin detected: loop polled the file {} times but slept only {} times",
+            source.size_calls, sleep_calls,
+        );
+    }
+
+    /// Regression test for https://github.com/nroi/flexo/issues/111.
+    ///
+    /// When the download stalls (the file stops growing before reaching the promised
+    /// `content_length`), the loop must give up instead of polling the file forever. The bug: the
+    /// loop only exits once `client_received` reaches `complete_filesize`, which never happens for a
+    /// stalled download.
+    #[test]
+    fn growing_file_terminates_when_download_stalls() {
+        // resume_from=0, content_length=1000, but the file stalls at 500 bytes and never grows.
+        let cap = 2_000_000;
+        let max_polls_without_progress = 100;
+        let mut source = StalledSource::new(500, cap);
+
+        let result = serve_growing_file_loop(&mut source, 0, 1000, max_polls_without_progress, || {});
+
+        assert!(
+            source.size_calls < cap,
+            "stalled download was not detected: loop ran into the {}-poll safety cap instead of \
+             terminating (it would spin forever in production)",
+            cap,
+        );
+        assert!(result.is_err(), "a stalled download must not be reported as a successful transfer");
+    }
 }
 
 fn serve_404_header(client_stream: &mut TcpStream) -> io::Result<()> {
@@ -855,7 +1040,7 @@ fn send_payload<T>(source: &mut File, filesize: u64, bytes_sent: i64, receiver: 
             let count = cmp::min(filesize as usize - offset as usize, MAX_SENDFILE_COUNT);
             let size: isize = libc::sendfile64(sfd, fd, &mut offset, count);
             if size == -1 {
-                return Err(std::io::Error::last_os_error());
+                return Err(io::Error::last_os_error());
             }
         }
         offset

@@ -7,6 +7,7 @@ use serde::Deserialize;
 use flexo::Properties;
 use std::time::Duration;
 use regex::Regex;
+use crate::mirror_config::LowSpeedConfiguration::{SensibleMinimumFallback, ConfiguredByUser};
 
 static DEFAULT_JSON_URI: &str = "https://archlinux.org/mirrors/status/json/";
 
@@ -105,7 +106,7 @@ pub struct MirrorConfig {
     pub custom_repo: Option<Vec<CustomRepo>>,
     low_speed_limit: Option<u32>,
     low_speed_limit_formatted: Option<String>,
-    pub low_speed_time_secs: Option<u64>,
+    low_speed_time_secs: Option<u64>,
     pub connect_timeout: Option<u64>,
     pub max_speed_limit: Option<u64>,
     pub num_versions_retain: Option<u32>,
@@ -113,7 +114,7 @@ pub struct MirrorConfig {
 }
 
 impl MirrorConfig {
-    pub fn low_speed_limit(&self) -> Option<u32> {
+    fn low_speed_limit(&self) -> Option<u32> {
         match &self.low_speed_limit_formatted {
             Some(limit) => {
                 match parse_bandwidth(&limit) {
@@ -128,6 +129,34 @@ impl MirrorConfig {
             None => self.low_speed_limit
         }
     }
+
+    pub fn effective_low_speed_limit(&self) -> LowSpeedConfiguration<u32> {
+        match self.low_speed_limit() {
+            None => SensibleMinimumFallback(1),
+            Some(limit) => ConfiguredByUser(limit),
+        }
+    }
+
+    pub fn effective_low_speed_time_secs(&self) -> LowSpeedConfiguration<u64> {
+        match self.low_speed_time_secs {
+            None => SensibleMinimumFallback(5),
+            Some(time_secs) => ConfiguredByUser(time_secs),
+        }
+    }
+}
+
+pub enum LowSpeedConfiguration<T> {
+    ConfiguredByUser(T),
+    /// For curl's LOW_SPEED_* options, we choose sensible minimum values that override what the user
+    /// has (or hasn't) configured, for the following reasons:
+    /// 1. Transparently switching from one remote mirror to another is considered one of Flexo's key
+    ///    features, and not having those settings configured would effectively disable it. It's hard
+    ///    to imagine a scenario where this is actually desired by a user.
+    /// 2. Not waiting indefinitely makes Flexo overall more deterministic, especially due to its
+    ///    architecture with one thread for the client-to-flexo connection and a 2nd thread for the
+    ///    flexo-to-remote-server connection. Because we want to avoid a situation where one thread
+    ///    is stuck waiting for another to make progress.
+    SensibleMinimumFallback(T),
 }
 
 #[derive(Deserialize, Debug, Clone)]
