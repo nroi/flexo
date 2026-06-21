@@ -1,6 +1,11 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:1.64.0-buster as build
+FROM rust:1.86-slim-bookworm as build
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends musl-tools && \
+    rm -rf /var/lib/apt/lists/* && \
+    rustup target add x86_64-unknown-linux-musl
 
 WORKDIR /tmp
 
@@ -12,10 +17,10 @@ RUN tar xf integration-test-client.tar.gz
 
 WORKDIR /tmp/integration-test-client
 
-RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.54.0-buster,source=/usr/local/cargo \
+RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.86-slim-bookworm,source=/usr/local/cargo \
     --mount=type=cache,target=/tmp/integration-test-client/target \
-    cargo build --release && \
-    cp /tmp/integration-test-client/target/release/integration-test-client /tmp/build_output/
+    cargo build --release --target x86_64-unknown-linux-musl && \
+    cp /tmp/integration-test-client/target/x86_64-unknown-linux-musl/release/integration-test-client /tmp/build_output/
 
 FROM archlinux:20200407
 

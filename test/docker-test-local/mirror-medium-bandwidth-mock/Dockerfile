@@ -1,4 +1,4 @@
-FROM nginx:1.17.10
+FROM nginx:1.26
 
 COPY random_small /usr/share/nginx/html/random_small
 
