@@ -384,8 +384,7 @@ impl Job for DownloadJob {
         channel.handle.max_redirections(MAX_REDIRECTIONS).unwrap();
         match channel.progress_indicator() {
             None => {
-                // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
-                info!("No range request will be used, i.e., the entire file will be downloaded")
+                debug!("No range request will be used, i.e., the entire file will be downloaded");
             },
             Some(start) => {
                 info!("Resume download of {} from byte {}", &self.uri, start);
@@ -811,8 +810,7 @@ impl Handler for DownloadState {
             Ok(Status::Complete(_header_size)) => {
                 debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
-                // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
-                info!("HTTP response code for {} is {}", &self.job_state.order.requested_path.to_str(), code);
+                debug!("HTTP response code for {} is {}", &self.job_state.order.requested_path.to_str(), code);
                 if code == 200 || code == 206 {
                     let maybe_content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
@@ -828,8 +826,7 @@ impl Handler for DownloadState {
                         }
                         Some(cl) => cl
                     };
-                    // FIXME this is too noisy: Use log level debug! once #93 has been fixed.
-                    info!("Server replied with content length {} for {}",
+                    debug!("Server replied with content length {} for {}",
                         content_length, self.job_state.order.requested_path.to_str());
                     job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
@@ -893,8 +890,7 @@ fn create_cfs_file(path: &Path, complete_filesize: u64) {
     };
     match cfs_file.write_all(format!("{}\n", complete_filesize).as_bytes()) {
         Ok(_) => {
-            // FIXME this is a little too verbose. Remove this once #93 is solved.
-            info!("Created CFS file: {:?} has size {}", &path, complete_filesize);
+            debug!("Created CFS file: {:?} has size {}", &path, complete_filesize);
         }
         Err(e) => {
             error!("Unable to write to CFS file {:?}: {:?}", &cfs_path, e);
@@ -914,12 +910,10 @@ impl Channel for DownloadChannel {
         let job_resources = self.handle.get_ref().job_state.job_resources.as_ref().unwrap();
         let size_written = job_resources.file_state.size_written;
         if size_written > 0 {
-            // FIXME this is a little too verbose. Remove this once #93 is solved.
-            info!("File size of {} is {}", job_resources.file_state.filename, size_written);
+            debug!("File size of {} is {}", job_resources.file_state.filename, size_written);
             Some(size_written)
         } else {
-            // FIXME this is a little too verbose. Remove this once #93 is solved.
-            info!("File is still empty: {}", job_resources.file_state.filename);
+            debug!("File is still empty: {}", job_resources.file_state.filename);
             None
         }
     }
