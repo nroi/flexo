@@ -657,6 +657,11 @@ impl Order for DownloadOrder {
     ) -> Result<DownloadChannel, <Self::J as Job>::OE> {
         let download_state = DownloadState::new(self, properties, tx, last_chance)?;
         let mut handle = previous_channel.handle;
+        // Reset all libcurl options to their defaults before reusing this handle for a new
+        // download. This is particularly important for HTTP range requests: if the previous
+        // request was a range request, then we certainly don't want to re-use that setting
+        // for the next request.
+        handle.reset();
         handle.get_mut().replace(download_state);
         Ok(DownloadChannel {
             handle
