@@ -281,7 +281,7 @@ fn serve_request(
                 debug!("Job is already in progress");
                 let path = order.filepath(&properties);
                 let complete_filesize: u64 = try_complete_filesize_from_path(&path)?;
-                let content_length = complete_filesize - request.resume_from.unwrap_or(0);
+                let content_length = remaining_content_length(complete_filesize, request.resume_from);
                 let file = File::open(&path)?;
                 serve_from_growing_file(
                     file, content_length, request.resume_from, client_stream,
@@ -292,8 +292,12 @@ fn serve_request(
                 // TODO this branch is also executed when the server returns 404.
                 debug!("Job was scheduled, will serve from growing file");
                 match receive_content_length(rx_progress) {
-                    Ok(ContentLengthResult::ContentLength(content_length)) => {
-                        info!("Content length of path \"{}\" is {}", get_request.path.to_str(), content_length);
+                    Ok(ContentLengthResult::ContentLength(complete_filesize)) => {
+                        info!("Content length of path \"{}\" is {}", get_request.path.to_str(), complete_filesize);
+                        // TODO it's rather confusing the value inside ContentLength is not the actual
+                        //  Content Length that we must send to the client. See also related TODOs
+                        //  regarding the content length terminology.
+                        let content_length = remaining_content_length(complete_filesize, request.resume_from);
                         let file = File::open(order.filepath(&properties))?;
                         serve_from_growing_file(
                             file, content_length, request.resume_from, client_stream,
@@ -734,6 +738,12 @@ fn try_complete_filesize_from_path(path: &Path) -> Result<u64, FileAttrError> {
 
     info!("Number of attempts exceeded: File {:?} not found.", &path);
     Err(FileAttrError::TimeoutError)
+}
+
+/// Number of bytes that still have to be sent to a client, given the complete size of the file and
+/// the offset the client is resuming from.
+fn remaining_content_length(complete_filesize: u64, resume_from: Option<u64>) -> u64 {
+    complete_filesize.saturating_sub(resume_from.unwrap_or(0))
 }
 
 /// Abstraction over the in-progress download that `serve_growing_file_loop` streams to the client.

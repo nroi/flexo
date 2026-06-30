@@ -29,6 +29,17 @@ const RESUME_LEAK_TRIGGER_SIZE: usize = 100;
 // in, the mirror replies 206 and flexo serves a front-truncated file of the wrong size.
 const RESUME_LEAK_VICTIM_REQUEST_PATH: &str = "/resume-leak-victim";
 const RESUME_LEAK_VICTIM_SIZE: usize = 4096;
+
+// A file that is *partially* cached on the flexo server (1.5 MiB of 4 MiB, seeded in
+// flexo-server-fast/start_flexo.sh). Requesting it with a Range start below the cached
+// size takes the "scheduled download served from the growing file" path (not the
+// fully-cached path that flexo_test_download_large_file_cached_resume exercises), which
+// used to overstate Content-Length / the Content-Range total by `resume_from`.
+const SCHEDULED_RESUME_REQUEST_PATH: &str = "/scheduled-resume";
+const SCHEDULED_RESUME_SIZE: usize = 4 * 1024 * 1024;
+// Bytes of SCHEDULED_RESUME_SIZE pre-cached on the flexo server (must stay > the Range start
+// used in the test and < SCHEDULED_RESUME_SIZE; kept in sync with start_flexo.sh).
+const SCHEDULED_RESUME_CACHED_SIZE: usize = 1572864;
 // sha256 of 4096 zero bytes (the full, correct content of the victim file).
 const RESUME_LEAK_VICTIM_SHA: &str =
     "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7";
@@ -97,6 +108,10 @@ fn main() {
         FlexoTest {
             description: "flexo_test_download_large_file_cached_resume",
             action: flexo_test_download_large_file_cached_resume,
+        },
+        FlexoTest {
+            description: "flexo_test_scheduled_resume_content_length",
+            action: flexo_test_scheduled_resume_content_length,
         },
         FlexoTest {
             description: "flexo_test_mirror_stalling",
@@ -427,6 +442,55 @@ fn flexo_test_download_large_file_cached_resume(_path_generator: &mut PathGenera
     assert_eq!(result.header_result.status_code, 206);
     assert_eq!(result.payload_result.as_ref().unwrap().size, remaining_size);
     assert_eq!(result.header_result.content_length, remaining_size);
+}
+
+/// Regression test for the "end of response with N bytes missing" bug.
+///
+/// When a client resumes a download (`Range: bytes=X-`) for a file that flexo has only
+/// *partially* cached, the request is *scheduled*: flexo fetches the remaining bytes from the
+/// mirror and streams the file to the client out of the growing cache file. That branch used
+/// to pass the *complete* file size to the response instead of the remaining tail, overstating
+/// both Content-Length and the Content-Range total by `resume_from`. The client then ended up
+/// exactly `resume_from` bytes short ("end of response with X bytes missing") and the serve
+/// loop stalled waiting for bytes that never arrive.
+///
+/// `/scheduled-resume` is pre-seeded as a partial cache file (see start_flexo.sh). This is the
+/// distinguishing condition vs. flexo_test_download_large_file_cached_resume (fully cached →
+/// served from the complete file) and vs. a fully-uncached file (which a range request would
+/// redirect instead, per issue #7). The Range start must sit below the cached size so the
+/// request is neither redirected nor served straight from cache.
+fn flexo_test_scheduled_resume_content_length(_path_generator: &mut PathGenerator, testcase: &'static str) {
+    let start_byte = 1024 * 1024;
+    assert!(start_byte < SCHEDULED_RESUME_CACHED_SIZE, "Range start must be below the cached size");
+    let remaining_size = SCHEDULED_RESUME_SIZE - start_byte;
+    let header = format!("GET {} HTTP/1.1\r\nHost: {}\r\nRange: bytes={}-{}",
+                         SCHEDULED_RESUME_REQUEST_PATH, "flexo-server-fast", start_byte, HEADER_SEPARATOR_STR);
+    let get_requests = vec![
+        GetRequest {
+            path: SCHEDULED_RESUME_REQUEST_PATH.to_owned(),
+            client_header: Custom(header),
+        }
+    ];
+    let request_test = GetRequestTest {
+        conn_addr: ConnAddr {
+            host: "flexo-server-fast".to_owned(),
+            port: DEFAULT_PORT,
+        },
+        get_requests,
+        // With the bug the response stalls (it promises more bytes than the file holds), so a
+        // generous timeout keeps the failure mode as a clear timeout rather than a flaky hang.
+        timeout: Some(Duration::from_millis(60_000)),
+    };
+    // With the bug, flexo over-advertises Content-Length and never finishes sending, so
+    // http_get times out and returns None — unwrap() then fails the test, which is what we want.
+    let results = http_get(request_test, testcase).unwrap();
+    assert_eq!(results.len(), 1);
+    let result = results.get(0).unwrap();
+    assert_eq!(result.header_result.status_code, 206);
+    // The crux: Content-Length must be the remaining tail (complete size minus resume offset),
+    // not the complete size, and the body actually delivered must match it.
+    assert_eq!(result.header_result.content_length, remaining_size);
+    assert_eq!(result.payload_result.as_ref().unwrap().size, remaining_size);
 }
 
 fn receive_first<T>(receivers: Vec<Receiver<T>>) -> usize  {

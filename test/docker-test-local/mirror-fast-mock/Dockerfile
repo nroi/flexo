@@ -18,5 +18,11 @@ RUN truncate -s 100 /usr/share/nginx/html/partially-cached-leak
 
 RUN truncate -s 4096 /usr/share/nginx/html/resume-leak-victim
 
+# File used by flexo_test_scheduled_resume_content_length. It is never pre-cached on the
+# flexo server, so requesting it with a `Range: bytes=X-` header forces the "freshly
+# scheduled download served from the growing file" code path while the client resumes from
+# a non-zero offset — the path that used to overstate Content-Length by `resume_from`.
+RUN truncate -s 4194304 /usr/share/nginx/html/scheduled-resume
+
 COPY create_test_files /root
 RUN /root/create_test_files
