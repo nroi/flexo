@@ -27,4 +27,13 @@ echo '100' > /tmp/var/cache/flexo/pkg/.partially-cached.cfs
 truncate -s 50 /tmp/var/cache/flexo/pkg/partially-cached-leak
 echo '100' > /tmp/var/cache/flexo/pkg/.partially-cached-leak.cfs
 
+# Partial cache for flexo_test_scheduled_resume_content_length. The file is cached partially
+# (1.5 MiB of 4 MiB) so a request with Range start 1 MiB (< the 1.5 MiB cached) takes the
+# "scheduled download served from the growing file" path: flexo fetches the rest from the
+# mirror and streams it to the client. This is the path that used to overstate Content-Length
+# (and the Content-Range total) by the client's resume offset. A fully-uncached file with a
+# range request would instead be redirected (see issue #7), bypassing this path.
+truncate -s 1572864 /tmp/var/cache/flexo/pkg/scheduled-resume
+echo '4194304' > /tmp/var/cache/flexo/pkg/.scheduled-resume.cfs
+
 exec /usr/bin/flexo
