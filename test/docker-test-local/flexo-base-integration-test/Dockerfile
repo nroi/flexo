@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:1.86-slim-bookworm as build
+FROM rust:1.96-slim-bookworm as build
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev && \
@@ -16,7 +16,7 @@ RUN tar xf flexo.tar.gz
 
 WORKDIR /tmp/flexo
 
-RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.86-slim-bookworm,source=/usr/local/cargo \
+RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.96-slim-bookworm,source=/usr/local/cargo \
     --mount=type=cache,target=/tmp/flexo/target \
     cargo build --release && \
     cp /tmp/flexo/target/release/flexo /tmp/build_output/

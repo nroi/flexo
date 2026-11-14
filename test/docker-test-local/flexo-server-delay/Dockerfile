@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:1.86-slim-bookworm as build
+FROM rust:1.96-slim-bookworm as build
 
 WORKDIR /tmp
 
@@ -12,7 +12,7 @@ RUN tar xf tcp-proxy-delay.tar.gz
 
 WORKDIR /tmp/tcp-proxy-delay
 
-RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.86-slim-bookworm,source=/usr/local/cargo \
+RUN --mount=type=cache,target=/usr/local/cargo,from=rust:1.96-slim-bookworm,source=/usr/local/cargo \
     --mount=type=cache,target=/tmp/tcp-proxy-delay/target \
     cargo build --release && \
     cp /tmp/tcp-proxy-delay/target/release/tcp-proxy-delay /tmp/build_output/
