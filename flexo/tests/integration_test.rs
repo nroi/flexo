@@ -536,6 +536,8 @@ fn order_skipped_if_already_in_progress() {
     match job_context.try_schedule(order, None, None) {
         ScheduleOutcome::AlreadyInProgress =>
             {}
+        ScheduleOutcome::AwaitingCompletion(_) =>
+            panic!("{}", EXPECT_SKIPPED),
         ScheduleOutcome::Scheduled(_) =>
             panic!("{}", EXPECT_SKIPPED),
         ScheduleOutcome::Cached =>
