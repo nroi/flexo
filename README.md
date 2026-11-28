@@ -220,9 +220,22 @@ are not fast, please open an issue. You can determine the primary mirror chosen 
 journalctl --since '7 days ago' --unit=flexo | grep 'Primary mirror'
 ```
 
-## Development
+### AI Contribution Guidelines
+
+If you create a PR with the help of AI (e.g. Claude Code or Codex), make sure your PR meets the following checkboxes:
+
+- [ ] You understand **every single line of code**.
+- [ ] You understand which design decisions were made for which reasons.
+- [ ] You have explored your code yourself not just by reading it, but by truly exploring it, e.g. by clicking through
+  it during a debugger session or by running Flexo and verifying the code does what it intends to do.
+- [ ] You wrote every code comment yourself (AI has horrible judgment skills when it comes to writing code comments).
+- [ ] You wrote every other prose text yourself (i.e., text written in English in git commit messages, PR summaries
+  etc.).
+
+For non-trivial PRs, this requires time, effort, and knowledge of the Rust language.
+If you don't have that or don't want to invest it, please refrain from opening PRs.
+
+### Development
 
 Details about design decisions, and the terminology used in the code,
 are described [here](flexo/terminology.md).
-
-Before submitting a PR, please run `cargo test` inside the `flexo` directory to make sure that all tests pass.
