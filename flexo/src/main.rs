@@ -288,10 +288,9 @@ fn serve_request(
                 )?;
                 Ok(PayloadOrigin::RemoteMirror)
             }
-            ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. }) => {
-                // TODO this branch is also executed when the server returns 404.
-                debug!("Job was scheduled, will serve from growing file");
-                match receive_content_length(rx_progress) {
+            ScheduleOutcome::Scheduled(ScheduledItem { rx_progress, .. })
+            | ScheduleOutcome::AwaitingCompletion(rx_progress) => {
+                match receive_content_length(rx_progress, order.wait_for_completion()) {
                     Ok(ContentLengthResult::ContentLength(complete_filesize)) => {
                         info!("Content length of path \"{}\" is {}", get_request.path.to_str(), complete_filesize);
                         // TODO it's rather confusing the value inside ContentLength is not the actual
@@ -304,8 +303,8 @@ fn serve_request(
                         )?;
                         Ok(PayloadOrigin::RemoteMirror)
                     }
-                    Ok(ContentLengthResult::AlreadyCached) => {
-                        debug!("File is already available in cache.");
+                    Ok(ContentLengthResult::CompleteFile) => {
+                        debug!("Complete file is available in cache.");
                         let file = File::open(order.filepath(&properties))?;
                         serve_from_complete_file(file, request.resume_from, client_stream)?;
                         Ok(PayloadOrigin::Cache)
@@ -694,29 +693,26 @@ enum ContentLengthError {
 
 enum ContentLengthResult {
     ContentLength(u64),
-    AlreadyCached,
+    CompleteFile,
 }
 
-fn receive_content_length(rx: Receiver<FlexoProgress>) -> Result<ContentLengthResult, ContentLengthError> {
-    loop {
-        match rx.recv_timeout(TIMEOUT_RECEIVE_CONTENT_LENGTH) {
-            Ok(FlexoProgress::JobSize(content_length)) => {
-                break Ok(ContentLengthResult::ContentLength(content_length));
-            }
-            Ok(FlexoProgress::Completed) => {
-                break Ok(ContentLengthResult::AlreadyCached);
-            }
-            Ok(FlexoProgress::Unavailable) => {
-                break Err(ContentLengthError::Unavailable);
-            }
-            Ok(FlexoProgress::OrderError) => {
-                break Err(ContentLengthError::OrderError);
-            }
-            Ok(msg) => {
-                panic!("Unexpected message: {:?}", msg);
-            }
-            Err(e) => break Err(ContentLengthError::TransmissionError(e)),
-        }
+fn receive_content_length(
+    rx: Receiver<FlexoProgress>,
+    wait_for_completion: bool,
+) -> Result<ContentLengthResult, ContentLengthError> {
+    // Database refreshes notify clients after the full transfer, so the header timeout doesn't apply.
+    let progress = if wait_for_completion {
+        rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
+    } else {
+        rx.recv_timeout(TIMEOUT_RECEIVE_CONTENT_LENGTH)
+    };
+    match progress {
+        Ok(FlexoProgress::JobSize(content_length)) => Ok(ContentLengthResult::ContentLength(content_length)),
+        Ok(FlexoProgress::Completed) => Ok(ContentLengthResult::CompleteFile),
+        Ok(FlexoProgress::Unavailable) => Err(ContentLengthError::Unavailable),
+        Ok(FlexoProgress::OrderError) => Err(ContentLengthError::OrderError),
+        Ok(msg) => panic!("Unexpected message: {:?}", msg),
+        Err(e) => Err(ContentLengthError::TransmissionError(e)),
     }
 }
 

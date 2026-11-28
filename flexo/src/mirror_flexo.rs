@@ -9,13 +9,14 @@ use std::io::{ErrorKind, Read, Write};
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::os::unix::ffi::OsStrExt;
 
 use crossbeam::channel::Sender;
-use curl::easy::{Easy2, Handler, HttpVersion, WriteError};
+use curl::easy::{Easy2, Handler, HttpVersion, List, WriteError};
 use httparse::{Header, Status};
 use serde::{Deserialize, Serialize};
+use tempfile::TempPath;
 use walkdir::WalkDir;
 
 use flexo::*;
@@ -49,6 +50,7 @@ const LATENCY_TEST_NUM_ATTEMPTS: u32 = 5;
 pub const UNCACHEABLE_DIRECTORY: &str = "/tmp/flexo/uncacheable";
 
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_millis(3000);
+const DATABASE_RETRY_WINDOW: Duration = Duration::from_secs(4);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -338,6 +340,9 @@ impl Job for DownloadJob {
     // TODO find a better function name than "cache_state": This function does not only return something,
     // it also has side effects.
     fn cache_state(order: &Self::O, properties: &Self::PR) -> Option<CachedItem> {
+        if order.requires_revalidation() {
+            return None;
+        }
         persist_and_get_cache_state(&order.filepath(properties))
     }
 
@@ -382,6 +387,14 @@ impl Job for DownloadJob {
         }
         channel.handle.follow_location(true).unwrap();
         channel.handle.max_redirections(MAX_REDIRECTIONS).unwrap();
+        let if_modified_since = channel.if_modified_since();
+        if let Some(last_modified) = if_modified_since {
+            let mut headers = List::new();
+            let header = format!("If-Modified-Since: {}", httpdate::fmt_http_date(last_modified));
+            debug!("Send conditional request header to remote mirror: {}", header);
+            headers.append(&header).unwrap();
+            channel.handle.http_headers(headers).unwrap();
+        }
         match channel.progress_indicator() {
             None => {
                 debug!("No range request will be used, i.e., the entire file will be downloaded");
@@ -397,9 +410,19 @@ impl Job for DownloadJob {
                 let response_code = channel.handle.response_code().unwrap();
                 debug!("Download completed: {} replied with status code {}.",
                     self.provider.identifier(), response_code);
-                if (200..300).contains(&response_code) {
-                    let size = channel.progress_indicator().unwrap();
+                if response_code == 200 && self.order.requires_revalidation() {
+                    match channel.publish_database() {
+                        Ok(size) => JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64)),
+                        Err(e) => {
+                            error!("Unable to publish refreshed database {}: {:?}", self.order.description(), e);
+                            JobResult::UnexpectedInternalError
+                        }
+                    }
+                } else if (200..300).contains(&response_code) && !self.order.requires_revalidation() {
+                    let size = channel.progress_indicator().unwrap_or(0);
                     JobResult::Complete(JobCompleted::new(channel, self.provider, size as i64))
+                } else if response_code == 304 && if_modified_since.is_some() {
+                    JobResult::Complete(JobCompleted::new(channel, self.provider, 0))
                 } else if response_code == 404 {
                     JobResult::Unavailable(channel)
                 } else {
@@ -454,19 +477,25 @@ impl Job for DownloadJob {
     ) -> std::io::Result<DownloadJobResources> {
         let path = order.filepath(&properties);
         debug!("Attempt to create file: {:?}", &path);
-        fs_utils::create_dir_unless_exists(path.parent().unwrap());
-        let f = match OpenOptions::new().create(true).append(true).open(&path) {
-            Ok(f) => f,
-            Err(e) => {
-                warn!("Unable to create file {:?}: {:?}", &path, e);
-                return Err(e);
-            }
+        let parent = path.parent().unwrap();
+        fs_utils::create_dir_unless_exists(parent);
+        let (file, temp_path, if_modified_since) = if order.requires_revalidation() {
+            // A temporary file beside the destination can replace it atomically.
+            let (file, temp_path) = tempfile::Builder::new()
+                .prefix(".flexo-db-")
+                .tempfile_in(parent)?
+                .into_parts();
+            (file, Some(temp_path), cached_database_modified_time(&path))
+        } else {
+            let file = OpenOptions::new().create(true).append(true).open(&path)?;
+            (file, None, None)
         };
-        let size_written = f.metadata()?.len();
-        let buf_writer = BufWriter::new(f);
+        let size_written = file.metadata()?.len();
+        let buf_writer = BufWriter::new(file);
         let header_state = HeaderState {
             received_header: vec![],
             header_success: None,
+            remote_last_modified: None,
         };
         let filename = path.file_name().unwrap().to_str().unwrap().to_owned();
         let file_state = FileState  {
@@ -478,9 +507,26 @@ impl Job for DownloadJob {
             file_state,
             header_state,
             last_chance,
+            if_modified_since,
+            temp_path,
         };
         Ok(download_job_resources)
     }
+}
+
+fn cached_database_modified_time(path: &Path) -> Option<SystemTime> {
+    let metadata = path.metadata().ok()?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return None;
+    }
+    // Older Flexo builds could leave a partially downloaded database beside a size file.
+    if let Some(expected_size) = get_complete_size_from_cfs_file(path) {
+        if expected_size != metadata.len() {
+            return None;
+        }
+    }
+    // An epoch timestamp marks responses that supplied no usable Last-Modified value.
+    metadata.modified().ok().filter(|modified| *modified > UNIX_EPOCH)
 }
 
 pub fn inspect_and_initialize_cache(mirror_config: &MirrorConfig) {
@@ -611,24 +657,23 @@ pub enum Cacheability {
 
 impl DownloadOrder {
     pub fn new(requested_path: StrPath) -> Self {
-        if DownloadOrder::is_cacheable_path(&requested_path) {
-            Self {
-                requested_path,
-                cacheability: Cacheability::Cacheable,
-            }
-        } else {
-            Self {
-                requested_path,
-                cacheability: Cacheability::NonCacheable(Uuid::new_v4())
-            }
+        Self {
+            cacheability: if Self::is_database_signature(&requested_path) {
+                Cacheability::NonCacheable(Uuid::new_v4())
+            } else {
+                Cacheability::Cacheable
+            },
+            requested_path,
         }
     }
 
-    fn is_cacheable_path(path: &StrPath) -> bool {
-        !(path.to_str().ends_with(".db") ||
-            path.to_str().ends_with(".db.sig") ||
-            path.to_str().ends_with(".files") ||
-            path.to_str().ends_with(".files.sig"))
+    fn is_database_signature(path: &StrPath) -> bool {
+        path.to_str().ends_with(".db.sig") || path.to_str().ends_with(".files.sig")
+    }
+
+    fn requires_revalidation(&self) -> bool {
+        self.requested_path.to_str().ends_with(".db") ||
+            self.requested_path.to_str().ends_with(".files")
     }
 }
 
@@ -674,6 +719,18 @@ impl Order for DownloadOrder {
         }
     }
 
+    fn use_cacheable_provider_selection(&self) -> bool {
+        self.is_cacheable() && !self.requires_revalidation()
+    }
+
+    fn wait_for_completion(&self) -> bool {
+        self.requires_revalidation()
+    }
+
+    fn retry_window(&self) -> Option<Duration> {
+        self.requires_revalidation().then_some(DATABASE_RETRY_WINDOW)
+    }
+
     fn retryable(&self) -> bool {
         // As of now (2021-06-05), pacman attempts to fetch files ending with .db.sig from the remote
         // mirrors, but the remote mirrors don't have those files available, because signatures for
@@ -683,8 +740,7 @@ impl Order for DownloadOrder {
         // behavior because no mirror has those files, so Flexo would cause a small latency for the client
         // while it attempts to fetch the signature file from the various remote mirrors.
         // For this reason, we choose to not do any retries for all files ending with .db.sig.
-        !(self.requested_path.to_str().ends_with(".db.sig") ||
-          self.requested_path.to_str().ends_with(".files.sig"))
+        !Self::is_database_signature(&self.requested_path)
     }
 
     fn description(&self) -> &str {
@@ -721,18 +777,23 @@ pub struct DownloadJobResources {
     file_state: FileState,
     header_state: HeaderState,
     last_chance: bool,
+    if_modified_since: Option<SystemTime>,
+    temp_path: Option<TempPath>,
 }
 
 #[derive(Debug)]
 pub struct HeaderState {
     received_header: Vec<u8>,
     header_success: Option<HeaderOutcome>,
+    remote_last_modified: Option<SystemTime>,
 }
 
 #[derive(Debug)]
 enum HeaderOutcome {
     /// Header was read successfully and we're ready to write the payload to the local file system.
     Ok(u64),
+    /// Server returned 304, so the locally cached file is still current.
+    Cached,
     /// Server has returned 404.
     Unavailable,
 }
@@ -766,9 +827,14 @@ impl DownloadState {
 
 impl Handler for DownloadState {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
+        let revalidating = self.job_state.order.requires_revalidation();
         let job_resources = self.job_state.job_resources.as_mut().unwrap();
         match job_resources.header_state.header_success {
             Some(HeaderOutcome::Ok(_content_length)) => {},
+            Some(HeaderOutcome::Cached) => {
+                debug!("Cached file is up to date - return without writing anything.");
+                return Ok(data.len());
+            },
             Some(HeaderOutcome::Unavailable) => {
                 // If the header says the file is not available, we return early without writing anything to
                 // the file on disk. The content returned is just the HTML code saying the file is not available,
@@ -783,21 +849,24 @@ impl Handler for DownloadState {
         if job_resources.file_state.size_written == 0 {
             debug!("Begin to transfer body to file {}", self.job_state.order.requested_path.to_str());
         }
-        job_resources.file_state.size_written += data.len() as u64;
         match job_resources.file_state.buf_writer.write_all(data) {
             Ok(()) => {
-                let len = job_resources.file_state.buf_writer.get_ref().metadata().unwrap().len();
-                let _result = self.job_state.tx.send(FlexoProgress::Progress(len));
+                job_resources.file_state.size_written += data.len() as u64;
+                if !revalidating {
+                    let len = job_resources.file_state.buf_writer.get_ref().metadata().unwrap().len();
+                    let _ = self.job_state.tx.send(FlexoProgress::Progress(len));
+                }
                 Ok(data.len())
             },
             Err(e) => {
                 error!("Error while writing data: {:?}", e);
-                Err(WriteError::Pause)
+                if revalidating { Ok(0) } else { Err(WriteError::Pause) }
             }
         }
     }
 
     fn header(&mut self, data: &[u8]) -> bool {
+        let revalidating = self.job_state.order.requires_revalidation();
         let job_resources = self.job_state.job_resources.as_mut().unwrap();
         job_resources.header_state.received_header.extend(data);
 
@@ -811,6 +880,10 @@ impl Handler for DownloadState {
                 debug!("Received complete header from remote mirror");
                 let code = req.code.unwrap();
                 debug!("HTTP response code for {} is {}", &self.job_state.order.requested_path.to_str(), code);
+                if revalidating && (code == 206 || code == 416) {
+                    warn!("Unexpected range response to a full database request: {}", code);
+                    return false;
+                }
                 if code == 200 || code == 206 {
                     let maybe_content_length = req.headers.iter().find_map(|header|
                         if header.name.eq_ignore_ascii_case("content-length") {
@@ -829,6 +902,17 @@ impl Handler for DownloadState {
                     debug!("Server replied with content length {} for {}",
                         content_length, self.job_state.order.requested_path.to_str());
                     job_resources.header_state.header_success = Some(HeaderOutcome::Ok(content_length));
+                    if revalidating {
+                        if content_length == 0 {
+                            warn!("Remote mirror returned an empty database.");
+                            return false;
+                        }
+                        job_resources.header_state.remote_last_modified = req.headers.iter()
+                            .find(|header| header.name.eq_ignore_ascii_case("last-modified"))
+                            .and_then(|header| str::from_utf8(header.value).ok())
+                            .and_then(|value| httpdate::parse_http_date(value).ok());
+                        return true;
+                    }
                     // TODO it may be safer to obtain the size_written from the job_state, i.e., add a new item to
                     // the job state that stores the size the job should be started with. With the current
                     // implementation, we assume that the header method is always called before anything is written to
@@ -844,25 +928,28 @@ impl Handler for DownloadState {
                     }
                     debug!("Sending content length: {}", client_content_length);
                     let _ = self.job_state.tx.send(FlexoProgress::JobSize(client_content_length));
-                }  else if code == 416 {
+                } else if code == 304 {
+                    if job_resources.if_modified_since.is_none() {
+                        warn!("Remote mirror returned 304 without a conditional database request.");
+                        return false;
+                    }
+                    debug!("Remote mirror reported that cached file is still current.");
+                    job_resources.header_state.header_success = Some(HeaderOutcome::Cached);
+                } else if code == 416 {
                     // If the requested file was already cached, but we don't know if the cached file has been
                     // downloaded completely or only partially, we send the Content-Range header in order to not
                     // download anything we already have available in cache.
                     // If the server responds with 416, we assume that the cached file was already complete.
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
                     let _ = self.job_state.tx.send(FlexoProgress::Completed);
-                } else if (300..400).contains(&code) {
-                    debug!("Server sent a redirect: Waiting for next header.");
-                    // Remove the header data we have received so far: We don't care about the redirect header,
-                    // we're still waiting for the final header we receive after all redirects are finished.
+                } else if (100..200).contains(&code) || (300..400).contains(&code) {
+                    debug!("Received an interim response or redirect, waiting for the final header.");
                     job_resources.header_state.received_header.clear();
-                } else if !job_resources.last_chance {
-                    debug!("Sending HeaderOutcome::Unavailable");
+                } else {
                     job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                } else if job_resources.last_chance {
-                    debug!("Sending HeaderOutcome::Unavailable and FlexoProgress::Unavailable");
-                    job_resources.header_state.header_success = Some(HeaderOutcome::Unavailable);
-                    let _ = self.job_state.tx.send(FlexoProgress::Unavailable);
+                    if job_resources.last_chance && !revalidating {
+                        let _ = self.job_state.tx.send(FlexoProgress::Unavailable);
+                    }
                 }
             }
             Ok(Status::Partial) => {
@@ -901,6 +988,35 @@ fn create_cfs_file(path: &Path, complete_filesize: u64) {
 #[derive(Debug)]
 pub struct DownloadChannel {
     handle: Easy2<DownloadState>,
+}
+
+impl DownloadChannel {
+    fn if_modified_since(&self) -> Option<SystemTime> {
+        self.handle.get_ref().job_state.job_resources.as_ref().unwrap().if_modified_since
+    }
+
+    fn publish_database(&mut self) -> std::io::Result<u64> {
+        let state = self.handle.get_mut();
+        let job_resources = state.job_state.job_resources.as_mut().unwrap();
+        let file = &mut job_resources.file_state;
+        let size = file.size_written;
+        if !matches!(job_resources.header_state.header_success, Some(HeaderOutcome::Ok(expected)) if expected == size) {
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "incomplete database download"));
+        }
+        file.buf_writer.flush()?;
+        let timestamp = job_resources.header_state.remote_last_modified.unwrap_or(UNIX_EPOCH);
+        file.buf_writer.get_ref().set_modified(timestamp)?;
+        let path = state.job_state.order.filepath(&state.properties);
+        job_resources.temp_path.take().unwrap().persist(&path)?;
+        if let Some(size_path) = cfs_path_from_pkg_path(&path) {
+            if let Err(e) = fs::remove_file(&size_path) {
+                if e.kind() != ErrorKind::NotFound {
+                    warn!("Unable to remove obsolete database size file {:?}: {:?}", size_path, e);
+                }
+            }
+        }
+        Ok(size)
+    }
 }
 
 impl Channel for DownloadChannel {
@@ -1139,6 +1255,7 @@ pub fn size_to_human_readable(size_in_bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use std::io::Error;
+    use std::net::TcpListener;
 
     use super::*;
 
@@ -1184,6 +1301,177 @@ mod tests {
         let mut stream = TooMuchDataReader {};
         let result = read_client_header(&mut stream);
         assert_eq!(result, Err(ClientError::BufferSizeExceeded));
+    }
+
+    #[test]
+    fn test_database_paths_are_cacheable_but_revalidated() {
+        let db_order = DownloadOrder::new(StrPath::new("core/os/x86_64/core.db".to_owned()));
+        assert!(db_order.is_cacheable());
+        assert!(db_order.requires_revalidation());
+        assert!(!db_order.use_cacheable_provider_selection());
+
+        let files_order = DownloadOrder::new(StrPath::new("core/os/x86_64/core.files".to_owned()));
+        assert!(files_order.is_cacheable());
+        assert!(files_order.requires_revalidation());
+        assert!(!files_order.use_cacheable_provider_selection());
+
+        let db_sig_order = DownloadOrder::new(StrPath::new("core/os/x86_64/core.db.sig".to_owned()));
+        assert!(!db_sig_order.is_cacheable());
+        assert!(!db_sig_order.requires_revalidation());
+
+        let files_sig_order = DownloadOrder::new(StrPath::new("core/os/x86_64/core.files.sig".to_owned()));
+        assert!(!files_sig_order.is_cacheable());
+        assert!(!files_sig_order.requires_revalidation());
+    }
+
+    fn database_fixture(root: &Path) -> (MirrorConfig, DownloadOrder, PathBuf) {
+        let cache_directory = root.join("pkg");
+        let properties = toml::from_str(&format!("\
+            cache_directory = {:?}\n\
+            mirrorlist_fallback_file = {:?}\n\
+            port = 7878\n\
+            low_speed_time_secs = 10\n\
+            mirror_selection_method = \"predefined\"\n\
+            mirrors_predefined = [\"http://example.invalid\"]\n",
+            cache_directory.to_str().unwrap(),
+            root.join("mirrorlist").to_str().unwrap(),
+        )).unwrap();
+        let order = DownloadOrder::new(StrPath::new("core/os/x86_64/core.db".to_owned()));
+        let path = order.filepath(&properties);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        (properties, order, path)
+    }
+
+    fn mock_mirror(listener: &TcpListener, latency: Duration) -> DownloadProvider {
+        let uri = format!("http://{}", listener.local_addr().unwrap());
+        DownloadProvider {
+            name: uri.clone(),
+            uri,
+            mirror_results: MirrorResults { total_time: latency, ..MirrorResults::default() },
+            country_code: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_database_rejects_304_without_a_validator() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let (properties, order, path) = database_fixture(tempdir.path());
+        let (tx, _) = crossbeam::channel::unbounded();
+        let mut channel = order.new_channel(properties, tx, false).unwrap();
+        assert_eq!(channel.if_modified_since(), None);
+        assert!(!channel.handle.get_mut().header(b"HTTP/1.1 304 Not Modified\r\n\r\n"));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_database_refresh_keeps_old_file_until_publish_and_shares_completion() {
+        use std::io::{BufRead, BufReader};
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let (properties, order, path) = database_fixture(tempdir.path());
+        fs::write(&path, b"original").unwrap();
+        // An obsolete size file makes this database ineligible for a conditional request.
+        create_cfs_file(&path, 42);
+        assert!(DownloadJob::cache_state(&order, &properties).is_none());
+        assert_eq!(cached_database_modified_time(&path), None);
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let provider = mock_mirror(&listener, Duration::ZERO);
+        let mut jobs = JobContext::<DownloadJob>::new(vec![provider], properties);
+        let (requests, rx_requests) = crossbeam::channel::unbounded();
+        let (reply, rx_reply) = crossbeam::channel::unbounded::<&[u8]>();
+        let timeout = Duration::from_secs(5);
+        let mirror = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let (stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(timeout)).unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut headers = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    assert!(reader.read_line(&mut line).unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    headers.push(line);
+                }
+                requests.send(headers).unwrap();
+                reader.get_mut().write_all(rx_reply.recv_timeout(timeout).unwrap()).unwrap();
+            }
+        });
+
+        let ScheduleOutcome::Scheduled(first) = jobs.try_schedule(order.clone(), None, None) else {
+            panic!("expected the database download to be scheduled");
+        };
+        let request = rx_requests.recv_timeout(timeout).unwrap().concat().to_ascii_lowercase();
+        assert!(!request.contains("if-modified-since:"));
+        let ScheduleOutcome::AwaitingCompletion(second) = jobs.try_schedule(order.clone(), None, None) else {
+            panic!("expected the second request to join the database download");
+        };
+        let mut old_file = File::open(&path).unwrap();
+        assert!(first.rx_progress.is_empty());
+        assert!(second.is_empty());
+        reply.send(b"HTTP/1.1 200 OK\r\n\
+                     Content-Length: 7\r\n\
+                     Last-Modified: Thu, 06 Apr 2023 20:00:18 GMT\r\n\
+                     Connection: close\r\n\r\nupdated").unwrap();
+        assert_eq!(first.rx_progress.recv_timeout(timeout).unwrap(), FlexoProgress::Completed);
+        assert_eq!(second.recv_timeout(timeout).unwrap(), FlexoProgress::Completed);
+        first.join_handle.join().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"updated");
+        assert!(!cfs_path_from_pkg_path(&path).unwrap().exists());
+        let mut old_contents = Vec::new();
+        old_file.read_to_end(&mut old_contents).unwrap();
+        assert_eq!(old_contents, b"original");
+
+        let ScheduleOutcome::Scheduled(refresh) = jobs.try_schedule(order.clone(), None, None) else {
+            panic!("expected the cached database to be revalidated");
+        };
+        let request = rx_requests.recv_timeout(timeout).unwrap().concat().to_ascii_lowercase();
+        assert!(request.contains("if-modified-since: thu, 06 apr 2023 20:00:18 gmt\r\n"));
+        assert!(!request.contains("\r\nrange:"));
+        reply.send(b"HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n").unwrap();
+        assert_eq!(refresh.rx_progress.recv_timeout(timeout).unwrap(), FlexoProgress::Completed);
+        refresh.join_handle.join().unwrap();
+
+        let ScheduleOutcome::Scheduled(refresh) = jobs.try_schedule(order, None, None) else {
+            panic!("expected another database refresh");
+        };
+        rx_requests.recv_timeout(timeout).unwrap();
+        reply.send(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\ntruncated").unwrap();
+        assert!(matches!(refresh.join_handle.join().unwrap(), JobOutcome::Error(_)));
+        assert_eq!(refresh.rx_progress.try_recv(), Err(crossbeam::channel::TryRecvError::Disconnected));
+        assert_eq!(fs::read(&path).unwrap(), b"updated");
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        mirror.join().unwrap();
+    }
+
+    #[test]
+    fn test_database_refresh_stops_retrying_when_window_expires() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let (properties, order, _) = database_fixture(tempdir.path());
+        let first_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let backup_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let first = mock_mirror(&first_listener, Duration::ZERO);
+        let backup = mock_mirror(&backup_listener, Duration::from_millis(1));
+        let backup_id = backup.identifier();
+        let mut jobs = JobContext::<DownloadJob>::new(vec![first, backup], properties);
+
+        let mirror = std::thread::spawn(move || {
+            let (mut stream, _) = first_listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            assert!(matches!(read_client_header(&mut stream).unwrap(), ClientResponse::Request(_)));
+            std::thread::sleep(DATABASE_RETRY_WINDOW);
+            stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let ScheduleOutcome::Scheduled(refresh) = jobs.try_schedule(order, None, None) else {
+            panic!("expected a database refresh");
+        };
+        let progress = refresh.rx_progress.recv_timeout(DATABASE_RETRY_WINDOW + Duration::from_secs(3));
+        assert_eq!(progress.unwrap(), FlexoProgress::Unavailable);
+        refresh.join_handle.join().unwrap();
+        mirror.join().unwrap();
+        assert!(!jobs.provider_metrics().contains_key(&backup_id));
     }
 
     #[test]

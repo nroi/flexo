@@ -15,10 +15,6 @@ use std::fmt::{Display, Formatter};
 
 const NUM_MAX_ATTEMPTS: i32 = 25;
 
-// It's important that this value is lower than the TIMEOUT_RECEIVE_CONTENT_LENGTH value:
-// Otherwise, if we keep doing our retries for too long, the other thread stops waiting.
-const TIMEOUT_ALL_RETRIES: Duration = Duration::from_secs(4);
-
 pub const LOGICAL_CLOCK_INITIAL_VALUE: u32 = 1;
 
 #[derive(Debug)]
@@ -64,7 +60,7 @@ pub enum JobResult<J> where J: Job {
     Complete(JobCompleted<J>),
     Partial(JobPartiallyCompleted<J>),
     Error(JobTerminated<J>),
-    /// No provider was able to fulfil the order since the order was unavailable at all providers.
+    /// The provider reported that the requested order is unavailable.
     Unavailable(J::C),
     /// The client has specified an invalid order that cannot be served.
     ClientError,
@@ -188,8 +184,23 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
 
     fn is_cacheable(&self) -> bool;
 
+    fn use_cacheable_provider_selection(&self) -> bool {
+        self.is_cacheable()
+    }
+
+    /// Whether clients must wait until the entire download is available.
+    fn wait_for_completion(&self) -> bool {
+        false
+    }
+
     fn retryable(&self) -> bool {
         true
+    }
+
+    /// Time from the first attempt during which another attempt may start.
+    /// A transfer already in progress may finish after this window.
+    fn retry_window(&self) -> Option<Duration> {
+        None
     }
 
     fn description(&self) -> &str;
@@ -206,17 +217,12 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
     ) -> JobResult<Self::J> {
         let mut num_attempt = 0;
         let mut punished_providers = Vec::new();
+        let retry_window = self.retry_window();
         let start_time = Instant::now();
         let mut unsuccessful_providers = HashSet::<ProviderIdentifier>::new();
         let result = loop {
             num_attempt += 1;
             debug!("Attempt number {}", num_attempt);
-            if num_attempt > 1 && start_time.elapsed() > TIMEOUT_ALL_RETRIES {
-                warn!("Unable to complete attempt number {}: The timeout has elapsed.", num_attempt);
-                // TODO we just log a warning here without actually breaking out oof the loop…?
-                //  This seems unintended. Need to take a closer look and verify the fix with
-                //  a proper e2e test.
-            }
             let (provider_guard, is_last_provider) = self.select_provider(
                 &provider_guards,
                 &mut provider_metrics.lock().unwrap(),
@@ -248,7 +254,9 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                         IntegrationTestMessage::OrderError,
                         &tx_integration_test
                     );
-                    let _ = tx_progress.send(FlexoProgress::OrderError);
+                    if !self.wait_for_completion() {
+                        let _ = tx_progress.send(FlexoProgress::OrderError);
+                    }
                     job.handle_error(e)
                 }
             };
@@ -264,7 +272,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
                 JobResult::Error(e) => {
                     provider_guard.guarded_provider.punish(provider_metrics.lock().unwrap());
                     punished_providers.push(provider_guard.guarded_provider.identifier());
-                    info!("Error: {:?}, try again", e)
+                    info!("Download attempt failed: {:?}", e);
                 },
                 JobResult::Unavailable(_) => {
                     info!("{} is not available at {}",
@@ -282,9 +290,11 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
             if result.is_success() || last_chance {
                 break result;
             }
-            if !result.is_success() {
-                unsuccessful_providers.insert(provider_guard.guarded_provider.identifier());
+            if retry_window.is_some_and(|window| start_time.elapsed() >= window) {
+                debug!("Retry window expired for {} after {} attempt(s)", self.description(), num_attempt);
+                break result;
             }
+            unsuccessful_providers.insert(provider_guard.guarded_provider.identifier());
         };
         if !result.is_success() {
             Self::pardon(punished_providers, provider_metrics.lock().unwrap());
@@ -303,7 +313,7 @@ pub trait Order where Self: std::marker::Sized + std::clone::Clone + std::cmp::E
         match custom_provider {
             Some(p) => (ProviderGuard::new(p.clone()), true),
             None => {
-                let (provider_guard, num_remaining) = if self.is_cacheable() {
+                let (provider_guard, num_remaining) = if self.use_cacheable_provider_selection() {
                     provider_guards.get_provider_guard(|p, num_current_usages| {
                         if exclude_providers.contains(&p.identifier()) {
                             ProviderChoice::Exclude
@@ -430,7 +440,7 @@ pub enum OrderState {
 pub struct JobContext<J> where J: Job {
     provider_guards: Arc<ProviderGuards<J::P>>,
     channels: Arc<Mutex<HashMap<J::P, J::C>>>,
-    orders_in_progress: Arc<Mutex<HashSet<J::O>>>,
+    orders_in_progress: Arc<Mutex<HashMap<J::O, Vec<Sender<FlexoProgress>>>>>,
     provider_metrics: Arc<Mutex<HashMap<ProviderIdentifier, ProviderMetrics>>>,
     panic_monitor: Vec<Arc<Mutex<i32>>>,
     pub properties: J::PR,
@@ -460,6 +470,8 @@ pub struct ScheduledItem<J> where J: Job {
 pub enum ScheduleOutcome<J> where J: Job {
     /// The order is already in progress, no new order was scheduled.
     AlreadyInProgress,
+    /// Another client scheduled this order and will share its final result.
+    AwaitingCompletion(Receiver<FlexoProgress>),
     /// The order has to be fetched from a provider.
     Scheduled(ScheduledItem<J>),
     /// The order is already available in the cache.
@@ -497,7 +509,7 @@ impl <J> JobContext<J> where J: Job {
         Self::check_duplicates(&initial_providers);
         let provider_guards = Arc::new(ProviderGuards::new(initial_providers));
         let channels: Arc<Mutex<HashMap<J::P, J::C>>> = Arc::new(Mutex::new(HashMap::new()));
-        let orders_in_progress: Arc<Mutex<HashSet<J::O>>> = Arc::new(Mutex::new(HashSet::new()));
+        let orders_in_progress = Arc::new(Mutex::new(HashMap::new()));
         let provider_metrics: Arc<Mutex<HashMap<ProviderIdentifier, ProviderMetrics>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let thread_mutexes: Vec<Arc<Mutex<i32>>> = Vec::new();
@@ -552,9 +564,17 @@ impl <J> JobContext<J> where J: Job {
         where <J as Job>::P: Sync
     {
         let resume_from = resume_from.unwrap_or(0);
+        if resume_from > 0 && order.wait_for_completion() {
+            return ScheduleOutcome::Uncacheable(self.best_provider(custom_provider));
+        }
         {
             let mut orders_in_progress = self.orders_in_progress.lock().unwrap();
-            if orders_in_progress.contains(&order) {
+            if let Some(waiters) = orders_in_progress.get_mut(&order) {
+                if order.wait_for_completion() {
+                    let (tx, rx) = unbounded();
+                    waiters.push(tx);
+                    return ScheduleOutcome::AwaitingCompletion(rx);
+                }
                 debug!("order {:?} already in progress: nothing to do.", &order);
                 return ScheduleOutcome::AlreadyInProgress;
             } else {
@@ -580,7 +600,7 @@ impl <J> JobContext<J> where J: Job {
                     Some(CachedItem { cached_size: _cached_size, .. }) => {}
                 }
             }
-            orders_in_progress.insert(order.clone());
+            orders_in_progress.insert(order.clone(), Vec::new());
         }
         self.schedule(order, custom_provider)
     }
@@ -617,7 +637,7 @@ impl <J> JobContext<J> where J: Job {
 
         let thread = thread::spawn(move || {
             let _lock = mutex_cloned.lock().unwrap();
-            let order: <J as Job>::O = order.clone();
+            let tx_completion = order.wait_for_completion().then(|| tx_progress.clone());
             let result = order.try_until_success(
                 provider_guards,
                 &mut provider_metrics_cloned,
@@ -627,7 +647,20 @@ impl <J> JobContext<J> where J: Job {
                 tx_progress,
                 properties,
             );
-            order_states.lock().unwrap().remove(&order_cloned);
+            let waiters = order_states.lock().unwrap().remove(&order_cloned).unwrap();
+            if let Some(tx) = tx_completion {
+                let progress = match &result {
+                    JobResult::Complete(_) => Some(FlexoProgress::Completed),
+                    JobResult::Unavailable(_) => Some(FlexoProgress::Unavailable),
+                    JobResult::ClientError => Some(FlexoProgress::OrderError),
+                    _ => None,
+                };
+                if let Some(progress) = progress {
+                    for listener in std::iter::once(tx).chain(waiters) {
+                        let _ = listener.send(progress.clone());
+                    }
+                }
+            }
             match result {
                 JobResult::Complete(mut complete_job) => {
                     complete_job.channel.job_state().release_job_resources();
@@ -646,7 +679,7 @@ impl <J> JobContext<J> where J: Job {
                     JobOutcome::Error(provider_metrics)
                 }
                 JobResult::Unavailable(mut channel) => {
-                    info!("{} was unavailable at all remote mirrors.", &order_cloned.description());
+                    info!("No attempted mirror supplied {}.", order_cloned.description());
                     channel.job_state().release_job_resources();
                     let provider_metrics = provider_metrics_cloned.lock().unwrap().clone();
                     JobOutcome::Error(provider_metrics)
