@@ -5,37 +5,46 @@ Flexo is a caching proxy for pacman, the package manager of Arch Linux.
 ## Why should I use it?
 
 * If you're bothered by slow mirrors: Instead of manually maintaining a `mirrorlist`, Flexo automatically chooses
-a low-latency mirror for you and switches to another mirror if the selected mirror turns out to be slow.
-In addition, Flexo uses multiple mirrors for parallel downloads, which can increase download speeds substantially
+  a low-latency mirror for you and switches to another mirror if the selected mirror turns out to be slow.
+  In addition, Flexo uses multiple mirrors for parallel downloads, which can increase download speeds substantially
   if you use Pacman's `ParallelDownloads`   setting.
 * If you have multiple machines running ArchLinux, and you don't want each machine to download
-and store the packages: You can just set Flexo as your new ArchLinux mirror so that no file needs
-to be downloaded more often than once.
-* If you run ArchLinux inside Docker, you may be annoyed when packages have to be downloaded and installed on the container even though they have already been downloaded on the host: Just install Flexo on the host and run this command on the Docker container:
+  and store the packages: You can just set Flexo as your new ArchLinux mirror so that no file needs
+  to be downloaded more often than once.
+* If you run ArchLinux inside Docker, you may be annoyed when packages have to be downloaded and installed on the
+  container even though they have already been downloaded on the host: Just install Flexo on the host and run this
+  command on the Docker container:
     ````
     echo 'Server = http://172.17.0.1:7878/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     ````
   so that packages that have already been downloaded will be fetched from the cache.
 
 ## Installation
+
 A package for Arch Linux is available on [AUR](https://aur.archlinux.org/packages/flexo-git/).
 Alternatively, you can use the [docker image](https://hub.docker.com/r/nroi/flexo) instead.
 Flexo needs to be installed on a single machine (the server) so that it can be accessed by
 multiple clients.
 Once you have installed Flexo on the server, start and enable the systemd service:
+
 ```
 systemctl enable --now flexo.service
 ```
+
 Next, set the new mirror in `/etc/pacman.d/mirrorlist` on all clients.
 In most cases, the server that runs Flexo will also be a client that uses Flexo, so
 add the following entry to the top of your mirrorlist:
+
 ```bash
 Server = http://localhost:7878/$repo/os/$arch
 ```
+
 If you have additional ArchLinux clients in your LAN, proceed as follows to download packages from Flexo:
-1. Set `listen_ip_address` to `0.0.0.0` in `/etc/flexo/flexo.toml` (alternatively, you can put a reverse proxy in front of Flexo).
+
+1. Set `listen_ip_address` to `0.0.0.0` in `/etc/flexo/flexo.toml` (alternatively, you can put a reverse proxy in front
+   of Flexo).
 2. Modify the mirrorlist files of all clients on your LAN.
-    Instead of referring to localhost, use the appropriate IP address or hostname:
+   Instead of referring to localhost, use the appropriate IP address or hostname:
     ```bash
     Server = http://<FLEXO_SERVER_IP_ADDRESS>:7878/$repo/os/$arch
     ```
@@ -65,19 +74,21 @@ The AUR package will install the configuration file in `/etc/flexo/flexo.toml`.
 It includes many comments and should be self-explanatory (open an issue in case you disagree).
 If you use Docker, the settings can be modified with environment variables. Environment variables
 are prefixed with `FLEXO_`, for example, `listen_ip_address` corresponds to the `FLEXO_LISTEN_IP_ADDRESS`
-environment variable. More details about configuring Flexo are listed [in the wiki](https://github.com/nroi/flexo/wiki/Flexo-with-Docker).
+environment variable. More details about configuring Flexo are
+listed [in the wiki](https://github.com/nroi/flexo/wiki/Flexo-with-Docker).
 
 In most cases, you will want to leave all settings unchanged, with the following exceptions:
 
 1. The setting `low_speed_limit` is commented by default, which means that Flexo will *not* attempt
-to switch to a faster mirror if a download is extremely slow. To make use of this feature,
-uncomment the setting and enter an appropriate value. If you use Docker, use the `FLEXO_LOW_SPEED_LIMIT`
-environment variable.
+   to switch to a faster mirror if a download is extremely slow. To make use of this feature,
+   uncomment the setting and enter an appropriate value. If you use Docker, use the `FLEXO_LOW_SPEED_LIMIT`
+   environment variable.
 
 2. The setting `allowed_countries` is set to the empty list by default, which means that at the first start and at
    regular intervals, Flexo will run latency tests on all official mirrors from all continents. Add the ISO code
    of your own country (and perhaps a few neighboring countries) to improve the startup time of Flexo.
-   If you use Docker, use the `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES` environment variable. Multiple countries can be separated by
+   If you use Docker, use the `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES` environment variable. Multiple countries can be
+   separated by
    comma, for example, `FLEXO_MIRRORS_AUTO_ALLOWED_COUNTRIES=DE,AT,CZ`
 
 3. If you have additional ArchLinux clients in your LAN, you probably want to change the
@@ -98,6 +109,7 @@ platforms (more details [here](#arm-support)).
 
 If you intend to compile and run Flexo on any operating system other than ArchLinux (and without
 Flexo's Docker image), please note that:
+
 * Flexo requires either [paccache](https://man.archlinux.org/man/paccache.8) or
   [scruffy](https://github.com/nroi/scruffy) to clean the cache. On any system other than ArchLinux,
   installing scruffy will probably be easier than installing paccache.
@@ -106,17 +118,20 @@ Flexo's Docker image), please note that:
 ## Troubleshooting
 
 If Flexo does not start at all or crashes, check the logs first:
+
 ```bash
 journalctl --unit=flexo
 ```
+
 If that does not help you, please open an issue. The following information may be helpful to troubleshoot your issue:
+
 1. An excerpt of that log, if Flexo has crashed or did not start.
 2. Your installation method (Docker or AUR).
 3. The version you are using (either the output of `pacman -Qi flexo`, or the tag if you are using Docker).
-4. Your settings, if you have changed them
-   (either the `/etc/flexo/flexo.toml` file, or the environment variables if you use Docker).
+4. Your settings, if you have changed them (either the `/etc/flexo/flexo.toml` file, or the environment variables if you
+   use Docker).
 5. If the issue is related to the mirror selection, it might also help if you include the country you are located in
-and the `/var/cache/flexo/state/latency_test_results.json` file, if it exists.
+   and the `/var/cache/flexo/state/latency_test_results.json` file, if it exists.
 
 For issues related to the mirror selection, also see [this page](./mirror_selection.md) for more details.
 
@@ -145,6 +160,7 @@ Server = http://localhost:7878/custom_repo/archzfs/$repo/$arch
 [eschwartz]
 Server = http://localhost:7878/custom_repo/eschwartz/~eschwartz/repo/$arch
 ```
+
 Next, add the corresponding entries to your `/etc/flexo/flexo.toml` before the `[mirrors_auto]` section:
 
 ```toml
@@ -162,6 +178,7 @@ the `/custom_repo` in `pacman.conf`: So if your `pacman.conf` includes a repo wi
 then your `flexo.toml` must include a matching `[[custom_repo]]` entry with `name = "foo"`.
 
 Alternatively, if you use Docker, set the environment variable instead of modifying the `flexo.toml` file:
+
 ```bash
 FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ```
@@ -169,15 +186,20 @@ FLEXO_CUSTOM_REPO="eschwartz@https://pkgbuild.com archzfs@https://archzfs.com"
 ## ARM support
 
 ### Running Flexo on ARM devices
+
 Flexo can be built on various ARM platforms, including the Raspberry Pi. So far, no problems have been reported with
 building and running Flexo on ARM. If you run into problems, please open an issue.
 
 Options to use Flexo on ARM devices include:
+
 * Build and install the [AUR](https://aur.archlinux.org/packages/flexo-git/) package on your ARM device (recommended).
 * Build and run the Docker image on your ARM device.
-* Cross-compile Flexo on an x86-device and move the binary to the ARM device. Requires [cross](https://github.com/rust-embedded/cross). Also requires adding openssl as a vendored dependency: Add `openssl = { version = "0.10", features = ["vendored"] }` to the `[dependencies]` section in `Cargo.toml`.
+* Cross-compile Flexo on an x86-device and move the binary to the ARM device.
+  Requires [cross](https://github.com/rust-embedded/cross). Also requires adding openssl as a vendored dependency: Add
+  `openssl = { version = "0.10", features = ["vendored"] }` to the `[dependencies]` section in `Cargo.toml`.
 
 ### Serving packages for ARM clients
+
 With its default configuration, Flexo only serves packages from the official ArchLinux mirrors, which means packages
 built for x86. However, we can configure an ARM mirror as a `custom_repo` in order to fetch ARM packages from Flexo.
 
@@ -193,17 +215,18 @@ url = "https://de3.mirror.archlinuxarm.org"
 
 Next, configure the mirrorlist on all clients that are going to fetch ARM packages from this server. For example,
 if the server that runs Flexo should fetch the package from Flexo, configure your `/etc/pacman.d/mirrorlist` as follows:
+
 ```
 Server = http://localhost:7878/custom_repo/arm/$arch/$repo
 ```
 
 ## Attributes & Design Goals
+
 * Lightweight: Flexo is a single binary with less than 3 MB and a low memory footprint.
 * Robust: As long as *most* mirrors work fine, Flexo should be able to handle the download process
   without the client noticing any issues or interruptions, even if remote mirrors are slow or connections
   are unexpectedly dropped.
 * Simple: Users should not require more than a few minutes to set up Flexo and understand what it does.
-
 
 ## Contribute
 
